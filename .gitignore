@@ -47,5 +47,7 @@ app.*.map.json
 # Local director studio state
 python_director/.env
 python_director/settings.local.json
+python_director/logs/
 python_director/temp_artifacts/
 python_director/snapshots/
+python_director/pipelines/

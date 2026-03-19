@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 if __package__:
+    from .log_utils import get_logger
     from .models import (
         AppSettings,
         BlockTrace,
@@ -24,6 +25,7 @@ if __package__:
     from .providers import get_provider
     from .storage import RUNS_DIR, save_run_result
 else:
+    from log_utils import get_logger
     from models import (
         AppSettings,
         BlockTrace,
@@ -37,6 +39,8 @@ else:
     )
     from providers import get_provider
     from storage import RUNS_DIR, save_run_result
+
+logger = get_logger("python_director.logic")
 
 
 def _serialize_output(data: Any) -> Any:
@@ -54,6 +58,7 @@ def _write_block_artifact(run_dir: Path, block_id: str, data: Any) -> None:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     else:
         path.write_text(str(payload), encoding="utf-8")
+    logger.debug("Artifact written path=%s", path)
 
 
 def _count_words(value: str) -> int:
@@ -104,6 +109,11 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
 
 
 def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, candidate: RunResult) -> RunComparison:
+    logger.info(
+        "Comparing outputs baseline=%s candidate=%s",
+        request.baseline_run_id,
+        request.candidate_run_id,
+    )
     baseline_metrics = _story_metrics(baseline.final_output if isinstance(baseline.final_output, dict) else None)
     candidate_metrics = _story_metrics(candidate.final_output if isinstance(candidate.final_output, dict) else None)
     metric_labels = [
@@ -185,6 +195,21 @@ class PipelineRunner:
             "OPENAI_API_KEY": self.settings.openai_api_key,
         }
 
+    def _resolve_model_name(self, definition: PipelineDefinition, block: PipelineBlock) -> str:
+        provider_key = block.config.provider.value
+        pipeline_default = definition.default_models.get(provider_key)
+
+        if block.config.use_pipeline_default_model and pipeline_default:
+            return pipeline_default
+        if block.config.model_name:
+            return block.config.model_name
+        if pipeline_default:
+            return pipeline_default
+
+        raise ValueError(
+            f"Block '{block.id}' has no model configured and pipeline default for provider '{provider_key}' is missing."
+        )
+
     def _sorted_blocks(self, definition: PipelineDefinition) -> list[PipelineBlock]:
         block_map = {block.id: block for block in definition.blocks if block.enabled}
         indegree = {block_id: 0 for block_id in block_map}
@@ -207,8 +232,10 @@ class PipelineRunner:
                         ready.append(candidate)
 
         if len(order) != len(block_map):
+            logger.error("Pipeline sort failed: cycle or missing dependency detected")
             raise ValueError("Pipeline has a cycle or references a missing dependency.")
 
+        logger.info("Execution order resolved blocks=%s", [block.id for block in order])
         return order
 
     def run_pipeline(self, definition: PipelineDefinition, run_id: str | None = None) -> RunResult:
@@ -216,6 +243,13 @@ class PipelineRunner:
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(
+            "Run start run_id=%s pipeline=%s block_count=%s output_dir=%s",
+            run_id,
+            definition.name,
+            len(definition.blocks),
+            run_dir,
+        )
 
         outputs: dict[str, Any] = {}
         traces: dict[str, BlockTrace] = {}
@@ -223,12 +257,26 @@ class PipelineRunner:
         execution_order: list[str] = []
 
         for block in self._sorted_blocks(definition):
+            block_started = time.time()
+            effective_model_name = self._resolve_model_name(definition, block)
+            effective_config = block.config.model_copy(update={"model_name": effective_model_name})
             provider_summary[block.config.provider.value] += 1
             execution_order.append(block.id)
+            logger.info(
+                "Block start id=%s type=%s provider=%s model=%s temp=%s inherited_model=%s",
+                block.id,
+                block.type,
+                effective_config.provider,
+                effective_config.model_name,
+                effective_config.temperature,
+                block.config.use_pipeline_default_model,
+            )
 
             contents = block.config.prompt_template
+            replaced_inputs = 0
             for input_id in block.input_blocks:
                 if input_id not in outputs:
+                    logger.warning("Block id=%s missing_input=%s (placeholder left unresolved)", block.id, input_id)
                     continue
                 input_value = outputs[input_id]
                 serialized = (
@@ -239,32 +287,42 @@ class PipelineRunner:
                     else str(input_value)
                 )
                 contents = contents.replace(f"{{{{{input_id}}}}}", serialized)
+                replaced_inputs += 1
+            logger.debug(
+                "Block prompt prepared id=%s replaced_inputs=%s prompt_chars=%s",
+                block.id,
+                replaced_inputs,
+                len(contents),
+            )
 
             trace = BlockTrace(
                 block_id=block.id,
                 block_name=block.name,
                 block_type=block.type,
-                provider=block.config.provider,
-                model_name=block.config.model_name,
-                response_schema_name=block.config.response_schema_name,
-                temperature=block.config.temperature,
+                provider=effective_config.provider,
+                model_name=effective_config.model_name or "",
+                response_schema_name=effective_config.response_schema_name,
+                temperature=effective_config.temperature,
                 input_blocks=list(block.input_blocks),
                 resolved_prompt=contents,
             )
             traces[block.id] = trace
 
-            provider = get_provider(block.config.provider, self._api_keys())
-            if block.config.response_schema_name:
-                schema = SCHEMA_MAP.get(block.config.response_schema_name)
+            provider = get_provider(effective_config.provider, self._api_keys())
+            if effective_config.response_schema_name:
+                schema = SCHEMA_MAP.get(effective_config.response_schema_name)
                 if schema is None:
-                    raise ValueError(f"Schema '{block.config.response_schema_name}' is not defined.")
-                output = provider.generate_structured_output(block.config, contents, schema)
+                    logger.error("Block id=%s schema_missing=%s", block.id, effective_config.response_schema_name)
+                    raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
+                output = provider.generate_structured_output(effective_config, contents, schema)
             else:
-                output = provider.generate_content(block.config, contents)
+                output = provider.generate_content(effective_config, contents)
 
             outputs[block.id] = output
             _write_block_artifact(run_dir, block.id, output)
             _write_block_artifact(run_dir, f"{block.id}.prompt", contents)
+            elapsed_ms = (time.time() - block_started) * 1000
+            logger.info("Block done id=%s elapsed_ms=%.2f", block.id, elapsed_ms)
 
         final_block_id = execution_order[-1] if execution_order else None
         final_output = _serialize_output(outputs.get(final_block_id)) if final_block_id else None
@@ -290,10 +348,18 @@ class PipelineRunner:
         )
 
         save_run_result(result, definition)
+        logger.info(
+            "Run complete run_id=%s blocks=%s final_title=%s quality_score=%s",
+            run_id,
+            result.block_count,
+            result.final_title,
+            result.final_metrics.get("quality_proxy_score"),
+        )
         return result
 
 
 def upload_to_firestore(story_data: dict, firebase_service_account_path: str):
+    logger.info("Upload start story_title=%s", story_data.get("story_title"))
     import firebase_admin
     from firebase_admin import credentials, firestore
 
@@ -334,4 +400,5 @@ def upload_to_firestore(story_data: dict, firebase_service_account_path: str):
     upload_collection("receipts", story_data.get("receipts", []))
     upload_collection("voice_notes", story_data.get("voice_notes", []))
 
+    logger.info("Upload complete story_id=%s", story_id)
     return story_id

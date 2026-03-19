@@ -43,6 +43,41 @@ Output format (plain text sections):
 - Risks to coherence
 """.strip()
 
+COUNCIL_CRITIC_PROMPT = """
+You are one voice in a creative council reviewing a found-phone thriller brainstorm.
+Your job is to critique the brainstorm from your assigned lens and return concrete rewrite guidance.
+
+Rules:
+- Be specific, evidence-based, and concise.
+- Push for stronger clue ladders, cleaner logic, and better phone-native execution.
+- Avoid generic praise.
+
+Return strict BrainstormCritique schema.
+""".strip()
+
+BRAINSTORM_REWRITE_PROMPT = """
+You are the original brainstorm author revising your own concept after council feedback.
+
+Input:
+- original brainstorm
+- multiple council critiques
+
+Task:
+- Preserve the strongest original ideas.
+- Integrate the highest-impact critique items.
+- Resolve contradictions and realism risks.
+- Strengthen clue/payoff architecture and real-time cadence.
+
+Output plain text sections:
+- Revised Premise
+- Revised Hidden Truth
+- Revised Character Web
+- Revised 48h Beat Timeline
+- Revised Clue Ladder
+- Revised Spike Events
+- What changed from original
+""".strip()
+
 PLANNER_PROMPT = """
 Convert the provided creative outline into a production-ready StoryPlan.
 Preserve ambition, but prioritize coherence and payoff.
@@ -160,7 +195,7 @@ time_offset_minutes must fit scene boundaries.
 PROVIDER_MODELS: dict[str, list[str]] = {
     ProviderType.GEMINI.value: [
         "gemini-3.1-pro-preview",
-        "gemini-3.0-flash-preview",
+        "gemini-3-flash-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
@@ -170,6 +205,11 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gpt-5.4-mini",
         "gpt-5.4-pro",
     ],
+}
+
+PIPELINE_DEFAULT_MODELS: dict[str, str] = {
+    ProviderType.GEMINI.value: "gemini-3-flash-preview",
+    ProviderType.OPENAI.value: "gpt-5.4-mini",
 }
 
 
@@ -185,10 +225,45 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Produces the unconstrained story outline that seeds the rest of the pipeline.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=1.0,
                 system_instruction=CREATIVE_OUTLINER_PROMPT,
                 prompt_template="Brainstorm the initial massive story outline.",
+            ),
+        ),
+        BlockType.BRAINSTORM_CRITIC: BlockTemplate(
+            type=BlockType.BRAINSTORM_CRITIC,
+            name="Brainstorm Council Critic",
+            description="Council member critique of the initial brainstorm before planning.",
+            config=BlockConfig(
+                provider=ProviderType.OPENAI,
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.OPENAI.value],
+                use_pipeline_default_model=True,
+                temperature=0.5,
+                system_instruction=COUNCIL_CRITIC_PROMPT,
+                prompt_template="Critique this brainstorm:\n\n{{creative_brainstorm}}",
+                response_mime_type="application/json",
+                response_schema_name="BrainstormCritique",
+            ),
+        ),
+        BlockType.BRAINSTORM_REWRITER: BlockTemplate(
+            type=BlockType.BRAINSTORM_REWRITER,
+            name="Brainstorm Rewrite",
+            description="Rewrites brainstorm using all council feedback.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
+                temperature=0.9,
+                system_instruction=BRAINSTORM_REWRITE_PROMPT,
+                prompt_template=(
+                    "Original brainstorm:\n{{creative_brainstorm}}\n\n"
+                    "Council feedback 1:\n{{brainstorm_council_logic}}\n\n"
+                    "Council feedback 2:\n{{brainstorm_council_audience}}\n\n"
+                    "Council feedback 3:\n{{brainstorm_council_artifacts}}\n\n"
+                    "Rewrite the brainstorm."
+                ),
             ),
         ),
         BlockType.PLANNER: BlockTemplate(
@@ -197,10 +272,11 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Turns the brainstorm into a structured StoryPlan.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.7,
                 system_instruction=PLANNER_PROMPT,
-                prompt_template="Convert this outline into StoryPlan:\n\n{{creative_brainstorm}}",
+                prompt_template="Convert this outline into StoryPlan:\n\n{{creative_brainstorm_rewrite}}",
                 response_mime_type="application/json",
                 response_schema_name="StoryPlan",
             ),
@@ -211,7 +287,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Applies editorial pressure and returns structured critique notes.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.7,
                 system_instruction=CRITIC_PROMPT,
                 prompt_template="Review this StoryPlan:\n\n{{structural_plan}}",
@@ -225,7 +302,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Revises the StoryPlan based on the previous critique block.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.8,
                 system_instruction=PLAN_REVISION_PROMPT,
                 prompt_template=(
@@ -242,7 +320,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Checks timeline, clue chain, and character consistency before generation.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.2,
                 system_instruction=CONTINUITY_AUDIT_PROMPT,
                 prompt_template="Audit this StoryPlan for release readiness:\n\n{{revised_plan_pass_2}}",
@@ -256,7 +335,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Breaks the final plan into scene clusters and expected artifact types.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.5,
                 system_instruction=SCENE_DECOMPOSITION_PROMPT,
                 prompt_template=(
@@ -273,7 +353,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Designs notification-worthy drop cadence and quiet windows.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-flash",
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.4,
                 system_instruction=DROP_DIRECTOR_PROMPT,
                 prompt_template=(
@@ -292,6 +373,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
                 model_name="gemini-2.5-pro",
+                use_pipeline_default_model=False,
                 temperature=0.7,
                 system_instruction=ARTIFACT_GENERATION_PROMPT,
                 prompt_template=(
@@ -319,9 +401,10 @@ def build_block_from_template(
     name: str | None = None,
     description: str | None = None,
     input_blocks: list[str] | None = None,
+    config_overrides: dict[str, object] | None = None,
 ) -> PipelineBlock:
     template = _template_library()[block_type]
-    return PipelineBlock(
+    block = PipelineBlock(
         id=block_id,
         name=name or template.name,
         description=description or template.description,
@@ -329,6 +412,9 @@ def build_block_from_template(
         input_blocks=list(input_blocks or []),
         config=deepcopy(template.config),
     )
+    if config_overrides:
+        block.config = block.config.model_copy(update=config_overrides)
+    return block
 
 
 def get_default_pipeline() -> PipelineDefinition:
@@ -336,6 +422,7 @@ def get_default_pipeline() -> PipelineDefinition:
         name="Found Phone Director",
         description="Low-code story generation pipeline for found-phone narratives.",
         updated_at=utc_now_iso(),
+        default_models=deepcopy(PIPELINE_DEFAULT_MODELS),
         blocks=[
             build_block_from_template(
                 BlockType.CREATIVE_OUTLINER,
@@ -343,9 +430,69 @@ def get_default_pipeline() -> PipelineDefinition:
                 description="Starts the pipeline with the broadest possible story thinking.",
             ),
             build_block_from_template(
+                BlockType.BRAINSTORM_CRITIC,
+                block_id="brainstorm_council_logic",
+                name="Council: Logic Editor",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "provider": ProviderType.OPENAI,
+                    "model_name": "gpt-5.4",
+                    "use_pipeline_default_model": False,
+                    "prompt_template": (
+                        "Review this brainstorm as a logic and continuity editor.\n\n"
+                        "{{creative_brainstorm}}"
+                    ),
+                },
+            ),
+            build_block_from_template(
+                BlockType.BRAINSTORM_CRITIC,
+                block_id="brainstorm_council_audience",
+                name="Council: Audience Hook Editor",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "model_name": None,
+                    "use_pipeline_default_model": True,
+                    "prompt_template": (
+                        "Review this brainstorm for engagement, suspense rhythm, and cliffhangers.\n\n"
+                        "{{creative_brainstorm}}"
+                    ),
+                },
+            ),
+            build_block_from_template(
+                BlockType.BRAINSTORM_CRITIC,
+                block_id="brainstorm_council_artifacts",
+                name="Council: Artifact Realism Editor",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "provider": ProviderType.GEMINI,
+                    "model_name": "gemini-3.1-pro-preview",
+                    "use_pipeline_default_model": False,
+                    "prompt_template": (
+                        "Review this brainstorm for phone-artifact realism and clue discoverability.\n\n"
+                        "{{creative_brainstorm}}"
+                    ),
+                },
+            ),
+            build_block_from_template(
+                BlockType.BRAINSTORM_REWRITER,
+                block_id="creative_brainstorm_rewrite",
+                name="Creative Brainstorm Rewrite",
+                input_blocks=[
+                    "creative_brainstorm",
+                    "brainstorm_council_logic",
+                    "brainstorm_council_audience",
+                    "brainstorm_council_artifacts",
+                ],
+                config_overrides={
+                    "provider": ProviderType.OPENAI,
+                    "model_name": PIPELINE_DEFAULT_MODELS[ProviderType.OPENAI.value],
+                    "use_pipeline_default_model": True,
+                },
+            ),
+            build_block_from_template(
                 BlockType.PLANNER,
                 block_id="structural_plan",
-                input_blocks=["creative_brainstorm"],
+                input_blocks=["creative_brainstorm_rewrite"],
             ),
             build_block_from_template(
                 BlockType.CRITIC,

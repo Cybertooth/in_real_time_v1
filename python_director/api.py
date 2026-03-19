@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from time import perf_counter
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -10,9 +11,12 @@ from fastapi.staticfiles import StaticFiles
 if __package__:
     from .defaults import get_default_pipeline
     from .logic import PipelineRunner, compare_final_outputs, upload_to_firestore
+    from .log_utils import get_logger
     from .models import (
         AppSettings,
         CompareRunsRequest,
+        NamedPipelineLoadRequest,
+        NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineSnapshotRequest,
         RunPipelineRequest,
@@ -23,8 +27,11 @@ if __package__:
         build_studio_bootstrap,
         get_settings_payload,
         load_pipeline,
+        load_named_pipeline,
         load_run_result,
         load_settings,
+        list_named_pipelines,
+        save_named_pipeline,
         save_pipeline,
         save_settings,
         snapshot_pipeline,
@@ -32,9 +39,12 @@ if __package__:
 else:
     from defaults import get_default_pipeline
     from logic import PipelineRunner, compare_final_outputs, upload_to_firestore
+    from log_utils import get_logger
     from models import (
         AppSettings,
         CompareRunsRequest,
+        NamedPipelineLoadRequest,
+        NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineSnapshotRequest,
         RunPipelineRequest,
@@ -45,14 +55,18 @@ else:
         build_studio_bootstrap,
         get_settings_payload,
         load_pipeline,
+        load_named_pipeline,
         load_run_result,
         load_settings,
+        list_named_pipelines,
+        save_named_pipeline,
         save_pipeline,
         save_settings,
         snapshot_pipeline,
     )
 
 app = FastAPI(title="Python Director Studio API")
+logger = get_logger("python_director.api")
 ADMIN_UI_DIR = BASE_DIR / "admin_ui"
 
 if ADMIN_UI_DIR.exists():
@@ -67,8 +81,33 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started = perf_counter()
+    logger.info("HTTP start method=%s path=%s", request.method, request.url.path)
+    try:
+        response = await call_next(request)
+    except Exception:
+        elapsed_ms = (perf_counter() - started) * 1000
+        logger.exception("HTTP error method=%s path=%s elapsed_ms=%.2f", request.method, request.url.path, elapsed_ms)
+        raise
+    elapsed_ms = (perf_counter() - started) * 1000
+    logger.info(
+        "HTTP done method=%s path=%s status=%s elapsed_ms=%.2f",
+        request.method,
+        request.url.path,
+        response.status_code,
+        elapsed_ms,
+    )
+    if request.method == "GET":
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+    return response
+
+
 @app.get("/health")
 async def health():
+    logger.debug("Health check requested")
     return {"status": "ok"}
 
 
@@ -87,48 +126,105 @@ async def admin_alias():
 
 @app.get("/studio")
 async def get_studio():
+    logger.info("Building studio bootstrap payload")
     return build_studio_bootstrap()
 
 
 @app.get("/pipeline")
 async def get_pipeline():
+    logger.info("Loading active pipeline")
     return load_pipeline()
 
 
 @app.put("/pipeline")
 async def update_pipeline(pipeline: PipelineDefinition):
+    logger.info("Saving active pipeline name=%s blocks=%s", pipeline.name, len(pipeline.blocks))
     return save_pipeline(pipeline)
+
+
+@app.get("/pipelines")
+async def get_named_pipelines():
+    logger.info("Listing named pipelines")
+    return list_named_pipelines()
+
+
+@app.post("/pipelines/save")
+async def save_pipeline_as_named(request: NamedPipelineSaveRequest):
+    logger.info(
+        "Saving named pipeline requested_name=%s blocks=%s set_active=%s",
+        request.name,
+        len(request.pipeline.blocks),
+        request.set_active,
+    )
+    pipeline, item = save_named_pipeline(
+        request.name,
+        request.pipeline,
+        set_active=request.set_active,
+    )
+    return {
+        "pipeline": pipeline,
+        "catalog_item": item,
+        "pipeline_catalog": list_named_pipelines(),
+    }
+
+
+@app.post("/pipelines/load")
+async def load_pipeline_by_name(request: NamedPipelineLoadRequest):
+    logger.info("Loading named pipeline key_or_name=%s set_active=%s", request.name, request.set_active)
+    try:
+        pipeline = load_named_pipeline(request.name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if request.set_active:
+        pipeline = save_pipeline(pipeline)
+
+    return {
+        "pipeline": pipeline,
+        "pipeline_catalog": list_named_pipelines(),
+    }
 
 
 @app.post("/pipeline/reset")
 async def reset_pipeline_to_default():
+    logger.warning("Resetting pipeline to default")
     return save_pipeline(get_default_pipeline())
 
 
 @app.post("/pipeline/snapshot")
 async def create_pipeline_snapshot(request: PipelineSnapshotRequest):
+    logger.info("Creating pipeline snapshot label=%s", request.label or request.pipeline.name)
     path = snapshot_pipeline(request.pipeline, request.label)
     return {"status": "ok", "path": str(path)}
 
 
 @app.get("/settings")
 async def get_settings():
+    logger.info("Fetching settings payload")
     return get_settings_payload()
 
 
 @app.put("/settings")
 async def update_settings(settings: AppSettings):
+    logger.info(
+        "Updating settings gemini_set=%s openai_set=%s creds_set=%s",
+        bool(settings.gemini_api_key),
+        bool(settings.openai_api_key),
+        bool(settings.google_application_credentials),
+    )
     save_settings(settings)
     return get_settings_payload()
 
 
 @app.get("/runs")
 async def list_runs():
+    logger.info("Listing run summaries")
     return build_studio_bootstrap().run_summaries
 
 
 @app.get("/runs/{run_id}")
 async def get_run(run_id: str):
+    logger.info("Loading run details run_id=%s", run_id)
     try:
         return load_run_result(run_id)
     except FileNotFoundError as exc:
@@ -137,6 +233,7 @@ async def get_run(run_id: str):
 
 @app.get("/runs/{run_id}/artifacts/{artifact_name}")
 async def get_run_artifact(run_id: str, artifact_name: str):
+    logger.info("Fetching run artifact run_id=%s artifact=%s", run_id, artifact_name)
     if Path(artifact_name).name != artifact_name:
         raise HTTPException(status_code=400, detail="Invalid artifact name.")
     path = RUNS_DIR / run_id / artifact_name
@@ -149,6 +246,12 @@ async def get_run_artifact(run_id: str, artifact_name: str):
 
 @app.post("/run")
 async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
+    logger.info(
+        "Run requested run_id=%s persist_pipeline=%s inline_pipeline=%s",
+        request.run_id,
+        request.persist_pipeline,
+        bool(request.pipeline),
+    )
     pipeline = request.pipeline or load_pipeline()
     if request.persist_pipeline:
         pipeline = save_pipeline(pipeline)
@@ -156,13 +259,26 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
     settings = load_settings()
     runner = PipelineRunner(settings)
     try:
-        return runner.run_pipeline(pipeline, run_id=request.run_id)
+        result = runner.run_pipeline(pipeline, run_id=request.run_id)
+        logger.info(
+            "Run finished run_id=%s blocks=%s final_title=%s",
+            result.run_id,
+            result.block_count,
+            result.final_title,
+        )
+        return result
     except Exception as exc:
+        logger.exception("Run failed run_id=%s", request.run_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.post("/compare")
 async def compare_runs(request: CompareRunsRequest):
+    logger.info(
+        "Comparing runs baseline=%s candidate=%s",
+        request.baseline_run_id,
+        request.candidate_run_id,
+    )
     try:
         baseline = load_run_result(request.baseline_run_id)
         candidate = load_run_result(request.candidate_run_id)
@@ -174,6 +290,7 @@ async def compare_runs(request: CompareRunsRequest):
 
 @app.post("/upload/{run_id}")
 async def upload_run(run_id: str):
+    logger.info("Upload requested for run_id=%s", run_id)
     try:
         run_result = load_run_result(run_id)
     except FileNotFoundError as exc:
@@ -192,7 +309,9 @@ async def upload_run(run_id: str):
 
     try:
         story_id = upload_to_firestore(run_result.final_output, cred_path)
+        logger.info("Upload completed run_id=%s story_id=%s", run_id, story_id)
     except Exception as exc:
+        logger.exception("Upload failed run_id=%s", run_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "ok", "story_id": story_id}

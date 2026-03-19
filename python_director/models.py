@@ -13,6 +13,8 @@ class ProviderType(str, Enum):
 
 class BlockType(str, Enum):
     CREATIVE_OUTLINER = "creative_outliner"
+    BRAINSTORM_CRITIC = "brainstorm_critic"
+    BRAINSTORM_REWRITER = "brainstorm_rewriter"
     PLANNER = "planner"
     CRITIC = "critic"
     REVISER = "reviser"
@@ -24,7 +26,8 @@ class BlockType(str, Enum):
 
 class BlockConfig(BaseModel):
     provider: ProviderType = ProviderType.GEMINI
-    model_name: str = "gemini-3.0-flash-preview"
+    model_name: Optional[str] = None
+    use_pipeline_default_model: bool = False
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     system_instruction: str
     prompt_template: str
@@ -46,7 +49,21 @@ class PipelineDefinition(BaseModel):
     name: str = "Found Phone Director"
     description: str = ""
     updated_at: Optional[str] = None
+    default_models: dict[str, str] = Field(
+        default_factory=lambda: {
+            ProviderType.GEMINI.value: "gemini-3-flash-preview",
+            ProviderType.OPENAI.value: "gpt-5.4-mini",
+        }
+    )
     blocks: list[PipelineBlock] = Field(default_factory=list)
+
+
+class PipelineCatalogItem(BaseModel):
+    key: str
+    name: str
+    description: str = ""
+    updated_at: Optional[str] = None
+    block_count: int = 0
 
 
 class AppSettings(BaseModel):
@@ -116,6 +133,17 @@ class PipelineSnapshotRequest(BaseModel):
     label: Optional[str] = None
 
 
+class NamedPipelineSaveRequest(BaseModel):
+    name: str
+    pipeline: PipelineDefinition
+    set_active: bool = True
+
+
+class NamedPipelineLoadRequest(BaseModel):
+    name: str
+    set_active: bool = True
+
+
 class CompareRunsRequest(BaseModel):
     baseline_run_id: str
     candidate_run_id: str
@@ -148,6 +176,7 @@ class BlockTemplate(BaseModel):
 
 class StudioBootstrap(BaseModel):
     pipeline: PipelineDefinition
+    pipeline_catalog: list[PipelineCatalogItem] = Field(default_factory=list)
     settings: SettingsPayload
     run_summaries: list[RunSummary]
     schemas: list[str]
@@ -192,6 +221,15 @@ class SceneBlock(BaseModel):
 
 class SceneList(BaseModel):
     scenes: list[SceneBlock]
+
+
+class BrainstormCritique(BaseModel):
+    strengths: list[str]
+    missed_opportunities: list[str]
+    realism_risks: list[str]
+    twist_opportunities: list[str]
+    artifact_opportunities: list[str]
+    actionable_rewrites: list[str]
 
 
 class ContinuityIssue(BaseModel):
@@ -275,6 +313,7 @@ class StoryGenerated(BaseModel):
 
 
 SCHEMA_MAP = {
+    "BrainstormCritique": BrainstormCritique,
     "StoryPlan": StoryPlan,
     "StoryCritique": StoryCritique,
     "SceneList": SceneList,

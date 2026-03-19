@@ -4,10 +4,14 @@
 
 It includes:
 - A configurable pipeline with block-level prompts, provider/model choice, and dependencies.
+- Pipeline-level default models with block-level override when a stage needs a different model.
 - A dry-run execution engine that stores block artifacts and prompt traces in the filesystem.
 - A simple browser admin UI for non-technical operators.
 - Final artifact comparison between two runs for quality iteration.
 - Built-in `continuity_audit` and `drop_director` stages to improve release quality and pacing strategy.
+- Brainstorm council flow: brainstorm -> multi-model council critique -> brainstorm rewrite -> planning.
+- Named pipeline library: save/load multiple pipeline variants from the UI.
+- Detailed operator walkthrough in `python_director/ADMIN_UI_GUIDE.md`.
 
 ## Run the Admin API + Web UI
 
@@ -21,6 +25,26 @@ Open:
 - [http://localhost:8000](http://localhost:8000)
 - [http://localhost:8000/admin](http://localhost:8000/admin)
 
+### Logging
+
+Backend logging is enabled by default.
+
+- Env var: `DIRECTOR_LOG_LEVEL` (`DEBUG`, `INFO`, `WARNING`, `ERROR`)
+- Rotating backend log file (default): `python_director/logs/director.log`
+- Optional env vars:
+  - `DIRECTOR_LOG_FILE` (custom path)
+  - `DIRECTOR_LOG_MAX_BYTES` (default `5242880`)
+  - `DIRECTOR_LOG_BACKUP_COUNT` (default `4`)
+- Example:
+
+```bash
+set DIRECTOR_LOG_LEVEL=DEBUG
+script\director-admin.cmd
+```
+
+UI logging is visible inside the **UI Activity Log** panel in Director Studio and also mirrored to browser console.
+UI log history is cached in browser localStorage and can be copied with the **Copy** button.
+
 ### Helper Scripts (Windows-friendly)
 
 From repo root:
@@ -30,6 +54,7 @@ script\director-install.cmd
 script\director-admin.cmd
 script\director-dry-run.cmd
 script\director-tests.cmd
+script\director-fresh-start.cmd
 ```
 
 PowerShell variants are also available:
@@ -39,6 +64,7 @@ script/director-install.ps1
 script/director-admin.ps1
 script/director-dry-run.ps1
 script/director-tests.ps1
+script/director-fresh-start.ps1
 ```
 
 ## Workflow in the Admin UI
@@ -50,6 +76,8 @@ script/director-tests.ps1
    - Reorder or disable blocks
    - Change prompts and dependencies
    - Switch each block between Gemini/OpenAI
+   - Set default Gemini/OpenAI models at pipeline level
+   - Let blocks inherit the default model or override it
 3. Run **Dry Run**:
    - Stores run artifacts in `python_director/temp_artifacts/<run_id>/`
 4. Compare runs:
@@ -57,6 +85,14 @@ script/director-tests.ps1
    - Metric deltas including `quality_proxy_score`
 5. Snapshot prompts:
    - Saved in `python_director/snapshots/`
+
+To hard-reset backend state, run:
+
+```bash
+script\director-fresh-start.cmd
+```
+
+This rebuilds `python_director/pipeline.json` from the current canonical default pipeline.
 
 ## Storage Layout
 

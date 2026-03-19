@@ -5,9 +5,13 @@ from abc import ABC, abstractmethod
 from pydantic import BaseModel
 
 if __package__:
+    from .log_utils import get_logger
     from .models import BlockConfig, ProviderType
 else:
+    from log_utils import get_logger
     from models import BlockConfig, ProviderType
+
+logger = get_logger("python_director.providers")
 
 
 class AIProvider(ABC):
@@ -33,8 +37,10 @@ class GeminiProvider(AIProvider):
             raise ImportError("google-genai is not installed. Run script\\director-install.cmd first.") from exc
         self._genai = genai
         self.client = genai.Client(api_key=api_key)
+        logger.info("GeminiProvider initialized")
 
     def generate_content(self, config: BlockConfig, contents: str) -> str:
+        logger.debug("Gemini generate_content model=%s chars=%s", config.model_name, len(contents))
         types = self._genai.types
         response = self.client.models.generate_content(
             model=config.model_name,
@@ -52,6 +58,12 @@ class GeminiProvider(AIProvider):
         contents: str,
         response_schema: type[BaseModel],
     ) -> BaseModel:
+        logger.debug(
+            "Gemini generate_structured_output model=%s schema=%s chars=%s",
+            config.model_name,
+            response_schema.__name__,
+            len(contents),
+        )
         types = self._genai.types
         response = self.client.models.generate_content(
             model=config.model_name,
@@ -73,8 +85,10 @@ class OpenAIProvider(AIProvider):
         except ImportError as exc:
             raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
         self.client = OpenAI(api_key=api_key)
+        logger.info("OpenAIProvider initialized")
 
     def generate_content(self, config: BlockConfig, contents: str) -> str:
+        logger.debug("OpenAI generate_content model=%s chars=%s", config.model_name, len(contents))
         response = self.client.responses.create(
             model=config.model_name,
             instructions=config.system_instruction,
@@ -89,6 +103,12 @@ class OpenAIProvider(AIProvider):
         contents: str,
         response_schema: type[BaseModel],
     ) -> BaseModel:
+        logger.debug(
+            "OpenAI generate_structured_output model=%s schema=%s chars=%s",
+            config.model_name,
+            response_schema.__name__,
+            len(contents),
+        )
         response = self.client.responses.parse(
             model=config.model_name,
             instructions=config.system_instruction,
@@ -102,6 +122,7 @@ class OpenAIProvider(AIProvider):
 
 
 def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -> AIProvider:
+    logger.info("Resolving provider type=%s", provider_type)
     if provider_type == ProviderType.GEMINI:
         key = api_keys.get("GEMINI_API_KEY")
         if not key:
