@@ -43,3 +43,9 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local director studio state
+python_director/.env
+python_director/settings.local.json
+python_director/temp_artifacts/
+python_director/snapshots/

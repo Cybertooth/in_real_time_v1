@@ -1,52 +1,77 @@
-# In Real-time: Director Program
+# Python Director (Admin + Story Pipeline)
 
-The `Director` is an agentic pipeline designed to generate massive, immersive, and "meaty" narratives for the "In Real-time" found-phone mystery game. It leverages the Gemini API to orchestrate a multi-phase creative process, ensuring high-quality storytelling with complex character arcs and realistic digital artifacts.
+`python_director` is the backend-first admin interface for instrumenting storylines that later appear in the mobile app.
 
-## Agentic Pipeline Flow
+It includes:
+- A configurable pipeline with block-level prompts, provider/model choice, and dependencies.
+- A dry-run execution engine that stores block artifacts and prompt traces in the filesystem.
+- A simple browser admin UI for non-technical operators.
+- Final artifact comparison between two runs for quality iteration.
 
-The following diagram illustrates the ML flow of the Director program:
+## Run the Admin API + Web UI
 
-```mermaid
-graph TD
-    A[Phase 0: Creative Brainstorming] -->|Plain-text Outline| B[Phase 1: Structural Planning]
-    B -->|StoryPlan Schema| C{Critique Loop}
-    C -->|Critique| D[Phase 1.REVISION]
-    D -->|Revised StoryPlan| C
-    C -->|Finalized Plan| E[Phase 2: Scene Decomposition]
-    E -->|SceneList Schema| F[Phase 3: Artifact Generation]
-    F -->|StoryGenerated Schema| G[Final Output / Firestore]
-
-    subgraph "Brainstorming (Unrestricted)"
-    A
-    end
-
-    subgraph "Structuring & Refinement"
-    B
-    C
-    D
-    end
-
-    subgraph "Execution"
-    E
-    F
-    end
-```
-
-### Phase Details
-
-1.  **Creative Brainstorming (Phase 0)**: Gemini is given full creative freedom (high temperature, no schema) to draft a sprawling thriller outline. This captures the "big picture" and raw creative energy.
-2.  **Structural Planning (Phase 1)**: The plain-text outline is mapped into a structured `StoryPlan` schema, identifying characters, lore, and act summaries.
-3.  **Critique & Revision Loop**: A "ruthless editor" agent critiques the plan for consistency, pacing, and depth. The planner then revises the plan based on these actionable improvements.
-4.  **Scene Decomposition (Phase 2)**: The final plan is broken down into specific "Scene Blocks" with timing offsets and expected artifacts.
-5.  **Artifact Generation (Phase 3)**: The final execution writer generates deep, high-volume digital artifacts (Chat, Journal, Email, Receipt, VoiceNote) that match the scene list.
-
-## Usage
+From repo root:
 
 ```bash
-python director.py --dry-run
+python -m uvicorn python_director.api:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-- `--dry-run`: Generates the story and saves it to `sample_story.json` locally.
-- (Default): Uploads the generated story directly to Firestore.
+Open:
+- [http://localhost:8000](http://localhost:8000)
+- [http://localhost:8000/admin](http://localhost:8000/admin)
 
-Intermediate snapshots are saved in the `temp_artifacts/` directory for debugging and inspection.
+### Helper Scripts (Windows-friendly)
+
+From repo root:
+
+```bash
+script\director-install.cmd
+script\director-admin.cmd
+script\director-dry-run.cmd
+script\director-tests.cmd
+```
+
+PowerShell variants are also available:
+
+```bash
+script/director-install.ps1
+script/director-admin.ps1
+script/director-dry-run.ps1
+script/director-tests.ps1
+```
+
+## Workflow in the Admin UI
+
+1. Configure keys in **Settings**:
+   - Gemini API key
+   - OpenAI API key
+2. Edit the pipeline visually:
+   - Reorder or disable blocks
+   - Change prompts and dependencies
+   - Switch each block between Gemini/OpenAI
+3. Run **Dry Run**:
+   - Stores run artifacts in `python_director/temp_artifacts/<run_id>/`
+4. Compare runs:
+   - Side-by-side final artifacts
+   - Metric deltas including `quality_proxy_score`
+5. Snapshot prompts:
+   - Saved in `python_director/snapshots/`
+
+## Storage Layout
+
+- `pipeline.json`: current working pipeline.
+- `settings.local.json`: local secrets/settings (ignored by git).
+- `temp_artifacts/<run_id>/`: block outputs, prompts, run manifest, pipeline snapshot.
+- `snapshots/`: manually captured pipeline snapshots from UI.
+
+## API Surface (Core)
+
+- `GET /studio` - bootstrap payload for admin UI.
+- `PUT /pipeline` - save pipeline.
+- `POST /pipeline/reset` - reset to default pipeline.
+- `POST /pipeline/snapshot` - write snapshot to filesystem.
+- `PUT /settings` - save provider keys.
+- `POST /run` - execute pipeline dry run.
+- `GET /runs/{run_id}` - fetch run details with block traces.
+- `POST /compare` - compare two run outputs.
+- `POST /upload/{run_id}` - upload final output to Firestore.

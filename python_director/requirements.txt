@@ -3,3 +3,7 @@ firebase-admin
 python-dotenv
 pytest
 pydantic
+openai
+fastapi
+uvicorn
+python-multipart

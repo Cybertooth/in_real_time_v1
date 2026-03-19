@@ -1,76 +1,129 @@
-import os
-import json
+from __future__ import annotations
+
+from pathlib import Path
+
 import pytest
-from unittest.mock import patch, MagicMock
-from director import generate_story, upload_to_firestore
 
-# Sample structured output mock response
-mock_story_data = {
-    "story_title": "Test Story Title",
-    "journals": [
-        {"title": "Day 1", "body": "It begins.", "time_offset_minutes": 10}
-    ],
-    "chats": [
-        {"senderId": "Unknown", "text": "Are you alone?", "isProtagonist": False, "time_offset_minutes": 15}
-    ],
-    "emails": [
-        {"sender": "boss@firm.com", "subject": "Meeting", "body": "See me.", "time_offset_minutes": 20}
-    ],
-    "receipts": [
-        {"merchantName": "Cafe", "amount": 4.5, "description": "Coffee", "time_offset_minutes": 30}
-    ]
-}
+from python_director.logic import PipelineRunner, compare_final_outputs
+from python_director.models import (
+    AppSettings,
+    BlockConfig,
+    BlockType,
+    CompareRunsRequest,
+    PipelineBlock,
+    PipelineDefinition,
+    ProviderType,
+    RunResult,
+)
 
-class MockResponse:
-    def __init__(self, text):
-        self.text = text
 
-@patch('director.client')
-def test_generate_story_success(mock_client):
-    # Setup mock to return valid JSON matching our schema
-    mock_generate = MagicMock()
-    mock_generate.return_value = MockResponse(json.dumps(mock_story_data))
-    mock_client.models.generate_content = mock_generate
+def _block(
+    block_id: str,
+    *,
+    block_type: BlockType,
+    prompt: str,
+    inputs: list[str] | None = None,
+) -> PipelineBlock:
+    return PipelineBlock(
+        id=block_id,
+        name=block_id,
+        description="",
+        type=block_type,
+        enabled=True,
+        input_blocks=inputs or [],
+        config=BlockConfig(
+            provider=ProviderType.GEMINI,
+            model_name="gemini-2.5-flash",
+            temperature=0.4,
+            system_instruction="system",
+            prompt_template=prompt,
+        ),
+    )
 
-    story = generate_story()
 
-    assert story is not None
-    assert story['story_title'] == "Test Story Title"
-    assert len(story['journals']) == 1
-    assert story['journals'][0]['title'] == "Day 1"
-    assert len(story['chats']) == 1
-    assert story['chats'][0]['senderId'] == "Unknown"
+class FakeProvider:
+    def generate_content(self, config, contents):
+        return f"generated::{contents}"
 
-@patch('director.client')
-def test_generate_story_failure(mock_client):
-    # Setup mock to raise an exception
-    mock_client.models.generate_content.side_effect = Exception("API Error")
+    def generate_structured_output(self, config, contents, response_schema):
+        return response_schema.model_validate({})
 
-    story = generate_story()
 
-    assert story is None
+def test_runner_writes_block_outputs_and_traces(tmp_path: Path, monkeypatch):
+    pipeline = PipelineDefinition(
+        name="test",
+        blocks=[
+            _block("a", block_type=BlockType.CREATIVE_OUTLINER, prompt="first"),
+            _block("b", block_type=BlockType.PLANNER, prompt="second {{a}}", inputs=["a"]),
+        ],
+    )
+    monkeypatch.setattr("python_director.logic.RUNS_DIR", tmp_path)
+    monkeypatch.setattr("python_director.logic.save_run_result", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("python_director.logic.get_provider", lambda *_args, **_kwargs: FakeProvider())
 
-@patch('director.db')
-def test_upload_to_firestore(mock_db):
-    # Setup mock firestore batch and references
-    mock_batch = MagicMock()
-    mock_db.batch.return_value = mock_batch
-    
-    mock_col = MagicMock()
-    mock_doc = MagicMock()
-    mock_db.collection.return_value = mock_col
-    mock_col.document.return_value = mock_doc
-    
-    mock_story_ref = MagicMock()
-    mock_col.document.return_value = mock_story_ref
-    
-    # Run the function
-    story_id = upload_to_firestore(mock_story_data)
-    
-    assert story_id is not None
-    assert story_id.startswith("story_")
-    
-    # Check if batch.set was called correctly
-    # 1 journal + 1 chat + 1 email + 1 receipt = 4 subcollection items
-    assert mock_batch.set.call_count == 4
-    assert mock_batch.commit.called
+    result = PipelineRunner(AppSettings(gemini_api_key="test")).run_pipeline(pipeline, run_id="run_x")
+    run_dir = tmp_path / "run_x"
+
+    assert result.block_sequence == ["a", "b"]
+    assert "a" in result.outputs
+    assert "generated::second generated::first" in result.outputs["b"]
+    assert "a" in result.block_traces
+    assert result.block_traces["b"].resolved_prompt.startswith("second")
+    assert (run_dir / "a.txt").exists()
+    assert (run_dir / "b.prompt.txt").exists()
+
+
+def test_cycle_detection(tmp_path: Path, monkeypatch):
+    pipeline = PipelineDefinition(
+        name="bad",
+        blocks=[
+            _block("a", block_type=BlockType.CREATIVE_OUTLINER, prompt="a", inputs=["b"]),
+            _block("b", block_type=BlockType.PLANNER, prompt="b", inputs=["a"]),
+        ],
+    )
+    monkeypatch.setattr("python_director.logic.RUNS_DIR", tmp_path)
+    monkeypatch.setattr("python_director.logic.get_provider", lambda *_args, **_kwargs: FakeProvider())
+    runner = PipelineRunner(AppSettings(gemini_api_key="x"))
+    with pytest.raises(ValueError, match="cycle"):
+        runner.run_pipeline(pipeline, run_id="run_cycle")
+
+
+def test_compare_final_outputs_includes_quality_proxy_score():
+    baseline = RunResult(
+        run_id="run_a",
+        timestamp="2026-01-01T00:00:00Z",
+        pipeline_name="p",
+        outputs={},
+        final_output={
+            "story_title": "A",
+            "journals": [{"body": "one two three"}],
+            "chats": [{"text": "hi"}],
+            "emails": [],
+            "receipts": [],
+            "voice_notes": [],
+        },
+    )
+    candidate = RunResult(
+        run_id="run_b",
+        timestamp="2026-01-01T00:00:01Z",
+        pipeline_name="p",
+        outputs={},
+        final_output={
+            "story_title": "B",
+            "journals": [{"body": "one two three four five six"}],
+            "chats": [{"text": "hi there"}],
+            "emails": [],
+            "receipts": [],
+            "voice_notes": [{"transcript": "voice words here"}],
+        },
+    )
+    comparison = compare_final_outputs(
+        CompareRunsRequest(baseline_run_id="run_a", candidate_run_id="run_b"),
+        baseline,
+        candidate,
+    )
+    labels = {metric.label for metric in comparison.metrics}
+    assert "quality_proxy_score" in labels
+    assert comparison.quality_notes
+    assert comparison.baseline_title == "A"
+    assert comparison.candidate_title == "B"
