@@ -18,6 +18,7 @@ if __package__:
         SettingsPayload,
         SettingsStatus,
         StudioBootstrap,
+        SCHEMA_MAP,
     )
 else:
     from defaults import PROVIDER_MODELS, get_block_templates, get_default_pipeline
@@ -29,6 +30,7 @@ else:
         SettingsPayload,
         SettingsStatus,
         StudioBootstrap,
+        SCHEMA_MAP,
     )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -172,7 +174,7 @@ def build_studio_bootstrap() -> StudioBootstrap:
         pipeline=load_pipeline(),
         settings=get_settings_payload(),
         run_summaries=list_run_summaries(),
-        schemas=["StoryPlan", "StoryCritique", "SceneList", "StoryGenerated"],
+        schemas=list(SCHEMA_MAP.keys()),
         block_types=[template.type for template in get_block_templates()],
         block_templates=get_block_templates(),
         provider_models=PROVIDER_MODELS,

@@ -16,13 +16,15 @@ class BlockType(str, Enum):
     PLANNER = "planner"
     CRITIC = "critic"
     REVISER = "reviser"
+    CONTINUITY_AUDITOR = "continuity_auditor"
     DECOMPOSER = "decomposer"
+    DROP_DIRECTOR = "drop_director"
     GENERATOR = "generator"
 
 
 class BlockConfig(BaseModel):
     provider: ProviderType = ProviderType.GEMINI
-    model_name: str = "gemini-2.5-flash"
+    model_name: str = "gemini-3.0-flash-preview"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     system_instruction: str
     prompt_template: str
@@ -192,6 +194,44 @@ class SceneList(BaseModel):
     scenes: list[SceneBlock]
 
 
+class ContinuityIssue(BaseModel):
+    severity: str
+    category: str
+    description: str
+    evidence: str
+    fix_instruction: str
+
+
+class ContinuityAudit(BaseModel):
+    continuity_score: int
+    contradictions: list[ContinuityIssue]
+    unresolved_clues: list[str]
+    motivation_breaks: list[str]
+    high_risk_notes: list[str]
+    release_recommendation: str
+
+
+class QuietWindow(BaseModel):
+    start_time_minutes: int
+    end_time_minutes: int
+    purpose: str
+
+
+class DropEvent(BaseModel):
+    event_id: str
+    time_offset_minutes: int
+    intensity: str
+    channel: str
+    summary: str
+    objective: str
+
+
+class DropPlan(BaseModel):
+    events: list[DropEvent]
+    quiet_windows: list[QuietWindow]
+    cliffhanger_targets: list[str]
+
+
 class JournalEntry(BaseModel):
     title: str
     body: str
@@ -238,5 +278,7 @@ SCHEMA_MAP = {
     "StoryPlan": StoryPlan,
     "StoryCritique": StoryCritique,
     "SceneList": SceneList,
+    "ContinuityAudit": ContinuityAudit,
+    "DropPlan": DropPlan,
     "StoryGenerated": StoryGenerated,
 }

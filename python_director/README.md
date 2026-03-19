@@ -7,6 +7,7 @@ It includes:
 - A dry-run execution engine that stores block artifacts and prompt traces in the filesystem.
 - A simple browser admin UI for non-technical operators.
 - Final artifact comparison between two runs for quality iteration.
+- Built-in `continuity_audit` and `drop_director` stages to improve release quality and pacing strategy.
 
 ## Run the Admin API + Web UI
 

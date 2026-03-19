@@ -23,70 +23,152 @@ else:
     )
 
 CREATIVE_OUTLINER_PROMPT = """
-You are a visionary, unrestricted creative mastermind. Your goal is to brainstorm a massive, sprawling, multi-character 'found phone' thriller.
-Forget about JSON structure. Burn all constraints. Write a long, immersive, and gritty story outline including:
-- Deep background lore about a systemic conspiracy or cosmic horror.
-- Multiple intersecting character journeys (at least 3-4 distinct POVs).
-- Narrative beats that feel meaty and substantial, enough to fill hours of engagement.
-- A mind-bending, paradigm-shifting twist that recontextualizes everything in the final 6 hours.
-- Ideas for realistic digital artifacts: long chat threads, multi-paragraph journals, and emotionally raw voice notes.
-Focus on atmosphere, tension, and world-building. Be as detailed and creative as possible.
+You are developing a premium, real-time found-phone thriller for mobile delivery.
+Goal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.
+
+Requirements:
+1) Define one central hidden truth that explains all major events.
+2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.
+3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.
+4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.
+5) Ensure every major beat can manifest as believable phone artifacts (journal, chat, email, receipt, voice note).
+
+Output format (plain text sections):
+- Premise
+- Hidden Truth
+- Character Web
+- 48h Beat Timeline
+- Clue Ladder (clue, where discovered, payoff beat)
+- Spike Events
+- Risks to coherence
 """.strip()
 
 PLANNER_PROMPT = """
-You are an elite, masterful thrill-writer and narrative architect.
-Given the Creative Outline provided, your task is to map this sprawling story into a structured StoryPlan.
-Ensure you capture all characters, the core conflict, the background lore, and the act-based summaries accurately from the outline.
-The final story must remain massive in scope and highly detailed.
+Convert the provided creative outline into a production-ready StoryPlan.
+Preserve ambition, but prioritize coherence and payoff.
+
+Non-negotiables:
+- Character actions must match motivation and prior knowledge.
+- Core conflict must escalate through the 3 acts.
+- Twist must be foreshadowed by earlier signals.
+- Background lore must directly pressure current events.
+- Story must support serialized real-time delivery with anticipation between drops.
+
+Before finalizing, self-check:
+- Any timeline contradictions?
+- Any character acting out-of-character?
+- Any missing setup for major payoff?
+If yes, repair before output.
 """.strip()
 
 CRITIC_PROMPT = """
-You are a ruthless editor. Critique the provided Story Plan for a massive found-phone mystery.
-Ensure that the story is expansive and meaty enough to hold attention for hours.
-Focus intensely on character consistency across multiple POVs, whether the background lore is deep enough, and if the pacing balances extensive deep-dives with frantic bursts.
-Are there enough distinct character journeys? Are voice notes utilized effectively? Let no superficial element pass. Be harsh. Provide actionable improvements.
+You are a senior story editor doing a release-gate review.
+
+Evaluate StoryPlan on:
+- Continuity consistency
+- Tension curve and pacing rhythm
+- Clue/payoff fairness
+- Character credibility
+- Artifact potential (can this become compelling phone-native content?)
+
+For each weakness, provide:
+- Severity (High/Medium/Low)
+- Why it damages user engagement
+- Concrete fix instruction
+
+Prioritize top 7 fixes by expected impact.
+Reject generic advice.
 """.strip()
 
 PLAN_REVISION_PROMPT = """
-You are revising the Story Plan based on the ruthless editor's critique.
-Incorporate all actionable improvements. Deepen the character arcs, expand the subplots, fix pacing issues, and enhance the twist so it truly lands.
-The resulting story plan must be significantly more expansive, complex, and meaty.
-Output the upgraded StoryPlan.
+Revise the StoryPlan using the critique.
+Objective: structural upgrade, not cosmetic rewrite.
+
+Rules:
+- Apply all High severity fixes.
+- Keep what already works; do not rewrite stable sections unnecessarily.
+- Strengthen foreshadowing for twist and clue chain.
+- Improve pacing by alternating pressure spikes and breathing windows.
+- Preserve realism of character communication behaviors.
+
+Final self-check:
+- No unresolved High severity issue.
+- No contradiction in character intent or chronology.
+- Stronger act transitions than previous version.
 """.strip()
 
 SCENE_DECOMPOSITION_PROMPT = """
-You are a master game narrative designer. Break the finalized, sprawling 48-hour Story Plan into detailed Scene Blocks.
-A Scene Block represents a cluster of activity.
-Crucially, you must schedule massive content chunks:
-- Chat sequences must be extensive, representing minutes of continuous real-time texting.
-- Journals and voice notes must represent deep, multi-paragraph reflections.
-A scene must specify what artifacts (Journal, Chat, Email, Receipt, VoiceNote) are expected.
-Leave large gaps of time between intense scenes to build tension.
+Break the final StoryPlan into scene blocks for real-time release design.
+
+Constraints:
+- Timeline must be strictly chronological across 48 hours.
+- Mix calm investigative windows and high-intensity interruption windows.
+- Every scene must specify artifact expectations that are plausible for that moment.
+- Ensure at least 3 interruption spikes, 2 deceptive calm periods, and 1 pre-climax acceleration sequence.
+- Scene descriptions must include narrative purpose (setup, pressure, reveal, misdirect, payoff).
+
+Avoid filler scenes that do not move either conflict or clue chain.
+""".strip()
+
+CONTINUITY_AUDIT_PROMPT = """
+Perform a continuity release check on the StoryPlan.
+
+Objectives:
+- Detect contradictions in timeline, character knowledge, and motivation.
+- Detect clue setup/payoff breaks.
+- Identify high-risk sections likely to reduce trust or immersion.
+
+Output strict ContinuityAudit schema.
+If no contradiction exists, return an empty contradictions list and a high continuity_score.
+Do not invent issues just to fill fields.
+""".strip()
+
+DROP_DIRECTOR_PROMPT = """
+Create a real-time delivery DropPlan from StoryPlan and SceneList.
+
+Rules:
+- Plan timed events that feel notification-worthy.
+- Balance interruption spikes with quiet windows to preserve anticipation.
+- Ensure cliffhanger targets are spread across the 48-hour arc.
+- Keep event summaries concise and operational for CMS scheduling.
+
+Output strict DropPlan schema.
 """.strip()
 
 ARTIFACT_GENERATION_PROMPT = """
-You are the final execution writer tasked with generating an absolutely massive found-phone dataset.
-Given the final Story Plan and the Scene List, write the actual digital artifacts.
-Critical requirements:
-- Chat threads must be extraordinarily long, representing a few minutes of continuous messaging.
-- Journals must be extremely detailed, with multiple long paragraphs of deep introspection.
-- Voice notes must contain realistic spoken-word transcripts with pauses, stuttering, and raw emotion.
-- Emails must feel detailed and plausible, including longer threads when needed.
-Ensure time_offset_minutes aligns with the scene list boundaries.
-Output the final JSON strictly matching the target schema.
+Generate final phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.
+
+Quality rules:
+- Each character must have distinct language patterns.
+- Chats should feel like real texting cadence.
+- Emails should match sender role and context.
+- Journals should reflect psychological progression over time.
+- Voice notes should carry spoken realism and emotional texture.
+- Artifact content must align with chronology and known facts.
+- Embed discoverable clues without blunt exposition.
+- Each major drop should reveal, reframe, or raise risk.
+
+Anti-generic rules:
+- No repetitive phrasing across artifacts.
+- No summary-narrator tone inside artifacts.
+- No contradictory knowledge leaks.
+
+Output must strictly match StoryGenerated schema.
+time_offset_minutes must fit scene boundaries.
 """.strip()
 
 PROVIDER_MODELS: dict[str, list[str]] = {
     ProviderType.GEMINI.value: [
+        "gemini-3.1-pro-preview",
+        "gemini-3.0-flash-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
     ],
     ProviderType.OPENAI.value: [
-        "gpt-5",
-        "gpt-5-mini",
-        "gpt-4.1",
-        "gpt-4.1-mini",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-pro",
     ],
 }
 
@@ -118,7 +200,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 model_name="gemini-2.5-flash",
                 temperature=0.7,
                 system_instruction=PLANNER_PROMPT,
-                prompt_template="Map this creative outline into a structured StoryPlan:\n\n{{creative_brainstorm}}",
+                prompt_template="Convert this outline into StoryPlan:\n\n{{creative_brainstorm}}",
                 response_mime_type="application/json",
                 response_schema_name="StoryPlan",
             ),
@@ -132,7 +214,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 model_name="gemini-2.5-flash",
                 temperature=0.7,
                 system_instruction=CRITIC_PROMPT,
-                prompt_template="Critique this plan:\n\n{{structural_plan}}",
+                prompt_template="Review this StoryPlan:\n\n{{structural_plan}}",
                 response_mime_type="application/json",
                 response_schema_name="StoryCritique",
             ),
@@ -154,6 +236,20 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 response_schema_name="StoryPlan",
             ),
         ),
+        BlockType.CONTINUITY_AUDITOR: BlockTemplate(
+            type=BlockType.CONTINUITY_AUDITOR,
+            name="Continuity Auditor",
+            description="Checks timeline, clue chain, and character consistency before generation.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name="gemini-2.5-flash",
+                temperature=0.2,
+                system_instruction=CONTINUITY_AUDIT_PROMPT,
+                prompt_template="Audit this StoryPlan for release readiness:\n\n{{revised_plan_pass_2}}",
+                response_mime_type="application/json",
+                response_schema_name="ContinuityAudit",
+            ),
+        ),
         BlockType.DECOMPOSER: BlockTemplate(
             type=BlockType.DECOMPOSER,
             name="Scene Decomposition",
@@ -163,9 +259,30 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 model_name="gemini-2.5-flash",
                 temperature=0.5,
                 system_instruction=SCENE_DECOMPOSITION_PROMPT,
-                prompt_template="Break this plan into a scene list:\n\n{{revised_plan_pass_2}}",
+                prompt_template=(
+                    "Create SceneList from StoryPlan:\n\n{{revised_plan_pass_2}}\n\n"
+                    "Continuity notes:\n{{continuity_audit}}"
+                ),
                 response_mime_type="application/json",
                 response_schema_name="SceneList",
+            ),
+        ),
+        BlockType.DROP_DIRECTOR: BlockTemplate(
+            type=BlockType.DROP_DIRECTOR,
+            name="Drop Director",
+            description="Designs notification-worthy drop cadence and quiet windows.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name="gemini-2.5-flash",
+                temperature=0.4,
+                system_instruction=DROP_DIRECTOR_PROMPT,
+                prompt_template=(
+                    "StoryPlan:\n{{revised_plan_pass_2}}\n\n"
+                    "SceneList:\n{{scene_decomposition}}\n\n"
+                    "Create DropPlan."
+                ),
+                response_mime_type="application/json",
+                response_schema_name="DropPlan",
             ),
         ),
         BlockType.GENERATOR: BlockTemplate(
@@ -179,8 +296,10 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 system_instruction=ARTIFACT_GENERATION_PROMPT,
                 prompt_template=(
                     "Final Plan:\n{{revised_plan_pass_2}}\n\n"
+                    "Continuity Audit:\n{{continuity_audit}}\n\n"
                     "Scenes:\n{{scene_decomposition}}\n\n"
-                    "Write the final artifacts."
+                    "Drop Plan:\n{{drop_director}}\n\n"
+                    "Generate StoryGenerated artifacts."
                 ),
                 response_mime_type="application/json",
                 response_schema_name="StoryGenerated",
@@ -253,14 +372,29 @@ def get_default_pipeline() -> PipelineDefinition:
                 input_blocks=["revised_plan_pass_1", "plan_critique_pass_2"],
             ),
             build_block_from_template(
+                BlockType.CONTINUITY_AUDITOR,
+                block_id="continuity_audit",
+                input_blocks=["revised_plan_pass_2"],
+            ),
+            build_block_from_template(
                 BlockType.DECOMPOSER,
                 block_id="scene_decomposition",
-                input_blocks=["revised_plan_pass_2"],
+                input_blocks=["revised_plan_pass_2", "continuity_audit"],
+            ),
+            build_block_from_template(
+                BlockType.DROP_DIRECTOR,
+                block_id="drop_director",
+                input_blocks=["revised_plan_pass_2", "scene_decomposition"],
             ),
             build_block_from_template(
                 BlockType.GENERATOR,
                 block_id="final_artifact_generation",
-                input_blocks=["revised_plan_pass_2", "scene_decomposition"],
+                input_blocks=[
+                    "revised_plan_pass_2",
+                    "continuity_audit",
+                    "scene_decomposition",
+                    "drop_director",
+                ],
             ),
         ],
     )
