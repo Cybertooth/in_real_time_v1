@@ -11,6 +11,21 @@ class ProviderType(str, Enum):
     OPENAI = "OPENAI"
 
 
+class RunStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class BlockExecutionStatus(str, Enum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
 class BlockType(str, Enum):
     CREATIVE_OUTLINER = "creative_outliner"
     BRAINSTORM_CRITIC = "brainstorm_critic"
@@ -51,7 +66,7 @@ class PipelineDefinition(BaseModel):
     updated_at: Optional[str] = None
     default_models: dict[str, str] = Field(
         default_factory=lambda: {
-            ProviderType.GEMINI.value: "gemini-3-flash-preview",
+            ProviderType.GEMINI.value: "gemini-2.5-flash",
             ProviderType.OPENAI.value: "gpt-5.4-mini",
         }
     )
@@ -96,30 +111,58 @@ class BlockTrace(BaseModel):
     block_type: BlockType
     provider: ProviderType
     model_name: str
+    status: BlockExecutionStatus = BlockExecutionStatus.PENDING
     response_schema_name: Optional[str] = None
     temperature: float
     input_blocks: list[str] = Field(default_factory=list)
-    resolved_prompt: str
+    resolved_prompt: str = ""
+    resolved_inputs: dict[str, Any] = Field(default_factory=dict)
+    output: Optional[Any] = None
+    error_message: Optional[str] = None
+    error_traceback: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    elapsed_ms: Optional[float] = None
 
 
 class RunSummary(BaseModel):
     run_id: str
     timestamp: str
     pipeline_name: str
+    status: RunStatus = RunStatus.SUCCEEDED
     final_title: Optional[str] = None
     block_count: int = 0
     provider_summary: dict[str, int] = Field(default_factory=dict)
     artifact_counts: dict[str, float | int] = Field(default_factory=dict)
     final_metrics: dict[str, float | int] = Field(default_factory=dict)
     mode: str = "dry_run"
+    error_message: Optional[str] = None
 
 
 class RunResult(RunSummary):
+    current_block_id: Optional[str] = None
     outputs: dict[str, Any] = Field(default_factory=dict)
     final_output: Optional[Any] = None
     block_sequence: list[str] = Field(default_factory=list)
     block_traces: dict[str, BlockTrace] = Field(default_factory=dict)
     artifacts: list[ArtifactFile] = Field(default_factory=list)
+
+
+class RunProgress(BaseModel):
+    run_id: str
+    timestamp: str
+    pipeline_name: str
+    status: RunStatus
+    mode: str = "dry_run"
+    block_count: int = 0
+    current_block_id: Optional[str] = None
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    error_message: Optional[str] = None
+    final_title: Optional[str] = None
+    final_metrics: dict[str, float | int] = Field(default_factory=dict)
+    block_sequence: list[str] = Field(default_factory=list)
+    block_traces: dict[str, BlockTrace] = Field(default_factory=dict)
 
 
 class RunPipelineRequest(BaseModel):

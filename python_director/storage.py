@@ -15,9 +15,12 @@ if __package__:
     from .models import (
         AppSettings,
         ArtifactFile,
+        BlockTrace,
         PipelineDefinition,
         PipelineCatalogItem,
+        RunProgress,
         RunResult,
+        RunStatus,
         RunSummary,
         SettingsPayload,
         SettingsStatus,
@@ -30,9 +33,12 @@ else:
     from models import (
         AppSettings,
         ArtifactFile,
+        BlockTrace,
         PipelineDefinition,
         PipelineCatalogItem,
+        RunProgress,
         RunResult,
+        RunStatus,
         RunSummary,
         SettingsPayload,
         SettingsStatus,
@@ -50,6 +56,9 @@ ENV_FILE = BASE_DIR / ".env"
 
 load_dotenv(ENV_FILE)
 logger = get_logger("python_director.storage")
+RUN_PROGRESS_FILENAME = "run_progress.json"
+RUN_RESULT_FILENAME = "run_result.json"
+PIPELINE_SNAPSHOT_FILENAME = "pipeline_snapshot.json"
 
 
 def utc_now_iso() -> str:
@@ -263,11 +272,84 @@ def _artifact_files_for_folder(folder: Path) -> list[ArtifactFile]:
     return artifact_files
 
 
+def _run_progress_path(run_id: str) -> Path:
+    return RUNS_DIR / run_id / RUN_PROGRESS_FILENAME
+
+
+def _run_result_path(run_id: str) -> Path:
+    return RUNS_DIR / run_id / RUN_RESULT_FILENAME
+
+
+def _pipeline_snapshot_path(run_id: str) -> Path:
+    return RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+
+
+def save_run_progress(run_progress: RunProgress, pipeline: PipelineDefinition | None = None) -> Path:
+    run_dir = RUNS_DIR / run_progress.run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    _write_json(_run_progress_path(run_progress.run_id), run_progress.model_dump(mode="json"))
+    if pipeline is not None and not _pipeline_snapshot_path(run_progress.run_id).exists():
+        _write_json(_pipeline_snapshot_path(run_progress.run_id), pipeline.model_dump(mode="json"))
+    logger.debug("Persisted run progress run_id=%s status=%s", run_progress.run_id, run_progress.status)
+    return run_dir
+
+
+def load_run_progress(run_id: str) -> RunProgress:
+    progress_path = _run_progress_path(run_id)
+    if not progress_path.exists():
+        raise FileNotFoundError(f"Run progress for '{run_id}' not found")
+    run_progress = RunProgress.model_validate_json(progress_path.read_text(encoding="utf-8"))
+    logger.info("Loaded run progress run_id=%s status=%s", run_id, run_progress.status)
+    return run_progress
+
+
+def run_progress_from_result(run_result: RunResult) -> RunProgress:
+    return RunProgress(
+        run_id=run_result.run_id,
+        timestamp=run_result.timestamp,
+        pipeline_name=run_result.pipeline_name,
+        status=run_result.status,
+        mode=run_result.mode,
+        block_count=run_result.block_count,
+        current_block_id=run_result.current_block_id,
+        started_at=run_result.timestamp,
+        completed_at=max(
+            (trace.completed_at for trace in run_result.block_traces.values() if trace.completed_at),
+            default=None,
+        ),
+        error_message=run_result.error_message,
+        final_title=run_result.final_title,
+        final_metrics=run_result.final_metrics,
+        block_sequence=run_result.block_sequence,
+        block_traces=run_result.block_traces,
+    )
+
+
+def _summary_from_run_progress(run_progress: RunProgress) -> RunSummary:
+    return RunSummary(
+        run_id=run_progress.run_id,
+        timestamp=run_progress.timestamp,
+        pipeline_name=run_progress.pipeline_name,
+        status=run_progress.status,
+        final_title=run_progress.final_title,
+        block_count=run_progress.block_count,
+        provider_summary={
+            trace.provider.value: sum(1 for candidate in run_progress.block_traces.values() if candidate.provider == trace.provider)
+            for trace in run_progress.block_traces.values()
+        },
+        artifact_counts={},
+        final_metrics=run_progress.final_metrics,
+        mode=run_progress.mode,
+        error_message=run_progress.error_message,
+    )
+
+
 def save_run_result(run_result: RunResult, pipeline) -> Path:
     run_dir = RUNS_DIR / run_result.run_id
     run_dir.mkdir(parents=True, exist_ok=True)
-    _write_json(run_dir / "run_result.json", run_result.model_dump(mode="json"))
-    _write_json(run_dir / "pipeline_snapshot.json", pipeline.model_dump(mode="json"))
+    _write_json(_run_result_path(run_result.run_id), run_result.model_dump(mode="json"))
+    _write_json(_pipeline_snapshot_path(run_result.run_id), pipeline.model_dump(mode="json"))
+    save_run_progress(run_progress_from_result(run_result), pipeline)
     logger.info("Persisted run result run_id=%s path=%s", run_result.run_id, run_dir)
     return run_dir
 
@@ -281,28 +363,40 @@ def list_run_summaries() -> list[RunSummary]:
     for run_dir in RUNS_DIR.iterdir():
         if not run_dir.is_dir():
             continue
-        run_result_path = run_dir / "run_result.json"
-        if not run_result_path.exists():
-            continue
-        try:
-            run_result = RunResult.model_validate_json(run_result_path.read_text(encoding="utf-8"))
-        except Exception:
-            skipped += 1
-            logger.exception("Skipping invalid run_result file path=%s", run_result_path)
-            continue
-        summaries.append(
-            RunSummary(
-                run_id=run_result.run_id,
-                timestamp=run_result.timestamp,
-                pipeline_name=run_result.pipeline_name,
-                final_title=run_result.final_title,
-                block_count=run_result.block_count,
-                provider_summary=run_result.provider_summary,
-                artifact_counts=run_result.artifact_counts,
-                final_metrics=run_result.final_metrics,
-                mode=run_result.mode,
+        run_result_path = run_dir / RUN_RESULT_FILENAME
+        run_progress_path = run_dir / RUN_PROGRESS_FILENAME
+        if run_result_path.exists():
+            try:
+                run_result = RunResult.model_validate_json(run_result_path.read_text(encoding="utf-8"))
+            except Exception:
+                skipped += 1
+                logger.exception("Skipping invalid run_result file path=%s", run_result_path)
+                continue
+            summaries.append(
+                RunSummary(
+                    run_id=run_result.run_id,
+                    timestamp=run_result.timestamp,
+                    pipeline_name=run_result.pipeline_name,
+                    status=run_result.status,
+                    final_title=run_result.final_title,
+                    block_count=run_result.block_count,
+                    provider_summary=run_result.provider_summary,
+                    artifact_counts=run_result.artifact_counts,
+                    final_metrics=run_result.final_metrics,
+                    mode=run_result.mode,
+                    error_message=run_result.error_message,
+                )
             )
-        )
+            continue
+
+        if run_progress_path.exists():
+            try:
+                run_progress = RunProgress.model_validate_json(run_progress_path.read_text(encoding="utf-8"))
+            except Exception:
+                skipped += 1
+                logger.exception("Skipping invalid run_progress file path=%s", run_progress_path)
+                continue
+            summaries.append(_summary_from_run_progress(run_progress))
     sorted_runs = sorted(summaries, key=lambda item: item.timestamp, reverse=True)
     logger.info("Listed run summaries count=%s skipped_invalid=%s", len(sorted_runs), skipped)
     return sorted_runs
@@ -310,7 +404,7 @@ def list_run_summaries() -> list[RunSummary]:
 
 def load_run_result(run_id: str) -> RunResult:
     run_dir = RUNS_DIR / run_id
-    run_result_path = run_dir / "run_result.json"
+    run_result_path = run_dir / RUN_RESULT_FILENAME
     if not run_result_path.exists():
         raise FileNotFoundError(f"Run '{run_id}' not found")
 
