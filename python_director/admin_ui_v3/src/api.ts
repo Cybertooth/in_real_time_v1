@@ -90,8 +90,15 @@ export function saveSettings(settings: AppSettings): Promise<SettingsPayload> {
   return request<SettingsPayload>('/api/settings', { method: 'PUT', ...json(settings) })
 }
 
-export function startRun(pipeline: PipelineDefinition): Promise<RunProgress> {
-  return request<RunProgress>('/api/runs/start', { method: 'POST', ...json(pipeline) })
+export function startRun(
+  pipeline: PipelineDefinition,
+  seedPrompt?: string,
+  tags?: string[],
+): Promise<RunProgress> {
+  const body: Record<string, unknown> = { pipeline }
+  if (seedPrompt) body.seed_prompt = seedPrompt
+  if (tags && tags.length > 0) body.tags = tags
+  return request<RunProgress>('/api/runs/start', { method: 'POST', ...json(body) })
 }
 
 export function getRunStatus(runId: string): Promise<RunProgress> {

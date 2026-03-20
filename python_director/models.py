@@ -196,6 +196,8 @@ class RunPipelineRequest(BaseModel):
     run_id: Optional[str] = None
     pipeline: Optional[PipelineDefinition] = None
     persist_pipeline: bool = True
+    seed_prompt: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class PipelineSnapshotRequest(BaseModel):
@@ -373,6 +375,43 @@ class VoiceNote(BaseModel):
     time_offset_minutes: int
 
 
+class SocialPost(BaseModel):
+    platform: str  # "instagram", "twitter", "facebook", "tiktok"
+    author: str
+    handle: str
+    content: str
+    likes: int = 0
+    comments: int = 0
+    time_offset_minutes: int
+
+
+class PhoneCallLine(BaseModel):
+    speaker: str
+    text: str
+
+
+class PhoneCall(BaseModel):
+    caller: str
+    receiver: str
+    duration_seconds: int = 0
+    lines: list[PhoneCallLine]
+    time_offset_minutes: int
+
+
+class GroupChatMessage(BaseModel):
+    sender: str
+    text: str
+    time_offset_minutes: int = 0
+
+
+class GroupChatThread(BaseModel):
+    platform: str  # "whatsapp", "telegram", "imessage"
+    group_name: str
+    members: list[str]
+    messages: list[GroupChatMessage]
+    time_offset_minutes: int  # time of first message
+
+
 class StoryGenerated(BaseModel):
     story_title: str
     journals: list[JournalEntry]
@@ -380,6 +419,9 @@ class StoryGenerated(BaseModel):
     emails: list[EmailMessage]
     receipts: list[ReceiptItem]
     voice_notes: list[VoiceNote]
+    social_posts: list[SocialPost] = Field(default_factory=list)
+    phone_calls: list[PhoneCall] = Field(default_factory=list)
+    group_chats: list[GroupChatThread] = Field(default_factory=list)
 
 
 SCHEMA_MAP = {
@@ -391,3 +433,8 @@ SCHEMA_MAP = {
     "DropPlan": DropPlan,
     "StoryGenerated": StoryGenerated,
 }
+
+# Re-export new artifact types for use in other modules
+__all__ = [
+    "SocialPost", "PhoneCallLine", "PhoneCall", "GroupChatMessage", "GroupChatThread",
+]

@@ -6,6 +6,9 @@ import ChatBubble from './ChatBubble'
 import EmailCard from './EmailCard'
 import ReceiptCard from './ReceiptCard'
 import VoiceNoteCard from './VoiceNoteCard'
+import SocialPostCard from './SocialPostCard'
+import PhoneCallCard from './PhoneCallCard'
+import GroupChatCard from './GroupChatCard'
 import RawJsonViewer from './RawJsonViewer'
 import Badge from '../shared/Badge'
 
@@ -178,11 +181,30 @@ function DropPlanInline({ data }: { data: Record<string, unknown> }) {
   )
 }
 
-function StoryGeneratedInline({ data }: { data: Record<string, unknown> }) {
-  const events = (data.events || data.timeline || []) as Record<string, unknown>[]
+function SectionHeader({ label, count }: { label: string; count: number }) {
+  if (count === 0) return null
+  return (
+    <div className="flex items-center gap-2 mt-4 mb-1">
+      <span className="text-xs font-bold text-text-dim uppercase tracking-widest">{label}</span>
+      <span className="text-xs text-text-dim bg-surface px-1.5 py-0.5 rounded-full">{count}</span>
+    </div>
+  )
+}
 
-  if (events.length === 0) {
-    // Fallback: render as formatted text
+function StoryGeneratedInline({ data }: { data: Record<string, unknown> }) {
+  const journals = (data.journals || []) as Record<string, unknown>[]
+  const chats = (data.chats || []) as Record<string, unknown>[]
+  const emails = (data.emails || []) as Record<string, unknown>[]
+  const receipts = (data.receipts || []) as Record<string, unknown>[]
+  const voiceNotes = (data.voice_notes || []) as Record<string, unknown>[]
+  const socialPosts = (data.social_posts || []) as Record<string, unknown>[]
+  const phoneCalls = (data.phone_calls || []) as Record<string, unknown>[]
+  const groupChats = (data.group_chats || []) as Record<string, unknown>[]
+
+  const total = journals.length + chats.length + emails.length + receipts.length
+    + voiceNotes.length + socialPosts.length + phoneCalls.length + groupChats.length
+
+  if (total === 0) {
     if (data.content || data.text || data.body) {
       return (
         <div className="text-sm text-text bg-[#111] rounded-lg p-3 whitespace-pre-wrap">
@@ -195,34 +217,35 @@ function StoryGeneratedInline({ data }: { data: Record<string, unknown> }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {events.map((event, i) => {
-        const eventData = (event.content || event) as Record<string, unknown>
-        const eventType = String(event.event_type || event.type || 'journal')
+      {data.story_title != null && (
+        <div className="text-base font-semibold text-mint mb-1">
+          {String(data.story_title)}
+        </div>
+      )}
 
-        switch (eventType) {
-          case 'journal':
-            return <JournalCard key={i} data={eventData} />
-          case 'chat':
-            return <ChatBubble key={i} data={eventData} />
-          case 'email':
-            return <EmailCard key={i} data={eventData} />
-          case 'receipt':
-            return <ReceiptCard key={i} data={eventData} />
-          case 'voice_note':
-            return <VoiceNoteCard key={i} data={eventData} />
-          default:
-            return (
-              <div key={i} className="glass-panel p-3">
-                <span className="text-xs text-text-dim uppercase font-semibold">
-                  {eventType}
-                </span>
-                <p className="text-sm text-text mt-1">
-                  {String(eventData.body || eventData.content || JSON.stringify(eventData))}
-                </p>
-              </div>
-            )
-        }
-      })}
+      <SectionHeader label="Journals" count={journals.length} />
+      {journals.map((j, i) => <JournalCard key={`j${i}`} data={j} />)}
+
+      <SectionHeader label="Chats" count={chats.length} />
+      {chats.map((c, i) => <ChatBubble key={`c${i}`} data={c} />)}
+
+      <SectionHeader label="Emails" count={emails.length} />
+      {emails.map((e, i) => <EmailCard key={`e${i}`} data={e} />)}
+
+      <SectionHeader label="Receipts" count={receipts.length} />
+      {receipts.map((r, i) => <ReceiptCard key={`r${i}`} data={r} />)}
+
+      <SectionHeader label="Voice Notes" count={voiceNotes.length} />
+      {voiceNotes.map((v, i) => <VoiceNoteCard key={`v${i}`} data={v} />)}
+
+      <SectionHeader label="Social Posts" count={socialPosts.length} />
+      {socialPosts.map((sp, i) => <SocialPostCard key={`sp${i}`} data={sp} />)}
+
+      <SectionHeader label="Phone Calls" count={phoneCalls.length} />
+      {phoneCalls.map((pc, i) => <PhoneCallCard key={`pc${i}`} data={pc} />)}
+
+      <SectionHeader label="Group Chats" count={groupChats.length} />
+      {groupChats.map((gc, i) => <GroupChatCard key={`gc${i}`} data={gc} />)}
     </div>
   )
 }

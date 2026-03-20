@@ -287,14 +287,26 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-def _bg_run_pipeline(run_id: str, pipeline: PipelineDefinition, settings: AppSettings):
+def _bg_run_pipeline(
+    run_id: str,
+    pipeline: PipelineDefinition,
+    settings: AppSettings,
+    seed_prompt: str | None = None,
+    tags: list[str] | None = None,
+):
     runner = PipelineRunner(settings)
 
     def _progress_callback(p: RunProgress):
         active_runs[run_id] = p
 
     try:
-        runner.run_pipeline(pipeline, run_id=run_id, progress_callback=_progress_callback)
+        runner.run_pipeline(
+            pipeline,
+            run_id=run_id,
+            progress_callback=_progress_callback,
+            seed_prompt=seed_prompt,
+            tags=tags or [],
+        )
     except Exception:
         # runner already logs and updates progress status to FAILED
         pass
@@ -331,7 +343,10 @@ async def start_run(
     )
     active_runs[run_id] = initial_progress
 
-    background_tasks.add_task(_bg_run_pipeline, run_id, pipeline, settings)
+    background_tasks.add_task(
+        _bg_run_pipeline, run_id, pipeline, settings,
+        request.seed_prompt, request.tags,
+    )
 
     return initial_progress
 

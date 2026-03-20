@@ -68,7 +68,7 @@ interface StudioState {
   addBlockFromTemplate: (template: BlockTemplate) => void
   showToast: (message: string, isError?: boolean) => void
   setSettingsOpen: (open: boolean) => void
-  startRun: () => Promise<void>
+  startRun: (seedPrompt?: string, tags?: string[]) => Promise<void>
   stopPolling: () => void
   loadRunProgress: (runId: string) => Promise<void>
   setPipeline: (pipeline: PipelineDefinition) => void
@@ -313,12 +313,12 @@ export const useStore = create<StudioState>((set, get) => ({
     }, 3000)
   },
 
-  startRun: async () => {
+  startRun: async (seedPrompt?: string, tags?: string[]) => {
     const { pipeline } = get()
     if (!pipeline) return
     get().stopPolling()
     try {
-      const progress = await api.startRun(pipeline)
+      const progress = await api.startRun(pipeline, seedPrompt, tags)
       set({
         activeRunId: progress.run_id,
         activeRunProgress: progress,

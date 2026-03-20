@@ -172,6 +172,43 @@ export interface BlockTemplate {
   config: BlockConfig
 }
 
+export interface SocialPost {
+  platform: string
+  author: string
+  handle: string
+  content: string
+  likes?: number
+  comments?: number
+  time_offset_minutes: number
+}
+
+export interface PhoneCallLine {
+  speaker: string
+  text: string
+}
+
+export interface PhoneCall {
+  caller: string
+  receiver: string
+  duration_seconds?: number
+  lines: PhoneCallLine[]
+  time_offset_minutes: number
+}
+
+export interface GroupChatMessage {
+  sender: string
+  text: string
+  time_offset_minutes?: number
+}
+
+export interface GroupChatThread {
+  platform: string
+  group_name: string
+  members: string[]
+  messages: GroupChatMessage[]
+  time_offset_minutes: number
+}
+
 export interface StudioBootstrap {
   pipeline: PipelineDefinition
   pipeline_catalog: PipelineCatalogItem[]

@@ -88,6 +88,9 @@ def _burstiness_metrics(final_output: dict[str, Any]) -> dict[str, float | int]:
         ("emails", "time_offset_minutes"),
         ("receipts", "time_offset_minutes"),
         ("voice_notes", "time_offset_minutes"),
+        ("social_posts", "time_offset_minutes"),
+        ("phone_calls", "time_offset_minutes"),
+        ("group_chats", "time_offset_minutes"),
     ]:
         for item in final_output.get(collection, []):
             t = item.get(key)
@@ -171,14 +174,30 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
     emails = final_output.get("emails", [])
     receipts = final_output.get("receipts", [])
     voice_notes = final_output.get("voice_notes", [])
+    social_posts = final_output.get("social_posts", [])
+    phone_calls = final_output.get("phone_calls", [])
+    group_chats = final_output.get("group_chats", [])
+
+    # Count group chat messages across all threads
+    group_chat_messages = sum(len(gc.get("messages", [])) for gc in group_chats)
+    # Count phone call lines across all calls
+    phone_call_lines = sum(len(pc.get("lines", [])) for pc in phone_calls)
 
     metrics = {
-        "total_artifacts": len(journals) + len(chats) + len(emails) + len(receipts) + len(voice_notes),
+        "total_artifacts": (
+            len(journals) + len(chats) + len(emails) + len(receipts) + len(voice_notes)
+            + len(social_posts) + len(phone_calls) + len(group_chats)
+        ),
         "journal_count": len(journals),
         "chat_count": len(chats),
         "email_count": len(emails),
         "receipt_count": len(receipts),
         "voice_note_count": len(voice_notes),
+        "social_post_count": len(social_posts),
+        "phone_call_count": len(phone_calls),
+        "group_chat_count": len(group_chats),
+        "group_chat_messages": group_chat_messages,
+        "phone_call_lines": phone_call_lines,
         "journal_words": sum(_count_words(item.get("body", "")) for item in journals),
         "chat_words": sum(_count_words(item.get("text", "")) for item in chats),
         "email_words": sum(
@@ -186,12 +205,26 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
             for item in emails
         ),
         "voice_note_words": sum(_count_words(item.get("transcript", "")) for item in voice_notes),
+        "social_post_words": sum(_count_words(item.get("content", "")) for item in social_posts),
+        "phone_call_words": sum(
+            _count_words(line.get("text", ""))
+            for pc in phone_calls
+            for line in pc.get("lines", [])
+        ),
+        "group_chat_words": sum(
+            _count_words(msg.get("text", ""))
+            for gc in group_chats
+            for msg in gc.get("messages", [])
+        ),
     }
     metrics["total_words"] = (
         metrics["journal_words"]
         + metrics["chat_words"]
         + metrics["email_words"]
         + metrics["voice_note_words"]
+        + metrics["social_post_words"]
+        + metrics["phone_call_words"]
+        + metrics["group_chat_words"]
     )
     metrics["quality_proxy_score"] = round(
         (
@@ -199,6 +232,9 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
             + metrics["total_words"] / 160
             + metrics["voice_note_count"] * 2
             + metrics["journal_count"] * 1.2
+            + metrics["phone_call_count"] * 3
+            + metrics["group_chat_count"] * 2.5
+            + metrics["social_post_count"] * 1.0
         ),
         2,
     )
@@ -292,6 +328,35 @@ def derive_story_timeline(final_output: Any) -> list[RunTimelineEntry]:
             content=dict(v),
         ))
 
+    for i, sp in enumerate(final_output.get("social_posts", [])):
+        mins = sp.get("time_offset_minutes", 0)
+        platform = sp.get("platform", "social")
+        entries.append(RunTimelineEntry(
+            block_id=f"social_post_{i}", event_type="social_post",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=f"{platform.capitalize()}: @{sp.get('handle', sp.get('author', 'Unknown'))}",
+            content=dict(sp),
+        ))
+
+    for i, pc in enumerate(final_output.get("phone_calls", [])):
+        mins = pc.get("time_offset_minutes", 0)
+        entries.append(RunTimelineEntry(
+            block_id=f"phone_call_{i}", event_type="phone_call",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=f"Call: {pc.get('caller', '?')} → {pc.get('receiver', '?')}",
+            content=dict(pc),
+        ))
+
+    for i, gc in enumerate(final_output.get("group_chats", [])):
+        mins = gc.get("time_offset_minutes", 0)
+        platform = gc.get("platform", "chat")
+        entries.append(RunTimelineEntry(
+            block_id=f"group_chat_{i}", event_type="group_chat",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=f"{platform.capitalize()} Group: {gc.get('group_name', f'Thread {i+1}')}",
+            content=dict(gc),
+        ))
+
     entries.sort(key=lambda x: (x.story_day, x.story_time))
     return entries
 
@@ -316,6 +381,13 @@ def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, cand
         "voice_note_count",
         "voice_note_words",
         "receipt_count",
+        "social_post_count",
+        "social_post_words",
+        "phone_call_count",
+        "phone_call_words",
+        "group_chat_count",
+        "group_chat_words",
+        "group_chat_messages",
         "quality_proxy_score",
         "burstiness_score",
         "total_pause_minutes",
@@ -557,11 +629,33 @@ class PipelineRunner:
         definition: PipelineDefinition,
         run_id: str | None = None,
         progress_callback: Any | None = None,
+        seed_prompt: str | None = None,
+        tags: list[str] | None = None,
     ) -> RunResult:
         run_id = run_id or f"run_{int(time.time())}"
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+
+        # Inject seed prompt and tags into the first creative_outliner block's prompt
+        if seed_prompt or tags:
+            injected_parts: list[str] = []
+            if seed_prompt:
+                injected_parts.append(f"STORY SEED (use as creative inspiration):\n{seed_prompt}")
+            if tags:
+                injected_parts.append(f"REQUIRED THEMES / TAGS: {', '.join(tags)}")
+            prefix = "\n\n".join(injected_parts) + "\n\n"
+
+            import copy as _copy
+            definition = _copy.deepcopy(definition)
+            for block in definition.blocks:
+                if block.enabled and block.type == "creative_outliner":
+                    block.config.prompt_template = prefix + block.config.prompt_template
+                    logger.info(
+                        "Injected seed/tags into block id=%s seed_len=%s tags=%s",
+                        block.id, len(seed_prompt or ""), tags,
+                    )
+                    break
 
         waves = self._execution_waves(definition)
         # Pre-compute block_sequence from waves (deterministic, wave order preserved)

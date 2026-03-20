@@ -4,6 +4,9 @@ import ChatBubble from '../formatting/ChatBubble'
 import EmailCard from '../formatting/EmailCard'
 import ReceiptCard from '../formatting/ReceiptCard'
 import VoiceNoteCard from '../formatting/VoiceNoteCard'
+import SocialPostCard from '../formatting/SocialPostCard'
+import PhoneCallCard from '../formatting/PhoneCallCard'
+import GroupChatCard from '../formatting/GroupChatCard'
 
 interface ExperiencePreviewProps {
   timeline: RunTimelineEntry[]
@@ -45,6 +48,9 @@ function renderNotificationBanner(entry: RunTimelineEntry) {
     email: 'Email',
     receipt: 'Receipt',
     voice_note: 'Voice Note',
+    social_post: 'Social Post',
+    phone_call: 'Phone Call',
+    group_chat: 'Group Chat',
   }
   const label = typeIcons[entry.event_type] || entry.event_type
 
@@ -69,6 +75,12 @@ function renderArtifactCard(entry: RunTimelineEntry) {
       return <ReceiptCard data={data} />
     case 'voice_note':
       return <VoiceNoteCard data={data} />
+    case 'social_post':
+      return <SocialPostCard data={data} />
+    case 'phone_call':
+      return <PhoneCallCard data={data} />
+    case 'group_chat':
+      return <GroupChatCard data={data} />
     default:
       return (
         <div className="text-sm text-text bg-[#111] rounded-lg p-3 whitespace-pre-wrap">

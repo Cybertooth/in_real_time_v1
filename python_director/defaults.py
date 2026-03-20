@@ -31,10 +31,21 @@ Requirements:
 2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.
 3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.
 4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.
-5) Ensure every major beat can manifest as believable phone artifacts (journal, chat, email, receipt, voice note).
+5) Ensure every major beat can manifest as believable phone artifacts across ALL channel types:
+   - journals (private reflections, diary entries)
+   - direct chats / IM exchanges (back-and-forth conversations)
+   - emails (formal or semi-formal communications)
+   - receipts (transactions that reveal movement or purchases)
+   - voice notes (recorded audio memos)
+   - social media posts (Instagram, Twitter, Facebook, TikTok — public-facing character facades)
+   - phone call transcripts (calls with caller, receiver, and dialogue lines)
+   - group chat threads (WhatsApp/Telegram/iMessage group conversations)
 6) ENGAGEMENT DENSITY — communication must happen in bursts, not isolated pings:
    - Chat / IM exchanges must be back-and-forth conversations (5-15 messages each) not single texts.
+   - Group chats should have 8-15 messages from multiple participants, showing social dynamics.
    - Emails must be substantial multi-paragraph messages, not one-liners.
+   - Social posts reveal the public character facade vs private reality — contrast is key.
+   - Phone calls expose confrontations, revelations, or key plot turns through dialogue.
    - Act 1 (first ~16 hours) must be the densest activity window to hook users early.
    - No silent gaps longer than 90 minutes in Act 1.
    - Plan at least 2 rapid-fire "flurry" sequences where 3+ artifact types overlap within 30 minutes.
@@ -46,6 +57,9 @@ Output format (plain text sections):
 - 48h Beat Timeline
 - Clue Ladder (clue, where discovered, payoff beat)
 - Spike Events
+- Social Media Strategy (which characters post publicly and what facade they maintain)
+- Group Chat Dynamics (which group chats exist, who is in them, key revelations)
+- Phone Call Moments (calls that must happen and why)
 - Engagement Density Plan (burst clusters, Act 1 density map)
 - Risks to coherence
 """.strip()
@@ -173,35 +187,50 @@ Output strict DropPlan schema.
 """.strip()
 
 ARTIFACT_GENERATION_PROMPT = """
-Generate final phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.
+Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.
+Target: ~5,000 words of story content spread across ALL artifact types.
 
-Quality rules:
-- Each character must have distinct language patterns.
-- Chats should feel like real texting cadence.
-- Emails should match sender role and context.
-- Journals should reflect psychological progression over time.
-- Voice notes should carry spoken realism and emotional texture.
-- Artifact content must align with chronology and known facts.
+MANDATORY QUANTITY TARGETS (minimum, more is better):
+- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)
+- chats: 3+ conversations of 10-15 back-and-forth messages each
+- emails: 6+ emails with 3+ substantial paragraphs each
+- receipts: 4+ receipts (reveal character movement, spending, or secret activities)
+- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)
+- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters
+  (contrast public facade with private reality)
+- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)
+  (use calls for confrontations, urgent revelations, or key plot turns)
+- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each
+  from multiple participants (show group dynamics, rumors, panic, coordination)
+
+QUALITY RULES:
+- Each character must have distinct voice and language patterns.
+- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.
+- Emails match sender role (formal cop = formal email; teenager = casual/brief).
+- Journals show psychological progression — fear, suspicion, grief, denial, resolve.
+- Voice notes capture spoken hesitation, self-correction, emotional rawness.
+- Social posts reveal the public facade characters maintain while private reality unravels.
+- Phone calls expose raw confrontations that characters wouldn't commit to text.
+- Group chats show social pressure, gossip, collective panic or denial.
+- All artifact content must align with chronology and character knowledge at that point in time.
 - Embed discoverable clues without blunt exposition.
 - Each major drop should reveal, reframe, or raise risk.
 
-ENGAGEMENT DENSITY rules (critical):
-- IM / chat conversations MUST be back-and-forth exchanges of 5-15 messages minimum.
-  A single isolated text message is only acceptable if it is an explicit plot point.
-- Emails MUST be multi-paragraph (3+ paragraphs) with real substance.
-- Act 1 (first ~960 time_offset_minutes) must be the densest section.
-  No gap between consecutive artifacts should exceed 90 minutes in Act 1.
-- Create at least 2 "flurry" windows where 3+ artifacts land within 30 minutes.
-- Journal entries should be multi-paragraph reflections, not bullet summaries.
-- Voice notes should be substantial monologues (50+ words), not one-liners.
+ENGAGEMENT DENSITY RULES (critical):
+- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section — hook users in session 1.
+- No gap between consecutive artifacts should exceed 90 minutes in Act 1.
+- Create at least 3 "flurry" windows where 4+ artifacts land within 30 minutes.
+- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.
+- Group chats must have real multi-person dynamics, not monologues.
 
-Anti-generic rules:
+ANTI-GENERIC RULES:
 - No repetitive phrasing across artifacts.
-- No summary-narrator tone inside artifacts.
-- No contradictory knowledge leaks.
+- No summary-narrator tone inside artifacts. Stay in character voice.
+- No contradictory knowledge leaks (character can't know something they haven't learned yet).
+- Avoid clichés: "I can't believe this is happening", "Everything changed that day", etc.
 
 Output must strictly match StoryGenerated schema.
-time_offset_minutes must fit scene boundaries.
+time_offset_minutes must fit scene boundaries across the 48-hour arc.
 """.strip()
 
 PROVIDER_MODELS: dict[str, list[str]] = {
@@ -264,7 +293,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 use_pipeline_default_model=True,
                 temperature=1.0,
                 system_instruction=CREATIVE_OUTLINER_PROMPT,
-                prompt_template="Brainstorm the initial massive story outline.",
+                prompt_template="Brainstorm the initial massive story outline. Avoid sci-fi themes and try to come up with a police thriller. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
             ),
         ),
         BlockType.COUNCIL_MEMBER: BlockTemplate(
