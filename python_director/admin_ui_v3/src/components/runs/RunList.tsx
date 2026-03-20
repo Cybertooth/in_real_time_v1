@@ -110,6 +110,14 @@ export default function RunList() {
                 </span>
               </span>
             )}
+            {run.final_metrics?.burstiness_score !== undefined && (
+              <span>
+                Burst:{' '}
+                <span className="text-amber-400">
+                  {run.final_metrics.burstiness_score.toFixed(1)}
+                </span>
+              </span>
+            )}
             <span>{run.block_count} blocks</span>
           </div>
         </button>

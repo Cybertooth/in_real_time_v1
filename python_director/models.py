@@ -28,15 +28,13 @@ class BlockExecutionStatus(str, Enum):
 
 class BlockType(str, Enum):
     CREATIVE_OUTLINER = "creative_outliner"
-    BRAINSTORM_CRITIC = "brainstorm_critic"
-    BRAINSTORM_REWRITER = "brainstorm_rewriter"
     PLANNER = "planner"
-    CRITIC = "critic"
-    REVISER = "reviser"
     CONTINUITY_AUDITOR = "continuity_auditor"
     DECOMPOSER = "decomposer"
     DROP_DIRECTOR = "drop_director"
     GENERATOR = "generator"
+    COUNCIL_MEMBER = "council_member"
+    COUNCIL_JUDGE = "council_judge"
 
 
 class BlockConfig(BaseModel):

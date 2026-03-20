@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(.venv/Scripts/python.exe -c \"from python_director.api import app; print\\(''API imports OK''\\)\")",
+      "Bash(.venv/Scripts/python.exe -m pytest python_director/test_director.py -v)"
+    ]
+  }
+}

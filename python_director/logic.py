@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -75,6 +77,91 @@ def _count_words(value: str) -> int:
     return len([token for token in value.split() if token.strip()])
 
 
+def _burstiness_metrics(final_output: dict[str, Any]) -> dict[str, float | int]:
+    """Compute engagement density / burstiness metrics from artifact timing."""
+    import math
+
+    all_items: list[int] = []
+    for collection, key in [
+        ("journals", "time_offset_minutes"),
+        ("chats", "time_offset_minutes"),
+        ("emails", "time_offset_minutes"),
+        ("receipts", "time_offset_minutes"),
+        ("voice_notes", "time_offset_minutes"),
+    ]:
+        for item in final_output.get(collection, []):
+            t = item.get(key)
+            if isinstance(t, (int, float)):
+                all_items.append(int(t))
+
+    if len(all_items) < 2:
+        return {
+            "total_pause_minutes": 0,
+            "max_pause_minutes": 0,
+            "act1_pause_minutes": 0,
+            "burstiness_score": 0,
+            "avg_chat_burst_length": 0,
+        }
+
+    sorted_times = sorted(all_items)
+    gaps = [sorted_times[i + 1] - sorted_times[i] for i in range(len(sorted_times) - 1)]
+
+    total_pause = sum(gaps)
+    max_pause = max(gaps)
+
+    # Act 1 = first 960 minutes (~16 hours, first third of 48h)
+    act1_times = [t for t in sorted_times if t <= 960]
+    act1_gaps = (
+        [act1_times[i + 1] - act1_times[i] for i in range(len(act1_times) - 1)]
+        if len(act1_times) >= 2
+        else []
+    )
+    act1_pause = sum(act1_gaps)
+
+    # Burstiness score: 0-100 based on coefficient of variation of gaps.
+    # Low CV (even spacing) = high score. High CV (long waits punctuated by bursts) = lower score.
+    # We invert CV: score = max(0, 100 * (1 - CV)), clamped to [0, 100].
+    if gaps:
+        mean_gap = total_pause / len(gaps)
+        if mean_gap > 0:
+            variance = sum((g - mean_gap) ** 2 for g in gaps) / len(gaps)
+            std_gap = math.sqrt(variance)
+            cv = std_gap / mean_gap
+            burstiness_score = round(max(0.0, min(100.0, 100.0 * (1.0 - cv))), 1)
+        else:
+            burstiness_score = 100.0
+    else:
+        burstiness_score = 0.0
+
+    # Average chat burst length: group chats by 5-minute windows and average group size.
+    chat_times = sorted(
+        int(c.get("time_offset_minutes", 0))
+        for c in final_output.get("chats", [])
+        if isinstance(c.get("time_offset_minutes"), (int, float))
+    )
+    if chat_times:
+        windows: list[list[int]] = []
+        current_window: list[int] = [chat_times[0]]
+        for t in chat_times[1:]:
+            if t - current_window[0] <= 5:
+                current_window.append(t)
+            else:
+                windows.append(current_window)
+                current_window = [t]
+        windows.append(current_window)
+        avg_chat_burst_length = round(sum(len(w) for w in windows) / len(windows), 1)
+    else:
+        avg_chat_burst_length = 0.0
+
+    return {
+        "total_pause_minutes": total_pause,
+        "max_pause_minutes": max_pause,
+        "act1_pause_minutes": act1_pause,
+        "burstiness_score": burstiness_score,
+        "avg_chat_burst_length": avg_chat_burst_length,
+    }
+
+
 def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int]:
     if not isinstance(final_output, dict):
         return {}
@@ -115,6 +202,7 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
         ),
         2,
     )
+    metrics.update(_burstiness_metrics(final_output))
     return metrics
 
 
@@ -229,6 +317,11 @@ def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, cand
         "voice_note_words",
         "receipt_count",
         "quality_proxy_score",
+        "burstiness_score",
+        "total_pause_minutes",
+        "max_pause_minutes",
+        "act1_pause_minutes",
+        "avg_chat_burst_length",
     ]
 
     metrics = [
@@ -246,6 +339,8 @@ def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, cand
     total_words_delta = candidate_metrics.get("total_words", 0) - baseline_metrics.get("total_words", 0)
     voice_delta = candidate_metrics.get("voice_note_count", 0) - baseline_metrics.get("voice_note_count", 0)
     journal_delta = candidate_metrics.get("journal_words", 0) - baseline_metrics.get("journal_words", 0)
+    burst_delta = candidate_metrics.get("burstiness_score", 0) - baseline_metrics.get("burstiness_score", 0)
+    act1_pause_delta = candidate_metrics.get("act1_pause_minutes", 0) - baseline_metrics.get("act1_pause_minutes", 0)
 
     if score_delta > 0:
         notes.append(f"Overall quality proxy improved by {score_delta:.2f}.")
@@ -268,6 +363,16 @@ def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, cand
         notes.append(f"Journal richness improved (+{int(journal_delta)} words).")
     elif journal_delta < 0:
         notes.append(f"Journal richness reduced ({int(journal_delta)} words).")
+
+    if burst_delta > 2:
+        notes.append(f"Engagement density improved (burstiness +{burst_delta:.1f}).")
+    elif burst_delta < -2:
+        notes.append(f"Engagement density dropped (burstiness {burst_delta:.1f}). Users may disengage.")
+
+    if act1_pause_delta < -30:
+        notes.append(f"Act 1 dead time reduced by {abs(int(act1_pause_delta))} min — better early retention.")
+    elif act1_pause_delta > 30:
+        notes.append(f"Act 1 dead time increased by {int(act1_pause_delta)} min — risk of early drop-off.")
 
     return RunComparison(
         baseline_run_id=request.baseline_run_id,
@@ -310,33 +415,140 @@ class PipelineRunner:
             f"Block '{block.id}' has no model configured and pipeline default for provider '{provider_key}' is missing."
         )
 
-    def _sorted_blocks(self, definition: PipelineDefinition) -> list[PipelineBlock]:
-        block_map = {block.id: block for block in definition.blocks if block.enabled}
-        indegree = {block_id: 0 for block_id in block_map}
+    def _execution_waves(self, definition: PipelineDefinition) -> list[list[PipelineBlock]]:
+        """Group enabled blocks into parallel execution waves.
 
-        for block in block_map.values():
-            for dependency in block.input_blocks:
-                if dependency in indegree:
-                    indegree[block.id] += 1
+        Blocks within the same wave have no inter-dependencies and can run in parallel.
+        Blocks in later waves depend only on blocks from earlier waves.
+        """
+        block_map = {b.id: b for b in definition.blocks if b.enabled}
+        completed: set[str] = set()
+        waves: list[list[PipelineBlock]] = []
+        remaining = set(block_map.keys())
 
-        ready = [block_map[block_id] for block_id, degree in indegree.items() if degree == 0]
-        order: list[PipelineBlock] = []
+        while remaining:
+            wave = [
+                block_map[bid]
+                for bid in sorted(remaining)  # sorted for determinism within a wave
+                if all(
+                    dep in completed or dep not in block_map
+                    for dep in block_map[bid].input_blocks
+                )
+            ]
+            if not wave:
+                logger.error("Pipeline sort failed: cycle or unresolved dependency")
+                raise ValueError("Pipeline has a cycle or references a missing dependency.")
+            for b in wave:
+                completed.add(b.id)
+                remaining.discard(b.id)
+            waves.append(wave)
 
-        while ready:
-            current = ready.pop(0)
-            order.append(current)
-            for candidate in block_map.values():
-                if current.id in candidate.input_blocks:
-                    indegree[candidate.id] -= 1
-                    if indegree[candidate.id] == 0:
-                        ready.append(candidate)
+        logger.info("Execution waves: %s", [[b.id for b in w] for w in waves])
+        return waves
 
-        if len(order) != len(block_map):
-            logger.error("Pipeline sort failed: cycle or missing dependency detected")
-            raise ValueError("Pipeline has a cycle or references a missing dependency.")
+    def _run_one_block(
+        self,
+        block: PipelineBlock,
+        definition: PipelineDefinition,
+        outputs: dict[str, Any],
+        run_dir: Path,
+        lock: threading.Lock,
+        traces: dict[str, BlockTrace],
+        progress: RunProgress,
+        persist_fn: Any,
+        provider_summary: Counter[str],
+        execution_order: list[str],
+    ) -> None:
+        """Execute a single block. Safe to call from a thread pool."""
+        import traceback as tb
 
-        logger.info("Execution order resolved blocks=%s", [block.id for block in order])
-        return order
+        block_started = time.time()
+        effective_model_name = self._resolve_model_name(definition, block)
+        effective_config = block.config.model_copy(update={"model_name": effective_model_name})
+
+        logger.info(
+            "Block start id=%s type=%s provider=%s model=%s temp=%s inherited=%s",
+            block.id,
+            block.type,
+            effective_config.provider,
+            effective_config.model_name,
+            effective_config.temperature,
+            block.config.use_pipeline_default_model,
+        )
+
+        # Resolve prompt — reads outputs of previous waves only, safe without lock
+        contents = block.config.prompt_template
+        resolved_inputs: dict[str, Any] = {}
+        for input_id in block.input_blocks:
+            if input_id not in outputs:
+                logger.warning("Block id=%s missing_input=%s (left unresolved)", block.id, input_id)
+                continue
+            input_value = outputs[input_id]
+            resolved_inputs[input_id] = _serialize_output(input_value)
+            serialized = (
+                input_value.model_dump_json(indent=2)
+                if isinstance(input_value, BaseModel)
+                else json.dumps(input_value, indent=2)
+                if isinstance(input_value, (dict, list))
+                else str(input_value)
+            )
+            contents = contents.replace(f"{{{{{input_id}}}}}", serialized)
+
+        trace = BlockTrace(
+            block_id=block.id,
+            block_name=block.name,
+            block_type=block.type,
+            provider=effective_config.provider,
+            model_name=effective_config.model_name or "",
+            status=BlockExecutionStatus.RUNNING,
+            response_schema_name=effective_config.response_schema_name,
+            temperature=effective_config.temperature,
+            input_blocks=list(block.input_blocks),
+            resolved_prompt=contents,
+            resolved_inputs=resolved_inputs,
+            started_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+        with lock:
+            traces[block.id] = trace
+            progress.block_traces[block.id] = trace
+            progress.current_block_id = block.id
+            provider_summary[effective_config.provider.value] += 1
+            execution_order.append(block.id)
+            persist_fn()
+
+        try:
+            provider = get_provider(effective_config.provider, self._api_keys())
+            if effective_config.response_schema_name:
+                schema = SCHEMA_MAP.get(effective_config.response_schema_name)
+                if schema is None:
+                    raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
+                output = provider.generate_structured_output(effective_config, contents, schema)
+            else:
+                output = provider.generate_content(effective_config, contents)
+        except Exception as exc:
+            elapsed_ms = (time.time() - block_started) * 1000
+            with lock:
+                trace.status = BlockExecutionStatus.FAILED
+                trace.error_message = str(exc)
+                trace.error_traceback = tb.format_exc()
+                trace.completed_at = datetime.now(timezone.utc).isoformat()
+                trace.elapsed_ms = elapsed_ms
+                persist_fn()
+            raise
+
+        elapsed_ms = (time.time() - block_started) * 1000
+        logger.info("Block done id=%s elapsed_ms=%.2f", block.id, elapsed_ms)
+
+        with lock:
+            outputs[block.id] = output
+            _write_block_artifact(run_dir, block.id, output)
+            _write_block_artifact(run_dir, f"{block.id}.prompt", contents)
+            trace.status = BlockExecutionStatus.SUCCEEDED
+            trace.output = _serialize_output(output)
+            trace.completed_at = datetime.now(timezone.utc).isoformat()
+            trace.elapsed_ms = elapsed_ms
+            persist_fn()
 
     def run_pipeline(
         self,
@@ -348,20 +560,21 @@ class PipelineRunner:
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
-        
-        sorted_blocks = self._sorted_blocks(definition)
-        block_sequence = [b.id for b in sorted_blocks]
-        
+
+        waves = self._execution_waves(definition)
+        # Pre-compute block_sequence from waves (deterministic, wave order preserved)
+        block_sequence = [b.id for wave in waves for b in wave]
+
         progress = RunProgress(
             run_id=run_id,
             timestamp=started_at.isoformat(),
             pipeline_name=definition.name,
             status=RunStatus.RUNNING,
-            block_count=len(sorted_blocks),
+            block_count=len(block_sequence),
             block_sequence=block_sequence,
             started_at=started_at.isoformat(),
         )
-        
+
         def _persist_progress():
             path = run_dir / "run_progress.json"
             path.write_text(progress.model_dump_json(indent=2), encoding="utf-8")
@@ -369,10 +582,11 @@ class PipelineRunner:
                 progress_callback(progress)
 
         logger.info(
-            "Run start run_id=%s pipeline=%s block_count=%s output_dir=%s",
+            "Run start run_id=%s pipeline=%s blocks=%s waves=%s output_dir=%s",
             run_id,
             definition.name,
-            len(definition.blocks),
+            len(block_sequence),
+            len(waves),
             run_dir,
         )
         _persist_progress()
@@ -381,123 +595,60 @@ class PipelineRunner:
         traces: dict[str, BlockTrace] = {}
         provider_summary: Counter[str] = Counter()
         execution_order: list[str] = []
+        lock = threading.Lock()
 
         try:
-            for block in sorted_blocks:
-                block_started = time.time()
-                progress.current_block_id = block.id
-                
-                effective_model_name = self._resolve_model_name(definition, block)
-                effective_config = block.config.model_copy(update={"model_name": effective_model_name})
-                provider_summary[block.config.provider.value] += 1
-                execution_order.append(block.id)
-                
-                logger.info(
-                    "Block start id=%s type=%s provider=%s model=%s temp=%s inherited_model=%s",
-                    block.id,
-                    block.type,
-                    effective_config.provider,
-                    effective_config.model_name,
-                    effective_config.temperature,
-                    block.config.use_pipeline_default_model,
-                )
-
-                contents = block.config.prompt_template
-                replaced_inputs = 0
-                resolved_inputs = {}
-                for input_id in block.input_blocks:
-                    if input_id not in outputs:
-                        logger.warning("Block id=%s missing_input=%s (placeholder left unresolved)", block.id, input_id)
-                        continue
-                    input_value = outputs[input_id]
-                    resolved_inputs[input_id] = _serialize_output(input_value)
-                    serialized = (
-                        input_value.model_dump_json(indent=2)
-                        if isinstance(input_value, BaseModel)
-                        else json.dumps(input_value, indent=2)
-                        if isinstance(input_value, (dict, list))
-                        else str(input_value)
+            for wave in waves:
+                if len(wave) == 1:
+                    self._run_one_block(
+                        wave[0], definition, outputs, run_dir, lock,
+                        traces, progress, _persist_progress, provider_summary, execution_order,
                     )
-                    contents = contents.replace(f"{{{{{input_id}}}}}", serialized)
-                    replaced_inputs += 1
-                
-                logger.debug(
-                    "Block prompt prepared id=%s replaced_inputs=%s prompt_chars=%s",
-                    block.id,
-                    replaced_inputs,
-                    len(contents),
-                )
-
-                trace = BlockTrace(
-                    block_id=block.id,
-                    block_name=block.name,
-                    block_type=block.type,
-                    provider=effective_config.provider,
-                    model_name=effective_config.model_name or "",
-                    status=BlockExecutionStatus.RUNNING,
-                    response_schema_name=effective_config.response_schema_name,
-                    temperature=effective_config.temperature,
-                    input_blocks=list(block.input_blocks),
-                    resolved_prompt=contents,
-                    resolved_inputs=resolved_inputs,
-                    started_at=datetime.now(timezone.utc).isoformat(),
-                )
-                traces[block.id] = trace
-                progress.block_traces[block.id] = trace
-                _persist_progress()
-
-                provider = get_provider(effective_config.provider, self._api_keys())
-                if effective_config.response_schema_name:
-                    schema = SCHEMA_MAP.get(effective_config.response_schema_name)
-                    if schema is None:
-                        logger.error("Block id=%s schema_missing=%s", block.id, effective_config.response_schema_name)
-                        raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
-                    output = provider.generate_structured_output(effective_config, contents, schema)
                 else:
-                    output = provider.generate_content(effective_config, contents)
-
-                outputs[block.id] = output
-                _write_block_artifact(run_dir, block.id, output)
-                _write_block_artifact(run_dir, f"{block.id}.prompt", contents)
-                
-                elapsed_ms = (time.time() - block_started) * 1000
-                logger.info("Block done id=%s elapsed_ms=%.2f", block.id, elapsed_ms)
-                
-                trace.status = BlockExecutionStatus.SUCCEEDED
-                trace.output = _serialize_output(output)
-                trace.completed_at = datetime.now(timezone.utc).isoformat()
-                trace.elapsed_ms = elapsed_ms
-                _persist_progress()
+                    logger.info(
+                        "Parallel council wave (%d blocks): %s",
+                        len(wave),
+                        [b.id for b in wave],
+                    )
+                    errors: list[tuple[str, BaseException]] = []
+                    with ThreadPoolExecutor(max_workers=len(wave)) as executor:
+                        future_map = {
+                            executor.submit(
+                                self._run_one_block,
+                                block, definition, outputs, run_dir, lock,
+                                traces, progress, _persist_progress, provider_summary, execution_order,
+                            ): block
+                            for block in wave
+                        }
+                        for future in as_completed(future_map):
+                            blk = future_map[future]
+                            try:
+                                future.result()
+                            except Exception as exc:
+                                errors.append((blk.id, exc))
+                    if errors:
+                        block_id, exc = errors[0]
+                        raise RuntimeError(f"Council block '{block_id}' failed: {exc}") from exc
 
             progress.status = RunStatus.SUCCEEDED
             progress.completed_at = datetime.now(timezone.utc).isoformat()
         except Exception as exc:
-            import traceback
             error_msg = str(exc)
             logger.exception("Run failed run_id=%s", run_id)
             progress.status = RunStatus.FAILED
             progress.error_message = error_msg
             progress.completed_at = datetime.now(timezone.utc).isoformat()
-            
-            if progress.current_block_id and progress.current_block_id in traces:
-                traces[progress.current_block_id].status = BlockExecutionStatus.FAILED
-                traces[progress.current_block_id].error_message = error_msg
-                traces[progress.current_block_id].error_traceback = traceback.format_exc()
-            
             _persist_progress()
 
-            # We still want to return a RunResult even for failed runs if possible
-            # But we might just re-raise here and let the API handle it if we want 500
-            # The implementation plan says "ensure failed runs persist partial execution data"
-            # which we just did with _persist_progress().
-            # I'll create the result object here so it can be saved.
-        
-        final_block_id = execution_order[-1] if execution_order else None
+        # Determine final output from the last wave's single block
+        final_block_id = waves[-1][-1].id if waves else None
         final_output = _serialize_output(outputs.get(final_block_id)) if final_block_id else None
         final_metrics = _story_metrics(final_output if isinstance(final_output, dict) else None)
-        
+
         if progress.status == RunStatus.SUCCEEDED:
-            progress.final_title = (final_output or {}).get("story_title") if isinstance(final_output, dict) else None
+            progress.final_title = (
+                final_output.get("story_title") if isinstance(final_output, dict) else None
+            )
             progress.final_metrics = final_metrics
 
         progress.stats = calculate_run_stats(traces, final_output)
@@ -520,7 +671,7 @@ class PipelineRunner:
             mode="dry_run",
             outputs={block_id: _serialize_output(value) for block_id, value in outputs.items()},
             final_output=final_output,
-            block_sequence=execution_order,
+            block_sequence=block_sequence,
             block_traces=traces,
             timeline=progress.timeline,
             stats=progress.stats,
@@ -535,10 +686,9 @@ class PipelineRunner:
             result.final_title,
             result.final_metrics.get("quality_proxy_score"),
         )
-        _persist_progress() # One last sync
-        
+        _persist_progress()
+
         if progress.status == RunStatus.FAILED:
-            # Re-raise to let API know it failed, but we settled the disk state first
             raise RuntimeError(progress.error_message)
 
         return result

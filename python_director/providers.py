@@ -84,17 +84,25 @@ class OpenAIProvider(AIProvider):
             from openai import OpenAI
         except ImportError as exc:
             raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
-        self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(api_key=api_key, timeout=3600.0)
         logger.info("OpenAIProvider initialized")
+
+    def _is_reasoning_model(self, model_name: str) -> bool:
+        """Models like o1-preview, o1-mini, or 5.4-pro don't support temperature."""
+        name = model_name.lower()
+        return name.startswith("o1-") or "5.4" in name
 
     def generate_content(self, config: BlockConfig, contents: str) -> str:
         logger.debug("OpenAI generate_content model=%s chars=%s", config.model_name, len(contents))
-        response = self.client.responses.create(
-            model=config.model_name,
-            instructions=config.system_instruction,
-            input=contents,
-            temperature=config.temperature,
-        )
+        kwargs = {
+            "model": config.model_name,
+            "instructions": config.system_instruction,
+            "input": contents,
+        }
+        if not self._is_reasoning_model(config.model_name):
+            kwargs["temperature"] = config.temperature
+
+        response = self.client.responses.create(**kwargs)
         return response.output_text
 
     def generate_structured_output(
@@ -109,13 +117,16 @@ class OpenAIProvider(AIProvider):
             response_schema.__name__,
             len(contents),
         )
-        response = self.client.responses.parse(
-            model=config.model_name,
-            instructions=config.system_instruction,
-            input=contents,
-            temperature=config.temperature,
-            text_format=response_schema,
-        )
+        kwargs = {
+            "model": config.model_name,
+            "instructions": config.system_instruction,
+            "input": contents,
+            "text_format": response_schema,
+        }
+        if not self._is_reasoning_model(config.model_name):
+            kwargs["temperature"] = config.temperature
+
+        response = self.client.responses.parse(**kwargs)
         if response.output_parsed is None:
             raise ValueError(response.output_text or "OpenAI response did not return a parsed payload.")
         return response.output_parsed

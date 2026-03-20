@@ -1,7 +1,7 @@
 {
-  "name": "Found Phone Director",
+  "name": "Gemini Main Creative",
   "description": "Low-code story generation pipeline for found-phone narratives.",
-  "updated_at": "2026-03-20T05:55:56.480151+00:00",
+  "updated_at": "2026-03-20T10:52:41.222813+00:00",
   "default_models": {
     "GEMINI": "gemini-3-flash-preview",
     "OPENAI": "gpt-5.4-mini"
@@ -15,97 +15,97 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3-flash-preview",
-        "use_pipeline_default_model": true,
-        "temperature": 1.0,
-        "system_instruction": "You are developing a premium, real-time found-phone thriller for mobile delivery.\nGoal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.\n\nRequirements:\n1) Define one central hidden truth that explains all major events.\n2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.\n3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.\n4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.\n5) Ensure every major beat can manifest as believable phone artifacts (journal, chat, email, receipt, voice note).\n\nOutput format (plain text sections):\n- Premise\n- Hidden Truth\n- Character Web\n- 48h Beat Timeline\n- Clue Ladder (clue, where discovered, payoff beat)\n- Spike Events\n- Risks to coherence",
-        "prompt_template": "Brainstorm the initial massive story outline.",
+        "model_name": "gemini-3.1-pro-preview",
+        "use_pipeline_default_model": false,
+        "temperature": 0.7,
+        "system_instruction": "You are developing a premium, real-time found-phone thriller for mobile delivery.\nGoal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.\n\nRequirements:\n1) Define one central hidden truth that explains all major events.\n2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.\n3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.\n4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.\n5) Ensure every major beat can manifest as believable phone artifacts (journal, chat, email, receipt, voice note).\n6) ENGAGEMENT DENSITY \u2014 communication must happen in bursts, not isolated pings:\n   - Chat / IM exchanges must be back-and-forth conversations (5-15 messages each) not single texts.\n   - Emails must be substantial multi-paragraph messages, not one-liners.\n   - Act 1 (first ~16 hours) must be the densest activity window to hook users early.\n   - No silent gaps longer than 90 minutes in Act 1.\n   - Plan at least 2 rapid-fire \"flurry\" sequences where 3+ artifact types overlap within 30 minutes.\n\nOutput format (plain text sections):\n- Premise\n- Hidden Truth\n- Character Web\n- 48h Beat Timeline\n- Clue Ladder (clue, where discovered, payoff beat)\n- Spike Events\n- Engagement Density Plan (burst clusters, Act 1 density map)\n- Risks to coherence",
+        "prompt_template": "Brainstorm the initial massive story outline. Avoid sci-fi themes and try to come up with a police thriller. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
         "response_mime_type": null,
         "response_schema_name": null
       },
       "input_blocks": []
     },
     {
-      "id": "brainstorm_council_logic",
-      "name": "Council: Logic Editor",
-      "description": "Council member critique of the initial brainstorm before planning.",
-      "type": "brainstorm_critic",
+      "id": "council_brainstorm_gemini_pro",
+      "name": "Council: Gemini Flash Lite Review",
+      "description": "Independent brainstorm critique from Gemini Pro.",
+      "type": "council_member",
+      "enabled": true,
+      "config": {
+        "provider": "GEMINI",
+        "model_name": "gemini-3.1-flash-lite-preview",
+        "use_pipeline_default_model": false,
+        "temperature": 0.7,
+        "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
+        "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+        "response_mime_type": "application/json",
+        "response_schema_name": "BrainstormCritique"
+      },
+      "input_blocks": [
+        "creative_brainstorm"
+      ]
+    },
+    {
+      "id": "council_brainstorm_gemini_flash",
+      "name": "Council: Gemini Flash Review",
+      "description": "Independent brainstorm critique from Gemini Flash.",
+      "type": "council_member",
+      "enabled": true,
+      "config": {
+        "provider": "GEMINI",
+        "model_name": "gemini-3-flash-preview",
+        "use_pipeline_default_model": true,
+        "temperature": 0.5,
+        "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
+        "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+        "response_mime_type": "application/json",
+        "response_schema_name": "BrainstormCritique"
+      },
+      "input_blocks": [
+        "creative_brainstorm"
+      ]
+    },
+    {
+      "id": "council_brainstorm_openai",
+      "name": "Council: OpenAI Review",
+      "description": "Independent brainstorm critique from OpenAI.",
+      "type": "council_member",
+      "enabled": true,
+      "config": {
+        "provider": "OPENAI",
+        "model_name": "gpt-5.4-mini",
+        "use_pipeline_default_model": true,
+        "temperature": 0.5,
+        "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
+        "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+        "response_mime_type": "application/json",
+        "response_schema_name": "BrainstormCritique"
+      },
+      "input_blocks": [
+        "creative_brainstorm"
+      ]
+    },
+    {
+      "id": "council_brainstorm_judge",
+      "name": "Council Judge: Brainstorm Synthesis",
+      "description": "Collates all brainstorm council critiques and produces the upgraded brainstorm.",
+      "type": "council_judge",
       "enabled": true,
       "config": {
         "provider": "OPENAI",
         "model_name": "gpt-5.4",
         "use_pipeline_default_model": false,
-        "temperature": 0.5,
-        "system_instruction": "You are one voice in a creative council reviewing a found-phone thriller brainstorm.\nYour job is to critique the brainstorm from your assigned lens and return concrete rewrite guidance.\n\nRules:\n- Be specific, evidence-based, and concise.\n- Push for stronger clue ladders, cleaner logic, and better phone-native execution.\n- Avoid generic praise.\n\nReturn strict BrainstormCritique schema.",
-        "prompt_template": "Review this brainstorm as a logic and continuity editor.\n\n{{creative_brainstorm}}",
-        "response_mime_type": "application/json",
-        "response_schema_name": "BrainstormCritique"
-      },
-      "input_blocks": [
-        "creative_brainstorm"
-      ]
-    },
-    {
-      "id": "brainstorm_council_audience",
-      "name": "Council: Audience Hook Editor",
-      "description": "Council member critique of the initial brainstorm before planning.",
-      "type": "brainstorm_critic",
-      "enabled": true,
-      "config": {
-        "provider": "OPENAI",
-        "model_name": "gpt-5.4-mini",
-        "use_pipeline_default_model": true,
-        "temperature": 0.5,
-        "system_instruction": "You are one voice in a creative council reviewing a found-phone thriller brainstorm.\nYour job is to critique the brainstorm from your assigned lens and return concrete rewrite guidance.\n\nRules:\n- Be specific, evidence-based, and concise.\n- Push for stronger clue ladders, cleaner logic, and better phone-native execution.\n- Avoid generic praise.\n\nReturn strict BrainstormCritique schema.",
-        "prompt_template": "Review this brainstorm for engagement, suspense rhythm, and cliffhangers.\n\n{{creative_brainstorm}}",
-        "response_mime_type": "application/json",
-        "response_schema_name": "BrainstormCritique"
-      },
-      "input_blocks": [
-        "creative_brainstorm"
-      ]
-    },
-    {
-      "id": "brainstorm_council_artifacts",
-      "name": "Council: Artifact Realism Editor",
-      "description": "Council member critique of the initial brainstorm before planning.",
-      "type": "brainstorm_critic",
-      "enabled": true,
-      "config": {
-        "provider": "GEMINI",
-        "model_name": "gemini-3.1-pro-preview",
-        "use_pipeline_default_model": false,
-        "temperature": 0.5,
-        "system_instruction": "You are one voice in a creative council reviewing a found-phone thriller brainstorm.\nYour job is to critique the brainstorm from your assigned lens and return concrete rewrite guidance.\n\nRules:\n- Be specific, evidence-based, and concise.\n- Push for stronger clue ladders, cleaner logic, and better phone-native execution.\n- Avoid generic praise.\n\nReturn strict BrainstormCritique schema.",
-        "prompt_template": "Review this brainstorm for phone-artifact realism and clue discoverability.\n\n{{creative_brainstorm}}",
-        "response_mime_type": "application/json",
-        "response_schema_name": "BrainstormCritique"
-      },
-      "input_blocks": [
-        "creative_brainstorm"
-      ]
-    },
-    {
-      "id": "creative_brainstorm_rewrite",
-      "name": "Creative Brainstorm Rewrite",
-      "description": "Rewrites brainstorm using all council feedback.",
-      "type": "brainstorm_rewriter",
-      "enabled": true,
-      "config": {
-        "provider": "OPENAI",
-        "model_name": "gpt-5.4-mini",
-        "use_pipeline_default_model": true,
-        "temperature": 0.9,
-        "system_instruction": "You are the original brainstorm author revising your own concept after council feedback.\n\nInput:\n- original brainstorm\n- multiple council critiques\n\nTask:\n- Preserve the strongest original ideas.\n- Integrate the highest-impact critique items.\n- Resolve contradictions and realism risks.\n- Strengthen clue/payoff architecture and real-time cadence.\n\nOutput plain text sections:\n- Revised Premise\n- Revised Hidden Truth\n- Revised Character Web\n- Revised 48h Beat Timeline\n- Revised Clue Ladder\n- Revised Spike Events\n- What changed from original",
-        "prompt_template": "Original brainstorm:\n{{creative_brainstorm}}\n\nCouncil feedback 1:\n{{brainstorm_council_logic}}\n\nCouncil feedback 2:\n{{brainstorm_council_audience}}\n\nCouncil feedback 3:\n{{brainstorm_council_artifacts}}\n\nRewrite the brainstorm.",
+        "temperature": 0.8,
+        "system_instruction": "You are the Chief Creative Arbitrator. You have received independent critiques of a brainstorm\nfrom multiple AI council members, each with a different training perspective.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus, highlight unique insights, flag contradictions.\n2. Produce a substantially upgraded brainstorm integrating the highest-impact recommendations.\n3. Where council members disagree, apply your own creative judgment.\n4. Preserve what is strong. Fix what is weak. Cut what is redundant.\n\nOutput plain text sections:\n- Revised Premise\n- Revised Hidden Truth\n- Revised Character Web\n- Revised 48h Beat Timeline\n- Revised Clue Ladder\n- Revised Spike Events\n- Council synthesis notes (consensus that emerged, unique insights surfaced)",
+        "prompt_template": "Original brainstorm:\n{{creative_brainstorm}}\n\nCouncil member 1 (Gemini Pro):\n{{council_brainstorm_gemini_pro}}\n\nCouncil member 2 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\nCouncil member 3 (OpenAI):\n{{council_brainstorm_openai}}\n\nSynthesize the council feedback and produce the upgraded brainstorm.",
         "response_mime_type": null,
         "response_schema_name": null
       },
       "input_blocks": [
         "creative_brainstorm",
-        "brainstorm_council_logic",
-        "brainstorm_council_audience",
-        "brainstorm_council_artifacts"
+        "council_brainstorm_gemini_pro",
+        "council_brainstorm_gemini_flash",
+        "council_brainstorm_openai"
       ]
     },
     {
@@ -120,26 +120,26 @@
         "use_pipeline_default_model": true,
         "temperature": 0.7,
         "system_instruction": "Convert the provided creative outline into a production-ready StoryPlan.\nPreserve ambition, but prioritize coherence and payoff.\n\nNon-negotiables:\n- Character actions must match motivation and prior knowledge.\n- Core conflict must escalate through the 3 acts.\n- Twist must be foreshadowed by earlier signals.\n- Background lore must directly pressure current events.\n- Story must support serialized real-time delivery with anticipation between drops.\n\nBefore finalizing, self-check:\n- Any timeline contradictions?\n- Any character acting out-of-character?\n- Any missing setup for major payoff?\nIf yes, repair before output.",
-        "prompt_template": "Convert this outline into StoryPlan:\n\n{{creative_brainstorm_rewrite}}",
+        "prompt_template": "Convert this outline into StoryPlan:\n\n{{council_brainstorm_judge}}",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryPlan"
       },
       "input_blocks": [
-        "creative_brainstorm_rewrite"
+        "council_brainstorm_judge"
       ]
     },
     {
-      "id": "plan_critique_pass_1",
-      "name": "Plan Critique Pass 1",
-      "description": "Applies editorial pressure and returns structured critique notes.",
-      "type": "critic",
+      "id": "council_plan_gemini_pro",
+      "name": "Council: Plan Review (Gemini Pro)",
+      "description": "Independent StoryPlan critique from Gemini Pro.",
+      "type": "council_member",
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3-flash-preview",
-        "use_pipeline_default_model": true,
-        "temperature": 0.7,
-        "system_instruction": "You are a senior story editor doing a release-gate review.\n\nEvaluate StoryPlan on:\n- Continuity consistency\n- Tension curve and pacing rhythm\n- Clue/payoff fairness\n- Character credibility\n- Artifact potential (can this become compelling phone-native content?)\n\nFor each weakness, provide:\n- Severity (High/Medium/Low)\n- Why it damages user engagement\n- Concrete fix instruction\n\nPrioritize top 7 fixes by expected impact.\nReject generic advice.",
+        "model_name": "gemini-3.1-pro-preview",
+        "use_pipeline_default_model": false,
+        "temperature": 0.5,
+        "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
         "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryCritique"
@@ -149,65 +149,66 @@
       ]
     },
     {
-      "id": "revised_plan_pass_1",
-      "name": "Revision Pass 1",
-      "description": "Revises the StoryPlan based on the previous critique block.",
-      "type": "reviser",
+      "id": "council_plan_gemini_flash",
+      "name": "Council: Plan Review (Gemini Flash)",
+      "description": "Independent StoryPlan critique from Gemini Flash.",
+      "type": "council_member",
       "enabled": true,
       "config": {
         "provider": "GEMINI",
         "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
-        "temperature": 0.8,
-        "system_instruction": "Revise the StoryPlan using the critique.\nObjective: structural upgrade, not cosmetic rewrite.\n\nRules:\n- Apply all High severity fixes.\n- Keep what already works; do not rewrite stable sections unnecessarily.\n- Strengthen foreshadowing for twist and clue chain.\n- Improve pacing by alternating pressure spikes and breathing windows.\n- Preserve realism of character communication behaviors.\n\nFinal self-check:\n- No unresolved High severity issue.\n- No contradiction in character intent or chronology.\n- Stronger act transitions than previous version.",
-        "prompt_template": "Original Plan:\n{{structural_plan}}\n\nCritique to apply:\n{{plan_critique_pass_1}}",
-        "response_mime_type": "application/json",
-        "response_schema_name": "StoryPlan"
-      },
-      "input_blocks": [
-        "structural_plan",
-        "plan_critique_pass_1"
-      ]
-    },
-    {
-      "id": "plan_critique_pass_2",
-      "name": "Plan Critique Pass 2",
-      "description": "Applies editorial pressure and returns structured critique notes.",
-      "type": "critic",
-      "enabled": true,
-      "config": {
-        "provider": "GEMINI",
-        "model_name": "gemini-3-flash-preview",
-        "use_pipeline_default_model": true,
-        "temperature": 0.7,
-        "system_instruction": "You are a senior story editor doing a release-gate review.\n\nEvaluate StoryPlan on:\n- Continuity consistency\n- Tension curve and pacing rhythm\n- Clue/payoff fairness\n- Character credibility\n- Artifact potential (can this become compelling phone-native content?)\n\nFor each weakness, provide:\n- Severity (High/Medium/Low)\n- Why it damages user engagement\n- Concrete fix instruction\n\nPrioritize top 7 fixes by expected impact.\nReject generic advice.",
+        "temperature": 0.5,
+        "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
         "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryCritique"
       },
       "input_blocks": [
-        "revised_plan_pass_1"
+        "structural_plan"
       ]
     },
     {
-      "id": "revised_plan_pass_2",
-      "name": "Revision Pass 2",
-      "description": "Revises the StoryPlan based on the previous critique block.",
-      "type": "reviser",
+      "id": "council_plan_openai",
+      "name": "Council: Plan Review (OpenAI)",
+      "description": "Independent StoryPlan critique from OpenAI.",
+      "type": "council_member",
+      "enabled": true,
+      "config": {
+        "provider": "OPENAI",
+        "model_name": "gpt-5.4-mini",
+        "use_pipeline_default_model": true,
+        "temperature": 0.5,
+        "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
+        "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
+        "response_mime_type": "application/json",
+        "response_schema_name": "StoryCritique"
+      },
+      "input_blocks": [
+        "structural_plan"
+      ]
+    },
+    {
+      "id": "council_plan_judge",
+      "name": "Council Judge: Plan Synthesis",
+      "description": "Collates all plan council critiques and produces the upgraded StoryPlan.",
+      "type": "council_judge",
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3-flash-preview",
-        "use_pipeline_default_model": true,
-        "temperature": 0.8,
-        "system_instruction": "Revise the StoryPlan using the critique.\nObjective: structural upgrade, not cosmetic rewrite.\n\nRules:\n- Apply all High severity fixes.\n- Keep what already works; do not rewrite stable sections unnecessarily.\n- Strengthen foreshadowing for twist and clue chain.\n- Improve pacing by alternating pressure spikes and breathing windows.\n- Preserve realism of character communication behaviors.\n\nFinal self-check:\n- No unresolved High severity issue.\n- No contradiction in character intent or chronology.\n- Stronger act transitions than previous version.",
-        "prompt_template": "Original Plan:\n{{structural_plan}}\n\nCritique to apply:\n{{plan_critique_pass_1}}",
+        "model_name": "gemini-3.1-pro-preview",
+        "use_pipeline_default_model": false,
+        "temperature": 0.7,
+        "system_instruction": "You are the Chief Story Architect. You have received independent structural critiques of a StoryPlan\nfrom multiple AI council members.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus structural issues and extract unique insights.\n2. Produce a substantially upgraded StoryPlan applying all High-severity fixes and the best Medium fixes.\n3. Where council members disagree, use your architectural judgment to choose the stronger path.\n4. Strengthen foreshadowing, tighten act transitions, and deepen character credibility.\n\nReturn strict StoryPlan schema.",
+        "prompt_template": "Original StoryPlan:\n{{structural_plan}}\n\nCouncil member 1 (Gemini Pro):\n{{council_plan_gemini_pro}}\n\nCouncil member 2 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\nCouncil member 3 (OpenAI):\n{{council_plan_openai}}\n\nSynthesize the council feedback and produce the upgraded StoryPlan.",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryPlan"
       },
       "input_blocks": [
-        "revised_plan_pass_1",
-        "plan_critique_pass_2"
+        "structural_plan",
+        "council_plan_gemini_pro",
+        "council_plan_gemini_flash",
+        "council_plan_openai"
       ]
     },
     {
@@ -222,12 +223,12 @@
         "use_pipeline_default_model": true,
         "temperature": 0.2,
         "system_instruction": "Perform a continuity release check on the StoryPlan.\n\nObjectives:\n- Detect contradictions in timeline, character knowledge, and motivation.\n- Detect clue setup/payoff breaks.\n- Identify high-risk sections likely to reduce trust or immersion.\n\nOutput strict ContinuityAudit schema.\nIf no contradiction exists, return an empty contradictions list and a high continuity_score.\nDo not invent issues just to fill fields.",
-        "prompt_template": "Audit this StoryPlan for release readiness:\n\n{{revised_plan_pass_2}}",
+        "prompt_template": "Audit this StoryPlan for release readiness:\n\n{{council_plan_judge}}",
         "response_mime_type": "application/json",
         "response_schema_name": "ContinuityAudit"
       },
       "input_blocks": [
-        "revised_plan_pass_2"
+        "council_plan_judge"
       ]
     },
     {
@@ -242,12 +243,12 @@
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "Break the final StoryPlan into scene blocks for real-time release design.\n\nConstraints:\n- Timeline must be strictly chronological across 48 hours.\n- Mix calm investigative windows and high-intensity interruption windows.\n- Every scene must specify artifact expectations that are plausible for that moment.\n- Ensure at least 3 interruption spikes, 2 deceptive calm periods, and 1 pre-climax acceleration sequence.\n- Scene descriptions must include narrative purpose (setup, pressure, reveal, misdirect, payoff).\n\nAvoid filler scenes that do not move either conflict or clue chain.",
-        "prompt_template": "Create SceneList from StoryPlan:\n\n{{revised_plan_pass_2}}\n\nContinuity notes:\n{{continuity_audit}}",
+        "prompt_template": "Create SceneList from StoryPlan:\n\n{{council_plan_judge}}\n\nContinuity notes:\n{{continuity_audit}}",
         "response_mime_type": "application/json",
         "response_schema_name": "SceneList"
       },
       "input_blocks": [
-        "revised_plan_pass_2",
+        "council_plan_judge",
         "continuity_audit"
       ]
     },
@@ -263,12 +264,12 @@
         "use_pipeline_default_model": true,
         "temperature": 0.4,
         "system_instruction": "Create a real-time delivery DropPlan from StoryPlan and SceneList.\n\nRules:\n- Plan timed events that feel notification-worthy.\n- Balance interruption spikes with quiet windows to preserve anticipation.\n- Ensure cliffhanger targets are spread across the 48-hour arc.\n- Keep event summaries concise and operational for CMS scheduling.\n\nOutput strict DropPlan schema.",
-        "prompt_template": "StoryPlan:\n{{revised_plan_pass_2}}\n\nSceneList:\n{{scene_decomposition}}\n\nCreate DropPlan.",
+        "prompt_template": "StoryPlan:\n{{council_plan_judge}}\n\nSceneList:\n{{scene_decomposition}}\n\nCreate DropPlan.",
         "response_mime_type": "application/json",
         "response_schema_name": "DropPlan"
       },
       "input_blocks": [
-        "revised_plan_pass_2",
+        "council_plan_judge",
         "scene_decomposition"
       ]
     },
@@ -283,13 +284,13 @@
         "model_name": "gemini-2.5-pro",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
-        "system_instruction": "Generate final phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\n\nQuality rules:\n- Each character must have distinct language patterns.\n- Chats should feel like real texting cadence.\n- Emails should match sender role and context.\n- Journals should reflect psychological progression over time.\n- Voice notes should carry spoken realism and emotional texture.\n- Artifact content must align with chronology and known facts.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nAnti-generic rules:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts.\n- No contradictory knowledge leaks.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries.",
-        "prompt_template": "Final Plan:\n{{revised_plan_pass_2}}\n\nContinuity Audit:\n{{continuity_audit}}\n\nScenes:\n{{scene_decomposition}}\n\nDrop Plan:\n{{drop_director}}\n\nGenerate StoryGenerated artifacts.",
+        "system_instruction": "Generate final phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\n\nQuality rules:\n- Each character must have distinct language patterns.\n- Chats should feel like real texting cadence.\n- Emails should match sender role and context.\n- Journals should reflect psychological progression over time.\n- Voice notes should carry spoken realism and emotional texture.\n- Artifact content must align with chronology and known facts.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY rules (critical):\n- IM / chat conversations MUST be back-and-forth exchanges of 5-15 messages minimum.\n  A single isolated text message is only acceptable if it is an explicit plot point.\n- Emails MUST be multi-paragraph (3+ paragraphs) with real substance.\n- Act 1 (first ~960 time_offset_minutes) must be the densest section.\n  No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 2 \"flurry\" windows where 3+ artifacts land within 30 minutes.\n- Journal entries should be multi-paragraph reflections, not bullet summaries.\n- Voice notes should be substantial monologues (50+ words), not one-liners.\n\nAnti-generic rules:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts.\n- No contradictory knowledge leaks.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries.",
+        "prompt_template": "Final Plan:\n{{council_plan_judge}}\n\nContinuity Audit:\n{{continuity_audit}}\n\nScenes:\n{{scene_decomposition}}\n\nDrop Plan:\n{{drop_director}}\n\nGenerate StoryGenerated artifacts.",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryGenerated"
       },
       "input_blocks": [
-        "revised_plan_pass_2",
+        "council_plan_judge",
         "continuity_audit",
         "scene_decomposition",
         "drop_director"

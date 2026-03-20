@@ -32,6 +32,12 @@ Requirements:
 3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.
 4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.
 5) Ensure every major beat can manifest as believable phone artifacts (journal, chat, email, receipt, voice note).
+6) ENGAGEMENT DENSITY — communication must happen in bursts, not isolated pings:
+   - Chat / IM exchanges must be back-and-forth conversations (5-15 messages each) not single texts.
+   - Emails must be substantial multi-paragraph messages, not one-liners.
+   - Act 1 (first ~16 hours) must be the densest activity window to hook users early.
+   - No silent gaps longer than 90 minutes in Act 1.
+   - Plan at least 2 rapid-fire "flurry" sequences where 3+ artifact types overlap within 30 minutes.
 
 Output format (plain text sections):
 - Premise
@@ -40,33 +46,35 @@ Output format (plain text sections):
 - 48h Beat Timeline
 - Clue Ladder (clue, where discovered, payoff beat)
 - Spike Events
+- Engagement Density Plan (burst clusters, Act 1 density map)
 - Risks to coherence
 """.strip()
 
-COUNCIL_CRITIC_PROMPT = """
-You are one voice in a creative council reviewing a found-phone thriller brainstorm.
-Your job is to critique the brainstorm from your assigned lens and return concrete rewrite guidance.
+COUNCIL_MEMBER_BRAINSTORM_PROMPT = """
+You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.
+You review the material with fresh eyes and produce your own unbiased critique.
 
-Rules:
-- Be specific, evidence-based, and concise.
-- Push for stronger clue ladders, cleaner logic, and better phone-native execution.
-- Avoid generic praise.
+Your mandate:
+- Evaluate story logic, clue architecture, character depth, and phone-native believability.
+- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)
+  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?
+  Flag any dead zones in Act 1 where the user would stop checking the app.
+- Identify missed opportunities that could dramatically improve the concept.
+- Be specific and evidence-based. Cite actual elements from the brainstorm.
+- Push hard. Generic praise wastes council time.
 
 Return strict BrainstormCritique schema.
 """.strip()
 
-BRAINSTORM_REWRITE_PROMPT = """
-You are the original brainstorm author revising your own concept after council feedback.
+COUNCIL_BRAINSTORM_JUDGE_PROMPT = """
+You are the Chief Creative Arbitrator. You have received independent critiques of a brainstorm
+from multiple AI council members, each with a different training perspective.
 
-Input:
-- original brainstorm
-- multiple council critiques
-
-Task:
-- Preserve the strongest original ideas.
-- Integrate the highest-impact critique items.
-- Resolve contradictions and realism risks.
-- Strengthen clue/payoff architecture and real-time cadence.
+Your job:
+1. Synthesize the council feedback — find consensus, highlight unique insights, flag contradictions.
+2. Produce a substantially upgraded brainstorm integrating the highest-impact recommendations.
+3. Where council members disagree, apply your own creative judgment.
+4. Preserve what is strong. Fix what is weak. Cut what is redundant.
 
 Output plain text sections:
 - Revised Premise
@@ -75,7 +83,36 @@ Output plain text sections:
 - Revised 48h Beat Timeline
 - Revised Clue Ladder
 - Revised Spike Events
-- What changed from original
+- Council synthesis notes (consensus that emerged, unique insights surfaced)
+""".strip()
+
+COUNCIL_MEMBER_PLAN_PROMPT = """
+You are an independent story editor serving on a creative council reviewing a structural StoryPlan
+for a found-phone thriller.
+
+Your mandate:
+- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.
+- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?
+  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with
+  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.
+- Identify structural weaknesses with specific fix instructions.
+- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.
+- Be specific. Cite plan elements. Avoid generic advice.
+
+Return strict StoryCritique schema.
+""".strip()
+
+COUNCIL_PLAN_JUDGE_PROMPT = """
+You are the Chief Story Architect. You have received independent structural critiques of a StoryPlan
+from multiple AI council members.
+
+Your job:
+1. Synthesize the council feedback — find consensus structural issues and extract unique insights.
+2. Produce a substantially upgraded StoryPlan applying all High-severity fixes and the best Medium fixes.
+3. Where council members disagree, use your architectural judgment to choose the stronger path.
+4. Strengthen foreshadowing, tighten act transitions, and deepen character credibility.
+
+Return strict StoryPlan schema.
 """.strip()
 
 PLANNER_PROMPT = """
@@ -96,41 +133,6 @@ Before finalizing, self-check:
 If yes, repair before output.
 """.strip()
 
-CRITIC_PROMPT = """
-You are a senior story editor doing a release-gate review.
-
-Evaluate StoryPlan on:
-- Continuity consistency
-- Tension curve and pacing rhythm
-- Clue/payoff fairness
-- Character credibility
-- Artifact potential (can this become compelling phone-native content?)
-
-For each weakness, provide:
-- Severity (High/Medium/Low)
-- Why it damages user engagement
-- Concrete fix instruction
-
-Prioritize top 7 fixes by expected impact.
-Reject generic advice.
-""".strip()
-
-PLAN_REVISION_PROMPT = """
-Revise the StoryPlan using the critique.
-Objective: structural upgrade, not cosmetic rewrite.
-
-Rules:
-- Apply all High severity fixes.
-- Keep what already works; do not rewrite stable sections unnecessarily.
-- Strengthen foreshadowing for twist and clue chain.
-- Improve pacing by alternating pressure spikes and breathing windows.
-- Preserve realism of character communication behaviors.
-
-Final self-check:
-- No unresolved High severity issue.
-- No contradiction in character intent or chronology.
-- Stronger act transitions than previous version.
-""".strip()
 
 SCENE_DECOMPOSITION_PROMPT = """
 Break the final StoryPlan into scene blocks for real-time release design.
@@ -183,6 +185,16 @@ Quality rules:
 - Embed discoverable clues without blunt exposition.
 - Each major drop should reveal, reframe, or raise risk.
 
+ENGAGEMENT DENSITY rules (critical):
+- IM / chat conversations MUST be back-and-forth exchanges of 5-15 messages minimum.
+  A single isolated text message is only acceptable if it is an explicit plot point.
+- Emails MUST be multi-paragraph (3+ paragraphs) with real substance.
+- Act 1 (first ~960 time_offset_minutes) must be the densest section.
+  No gap between consecutive artifacts should exceed 90 minutes in Act 1.
+- Create at least 2 "flurry" windows where 3+ artifacts land within 30 minutes.
+- Journal entries should be multi-paragraph reflections, not bullet summaries.
+- Voice notes should be substantial monologues (50+ words), not one-liners.
+
 Anti-generic rules:
 - No repetitive phrasing across artifacts.
 - No summary-narrator tone inside artifacts.
@@ -234,37 +246,35 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 prompt_template="Brainstorm the initial massive story outline.",
             ),
         ),
-        BlockType.BRAINSTORM_CRITIC: BlockTemplate(
-            type=BlockType.BRAINSTORM_CRITIC,
-            name="Brainstorm Council Critic",
-            description="Council member critique of the initial brainstorm before planning.",
-            config=BlockConfig(
-                provider=ProviderType.OPENAI,
-                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.OPENAI.value],
-                use_pipeline_default_model=True,
-                temperature=0.5,
-                system_instruction=COUNCIL_CRITIC_PROMPT,
-                prompt_template="Critique this brainstorm:\n\n{{creative_brainstorm}}",
-                response_mime_type="application/json",
-                response_schema_name="BrainstormCritique",
-            ),
-        ),
-        BlockType.BRAINSTORM_REWRITER: BlockTemplate(
-            type=BlockType.BRAINSTORM_REWRITER,
-            name="Brainstorm Rewrite",
-            description="Rewrites brainstorm using all council feedback.",
+        BlockType.COUNCIL_MEMBER: BlockTemplate(
+            type=BlockType.COUNCIL_MEMBER,
+            name="Council Member",
+            description="Independent reviewer in a council. Runs in parallel with other council members.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
                 model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
                 use_pipeline_default_model=True,
-                temperature=0.9,
-                system_instruction=BRAINSTORM_REWRITE_PROMPT,
+                temperature=0.5,
+                system_instruction=COUNCIL_MEMBER_BRAINSTORM_PROMPT,
+                prompt_template="Review this brainstorm:\n\n{{creative_brainstorm}}",
+                response_mime_type="application/json",
+                response_schema_name="BrainstormCritique",
+            ),
+        ),
+        BlockType.COUNCIL_JUDGE: BlockTemplate(
+            type=BlockType.COUNCIL_JUDGE,
+            name="Council Judge",
+            description="Collates all council member critiques and produces the synthesized final output.",
+            config=BlockConfig(
+                provider=ProviderType.OPENAI,
+                model_name="gpt-5.4",
+                use_pipeline_default_model=False,
+                temperature=0.8,
+                system_instruction=COUNCIL_BRAINSTORM_JUDGE_PROMPT,
                 prompt_template=(
                     "Original brainstorm:\n{{creative_brainstorm}}\n\n"
-                    "Council feedback 1:\n{{brainstorm_council_logic}}\n\n"
-                    "Council feedback 2:\n{{brainstorm_council_audience}}\n\n"
-                    "Council feedback 3:\n{{brainstorm_council_artifacts}}\n\n"
-                    "Rewrite the brainstorm."
+                    "Council critiques:\n{{council_brainstorm_gemini_pro}}\n\n"
+                    "Synthesize and produce the upgraded brainstorm."
                 ),
             ),
         ),
@@ -278,40 +288,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 use_pipeline_default_model=True,
                 temperature=0.7,
                 system_instruction=PLANNER_PROMPT,
-                prompt_template="Convert this outline into StoryPlan:\n\n{{creative_brainstorm_rewrite}}",
-                response_mime_type="application/json",
-                response_schema_name="StoryPlan",
-            ),
-        ),
-        BlockType.CRITIC: BlockTemplate(
-            type=BlockType.CRITIC,
-            name="Plan Critic",
-            description="Applies editorial pressure and returns structured critique notes.",
-            config=BlockConfig(
-                provider=ProviderType.GEMINI,
-                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
-                use_pipeline_default_model=True,
-                temperature=0.7,
-                system_instruction=CRITIC_PROMPT,
-                prompt_template="Review this StoryPlan:\n\n{{structural_plan}}",
-                response_mime_type="application/json",
-                response_schema_name="StoryCritique",
-            ),
-        ),
-        BlockType.REVISER: BlockTemplate(
-            type=BlockType.REVISER,
-            name="Plan Revision",
-            description="Revises the StoryPlan based on the previous critique block.",
-            config=BlockConfig(
-                provider=ProviderType.GEMINI,
-                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
-                use_pipeline_default_model=True,
-                temperature=0.8,
-                system_instruction=PLAN_REVISION_PROMPT,
-                prompt_template=(
-                    "Original Plan:\n{{structural_plan}}\n\n"
-                    "Critique to apply:\n{{plan_critique_pass_1}}"
-                ),
+                prompt_template="Convert this outline into StoryPlan:\n\n{{council_brainstorm_judge}}",
                 response_mime_type="application/json",
                 response_schema_name="StoryPlan",
             ),
@@ -426,124 +403,231 @@ def get_default_pipeline() -> PipelineDefinition:
         updated_at=utc_now_iso(),
         default_models=deepcopy(PIPELINE_DEFAULT_MODELS),
         blocks=[
+            # ── Stage 1: Creative brainstorm ──────────────────────────────────────
             build_block_from_template(
                 BlockType.CREATIVE_OUTLINER,
                 block_id="creative_brainstorm",
                 description="Starts the pipeline with the broadest possible story thinking.",
             ),
+            # ── Stage 2: Brainstorm council (3 models in parallel) ────────────────
             build_block_from_template(
-                BlockType.BRAINSTORM_CRITIC,
-                block_id="brainstorm_council_logic",
-                name="Council: Logic Editor",
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_brainstorm_gemini_pro",
+                name="Council: Gemini Pro Review",
+                description="Independent brainstorm critique from Gemini Pro.",
                 input_blocks=["creative_brainstorm"],
                 config_overrides={
-                    "provider": ProviderType.OPENAI,
-                    "model_name": "gpt-5.4",
-                    "use_pipeline_default_model": False,
-                    "prompt_template": (
-                        "Review this brainstorm as a logic and continuity editor.\n\n"
-                        "{{creative_brainstorm}}"
-                    ),
-                },
-            ),
-            build_block_from_template(
-                BlockType.BRAINSTORM_CRITIC,
-                block_id="brainstorm_council_audience",
-                name="Council: Audience Hook Editor",
-                input_blocks=["creative_brainstorm"],
-                config_overrides={
-                    "model_name": None,
-                    "use_pipeline_default_model": True,
-                    "prompt_template": (
-                        "Review this brainstorm for engagement, suspense rhythm, and cliffhangers.\n\n"
-                        "{{creative_brainstorm}}"
-                    ),
-                },
-            ),
-            build_block_from_template(
-                BlockType.BRAINSTORM_CRITIC,
-                block_id="brainstorm_council_artifacts",
-                name="Council: Artifact Realism Editor",
-                input_blocks=["creative_brainstorm"],
-                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_BRAINSTORM_PROMPT,
                     "provider": ProviderType.GEMINI,
                     "model_name": "gemini-3.1-pro-preview",
                     "use_pipeline_default_model": False,
+                    "temperature": 0.7,
+                    "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "BrainstormCritique",
+                },
+            ),
+            build_block_from_template(
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_brainstorm_gemini_flash",
+                name="Council: Gemini Flash Review",
+                description="Independent brainstorm critique from Gemini Flash.",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_BRAINSTORM_PROMPT,
+                    "provider": ProviderType.GEMINI,
+                    "model_name": None,
+                    "use_pipeline_default_model": True,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "BrainstormCritique",
+                },
+            ),
+            build_block_from_template(
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_brainstorm_openai",
+                name="Council: OpenAI Review",
+                description="Independent brainstorm critique from OpenAI.",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_BRAINSTORM_PROMPT,
+                    "provider": ProviderType.OPENAI,
+                    "model_name": None,
+                    "use_pipeline_default_model": True,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "BrainstormCritique",
+                },
+            ),
+            # ── Stage 3: Brainstorm council judge ─────────────────────────────────
+            build_block_from_template(
+                BlockType.COUNCIL_JUDGE,
+                block_id="council_brainstorm_judge",
+                name="Council Judge: Brainstorm Synthesis",
+                description="Collates all brainstorm council critiques and produces the upgraded brainstorm.",
+                input_blocks=[
+                    "creative_brainstorm",
+                    "council_brainstorm_gemini_pro",
+                    "council_brainstorm_gemini_flash",
+                    "council_brainstorm_openai",
+                ],
+                config_overrides={
+                    "system_instruction": COUNCIL_BRAINSTORM_JUDGE_PROMPT,
+                    "provider": ProviderType.OPENAI,
+                    "model_name": "gpt-5.4",
+                    "use_pipeline_default_model": False,
+                    "temperature": 0.8,
                     "prompt_template": (
-                        "Review this brainstorm for phone-artifact realism and clue discoverability.\n\n"
-                        "{{creative_brainstorm}}"
+                        "Original brainstorm:\n{{creative_brainstorm}}\n\n"
+                        "Council member 1 (Gemini Pro):\n{{council_brainstorm_gemini_pro}}\n\n"
+                        "Council member 2 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\n"
+                        "Council member 3 (OpenAI):\n{{council_brainstorm_openai}}\n\n"
+                        "Synthesize the council feedback and produce the upgraded brainstorm."
                     ),
                 },
             ),
-            build_block_from_template(
-                BlockType.BRAINSTORM_REWRITER,
-                block_id="creative_brainstorm_rewrite",
-                name="Creative Brainstorm Rewrite",
-                input_blocks=[
-                    "creative_brainstorm",
-                    "brainstorm_council_logic",
-                    "brainstorm_council_audience",
-                    "brainstorm_council_artifacts",
-                ],
-                config_overrides={
-                    "provider": ProviderType.OPENAI,
-                    "model_name": PIPELINE_DEFAULT_MODELS[ProviderType.OPENAI.value],
-                    "use_pipeline_default_model": True,
-                },
-            ),
+            # ── Stage 4: Structural planner ───────────────────────────────────────
             build_block_from_template(
                 BlockType.PLANNER,
                 block_id="structural_plan",
-                input_blocks=["creative_brainstorm_rewrite"],
+                input_blocks=["council_brainstorm_judge"],
             ),
+            # ── Stage 5: Plan council (3 models in parallel) ──────────────────────
             build_block_from_template(
-                BlockType.CRITIC,
-                block_id="plan_critique_pass_1",
-                name="Plan Critique Pass 1",
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_plan_gemini_pro",
+                name="Council: Plan Review (Gemini Pro)",
+                description="Independent StoryPlan critique from Gemini Pro.",
                 input_blocks=["structural_plan"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_PLAN_PROMPT,
+                    "provider": ProviderType.GEMINI,
+                    "model_name": "gemini-3.1-pro-preview",
+                    "use_pipeline_default_model": False,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "StoryCritique",
+                },
             ),
             build_block_from_template(
-                BlockType.REVISER,
-                block_id="revised_plan_pass_1",
-                name="Revision Pass 1",
-                input_blocks=["structural_plan", "plan_critique_pass_1"],
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_plan_gemini_flash",
+                name="Council: Plan Review (Gemini Flash)",
+                description="Independent StoryPlan critique from Gemini Flash.",
+                input_blocks=["structural_plan"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_PLAN_PROMPT,
+                    "provider": ProviderType.GEMINI,
+                    "model_name": None,
+                    "use_pipeline_default_model": True,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "StoryCritique",
+                },
             ),
             build_block_from_template(
-                BlockType.CRITIC,
-                block_id="plan_critique_pass_2",
-                name="Plan Critique Pass 2",
-                input_blocks=["revised_plan_pass_1"],
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_plan_openai",
+                name="Council: Plan Review (OpenAI)",
+                description="Independent StoryPlan critique from OpenAI.",
+                input_blocks=["structural_plan"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_PLAN_PROMPT,
+                    "provider": ProviderType.OPENAI,
+                    "model_name": None,
+                    "use_pipeline_default_model": True,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "StoryCritique",
+                },
             ),
+            # ── Stage 6: Plan council judge ───────────────────────────────────────
             build_block_from_template(
-                BlockType.REVISER,
-                block_id="revised_plan_pass_2",
-                name="Revision Pass 2",
-                input_blocks=["revised_plan_pass_1", "plan_critique_pass_2"],
+                BlockType.COUNCIL_JUDGE,
+                block_id="council_plan_judge",
+                name="Council Judge: Plan Synthesis",
+                description="Collates all plan council critiques and produces the upgraded StoryPlan.",
+                input_blocks=[
+                    "structural_plan",
+                    "council_plan_gemini_pro",
+                    "council_plan_gemini_flash",
+                    "council_plan_openai",
+                ],
+                config_overrides={
+                    "system_instruction": COUNCIL_PLAN_JUDGE_PROMPT,
+                    "provider": ProviderType.GEMINI,
+                    "model_name": "gemini-3.1-pro-preview",
+                    "use_pipeline_default_model": False,
+                    "temperature": 0.7,
+                    "prompt_template": (
+                        "Original StoryPlan:\n{{structural_plan}}\n\n"
+                        "Council member 1 (Gemini Pro):\n{{council_plan_gemini_pro}}\n\n"
+                        "Council member 2 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\n"
+                        "Council member 3 (OpenAI):\n{{council_plan_openai}}\n\n"
+                        "Synthesize the council feedback and produce the upgraded StoryPlan."
+                    ),
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "StoryPlan",
+                },
             ),
+            # ── Stage 7: Continuity audit ─────────────────────────────────────────
             build_block_from_template(
                 BlockType.CONTINUITY_AUDITOR,
                 block_id="continuity_audit",
-                input_blocks=["revised_plan_pass_2"],
+                input_blocks=["council_plan_judge"],
+                config_overrides={
+                    "prompt_template": "Audit this StoryPlan for release readiness:\n\n{{council_plan_judge}}",
+                },
             ),
+            # ── Stage 8: Scene decomposition ──────────────────────────────────────
             build_block_from_template(
                 BlockType.DECOMPOSER,
                 block_id="scene_decomposition",
-                input_blocks=["revised_plan_pass_2", "continuity_audit"],
+                input_blocks=["council_plan_judge", "continuity_audit"],
+                config_overrides={
+                    "prompt_template": (
+                        "Create SceneList from StoryPlan:\n\n{{council_plan_judge}}\n\n"
+                        "Continuity notes:\n{{continuity_audit}}"
+                    ),
+                },
             ),
+            # ── Stage 9: Drop director ────────────────────────────────────────────
             build_block_from_template(
                 BlockType.DROP_DIRECTOR,
                 block_id="drop_director",
-                input_blocks=["revised_plan_pass_2", "scene_decomposition"],
+                input_blocks=["council_plan_judge", "scene_decomposition"],
+                config_overrides={
+                    "prompt_template": (
+                        "StoryPlan:\n{{council_plan_judge}}\n\n"
+                        "SceneList:\n{{scene_decomposition}}\n\n"
+                        "Create DropPlan."
+                    ),
+                },
             ),
+            # ── Stage 10: Final artifact generation ───────────────────────────────
             build_block_from_template(
                 BlockType.GENERATOR,
                 block_id="final_artifact_generation",
                 input_blocks=[
-                    "revised_plan_pass_2",
+                    "council_plan_judge",
                     "continuity_audit",
                     "scene_decomposition",
                     "drop_director",
                 ],
+                config_overrides={
+                    "prompt_template": (
+                        "Final Plan:\n{{council_plan_judge}}\n\n"
+                        "Continuity Audit:\n{{continuity_audit}}\n\n"
+                        "Scenes:\n{{scene_decomposition}}\n\n"
+                        "Drop Plan:\n{{drop_director}}\n\n"
+                        "Generate StoryGenerated artifacts."
+                    ),
+                },
             ),
         ],
     )

@@ -178,7 +178,7 @@ def test_invalid_pipeline_file_resets_to_default(tmp_path: Path, monkeypatch):
     loaded = load_pipeline()
     ids = [block.id for block in loaded.blocks]
     assert "creative_brainstorm" in ids
-    assert "creative_brainstorm_rewrite" in ids
+    assert "council_brainstorm_judge" in ids
     assert pipeline_path.exists()
     archived = list(tmp_path.glob("pipeline.invalid.*.json"))
     assert archived
@@ -202,10 +202,16 @@ def test_default_pipeline_includes_brainstorm_council_blocks():
     ids = [block.id for block in pipeline.blocks]
 
     assert "creative_brainstorm" in ids
-    assert "brainstorm_council_logic" in ids
-    assert "brainstorm_council_audience" in ids
-    assert "brainstorm_council_artifacts" in ids
-    assert "creative_brainstorm_rewrite" in ids
+    # Brainstorm council: 3 parallel members + judge
+    assert "council_brainstorm_gemini_pro" in ids
+    assert "council_brainstorm_gemini_flash" in ids
+    assert "council_brainstorm_openai" in ids
+    assert "council_brainstorm_judge" in ids
+    # Plan council: 3 parallel members + judge
+    assert "council_plan_gemini_pro" in ids
+    assert "council_plan_gemini_flash" in ids
+    assert "council_plan_openai" in ids
+    assert "council_plan_judge" in ids
     assert pipeline.default_models["GEMINI"] == "gemini-3-flash-preview"
 
 
@@ -318,3 +324,62 @@ def test_save_pipeline_persists_model_name_for_inherited_blocks(tmp_path: Path, 
     saved = save_pipeline(pipeline)
 
     assert saved.blocks[0].config.model_name == "gemini-2.5-pro"
+
+
+def test_burstiness_metrics_computed_on_final_output():
+    from python_director.logic import _story_metrics
+
+    # 3 chats in a tight burst (0, 2, 4 min), then a long gap, then an email at 200 min
+    final_output = {
+        "story_title": "Burst Test",
+        "journals": [],
+        "chats": [
+            {"senderId": "A", "text": "hi", "isProtagonist": False, "time_offset_minutes": 0},
+            {"senderId": "B", "text": "hey", "isProtagonist": True, "time_offset_minutes": 2},
+            {"senderId": "A", "text": "ok", "isProtagonist": False, "time_offset_minutes": 4},
+        ],
+        "emails": [{"sender": "x@x.com", "subject": "S", "body": "B", "time_offset_minutes": 200}],
+        "receipts": [],
+        "voice_notes": [],
+    }
+    metrics = _story_metrics(final_output)
+
+    assert "burstiness_score" in metrics
+    assert "total_pause_minutes" in metrics
+    assert "max_pause_minutes" in metrics
+    assert "act1_pause_minutes" in metrics
+    assert "avg_chat_burst_length" in metrics
+    # 4 items total at t=0,2,4,200 → gaps=[2,2,196], total_pause=200
+    assert metrics["total_pause_minutes"] == 200
+    assert metrics["max_pause_minutes"] == 196
+    # All items within act1 (<= 960 min)
+    assert metrics["act1_pause_minutes"] == 200
+    # Chats 0,2,4 are within 5-min window (1 burst of 3)
+    assert metrics["avg_chat_burst_length"] == 3.0
+    # Score must be a non-negative float
+    assert isinstance(metrics["burstiness_score"], (int, float))
+    assert 0 <= metrics["burstiness_score"] <= 100
+
+
+def test_burstiness_score_perfect_vs_irregular():
+    from python_director.logic import _story_metrics
+
+    def _make_output(times: list[int]):
+        return {
+            "story_title": "Test",
+            "journals": [{"title": "t", "body": "b", "time_offset_minutes": t} for t in times],
+            "chats": [], "emails": [], "receipts": [], "voice_notes": [],
+        }
+
+    # Perfectly even gaps → high burstiness score
+    even = _make_output([0, 10, 20, 30, 40])
+    even_score = _story_metrics(even)["burstiness_score"]
+
+    # Very uneven gaps → lower burstiness score
+    uneven = _make_output([0, 1, 2, 500, 501])
+    uneven_score = _story_metrics(uneven)["burstiness_score"]
+
+    assert even_score > uneven_score, (
+        f"Even spacing should score higher than uneven: {even_score} vs {uneven_score}"
+    )
+
