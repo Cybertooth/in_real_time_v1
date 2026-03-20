@@ -244,6 +244,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
 PIPELINE_DEFAULT_MODELS: dict[str, str] = {
     ProviderType.GEMINI.value: "gemini-3-flash-preview",
     ProviderType.OPENAI.value: "gpt-5.4-mini",
+    ProviderType.ANTHROPIC.value: "claude-sonnet-4-6",
 }
 
 
