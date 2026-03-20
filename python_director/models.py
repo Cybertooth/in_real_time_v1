@@ -131,6 +131,7 @@ class RunTimelineEntry(BaseModel):
     story_day: int = 1
     story_time: str = "09:00 AM"
     title: str = ""
+    content: Optional[dict[str, Any]] = None
 
 
 class RunStats(BaseModel):

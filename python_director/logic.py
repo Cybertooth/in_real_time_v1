@@ -159,33 +159,51 @@ def derive_story_timeline(final_output: Any) -> list[RunTimelineEntry]:
             display_hour = 12
         return f"{display_hour:02d}:{mins:02d} {ampm}"
 
-    # Extract journals
     for i, j in enumerate(final_output.get("journals", [])):
         mins = j.get("time_offset_minutes", 0)
-        entries.append(
-            RunTimelineEntry(
-                block_id=f"journal_{i}",
-                event_type="journal",
-                story_day=(mins // (24 * 60)) + 1,
-                story_time=_to_clock(mins),
-                title=j.get("title", f"Journal Entry {i+1}"),
-            )
-        )
+        entries.append(RunTimelineEntry(
+            block_id=f"journal_{i}", event_type="journal",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=j.get("title", f"Journal Entry {i+1}"),
+            content=dict(j),
+        ))
 
-    # Extract chats
     for i, c in enumerate(final_output.get("chats", [])):
         mins = c.get("time_offset_minutes", 0)
-        entries.append(
-            RunTimelineEntry(
-                block_id=f"chat_{i}",
-                event_type="chat",
-                story_day=(mins // (24 * 60)) + 1,
-                story_time=_to_clock(mins),
-                title=f"Chat: {c.get('senderId', 'Unknown')}",
-            )
-        )
+        entries.append(RunTimelineEntry(
+            block_id=f"chat_{i}", event_type="chat",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=f"Chat: {c.get('senderId', 'Unknown')}",
+            content=dict(c),
+        ))
 
-    # Sort by day and time
+    for i, e in enumerate(final_output.get("emails", [])):
+        mins = e.get("time_offset_minutes", 0)
+        entries.append(RunTimelineEntry(
+            block_id=f"email_{i}", event_type="email",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=e.get("subject", f"Email {i+1}"),
+            content=dict(e),
+        ))
+
+    for i, r in enumerate(final_output.get("receipts", [])):
+        mins = r.get("time_offset_minutes", 0)
+        entries.append(RunTimelineEntry(
+            block_id=f"receipt_{i}", event_type="receipt",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=r.get("merchantName", f"Receipt {i+1}"),
+            content=dict(r),
+        ))
+
+    for i, v in enumerate(final_output.get("voice_notes", [])):
+        mins = v.get("time_offset_minutes", 0)
+        entries.append(RunTimelineEntry(
+            block_id=f"voice_note_{i}", event_type="voice_note",
+            story_day=(mins // (24 * 60)) + 1, story_time=_to_clock(mins),
+            title=f"Voice: {v.get('speaker', 'Unknown')}",
+            content=dict(v),
+        ))
+
     entries.sort(key=lambda x: (x.story_day, x.story_time))
     return entries
 

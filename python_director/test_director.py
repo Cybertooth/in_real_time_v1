@@ -43,7 +43,7 @@ def _block(
         input_blocks=inputs or [],
         config=BlockConfig(
             provider=ProviderType.GEMINI,
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3-flash-preview",
             temperature=0.4,
             system_instruction="system",
             prompt_template=prompt,
@@ -206,7 +206,7 @@ def test_default_pipeline_includes_brainstorm_council_blocks():
     assert "brainstorm_council_audience" in ids
     assert "brainstorm_council_artifacts" in ids
     assert "creative_brainstorm_rewrite" in ids
-    assert pipeline.default_models["GEMINI"] == "gemini-2.5-flash"
+    assert pipeline.default_models["GEMINI"] == "gemini-3-flash-preview"
 
 
 def test_runner_uses_pipeline_default_model_when_block_inherits(tmp_path: Path, monkeypatch):
@@ -246,6 +246,46 @@ def test_runner_uses_pipeline_default_model_when_block_inherits(tmp_path: Path, 
     config, _contents = provider.content_calls[0]
     assert config.model_name == "gemini-2.5-pro"
     assert result.block_traces["a"].model_name == "gemini-2.5-pro"
+
+
+def test_delete_named_pipeline(tmp_path, monkeypatch):
+    """Test deleting a named pipeline"""
+    from python_director import storage
+
+    monkeypatch.setattr(storage, "PIPELINES_DIR", tmp_path)
+    # Create a fake pipeline file
+    (tmp_path / "test_pipeline.json").write_text('{"name":"Test","blocks":[]}')
+    assert storage.delete_named_pipeline("test_pipeline") is True
+    assert not (tmp_path / "test_pipeline.json").exists()
+    assert storage.delete_named_pipeline("nonexistent") is False
+
+
+def test_derive_story_timeline_all_types():
+    from python_director.logic import derive_story_timeline
+
+    final_output = {
+        "story_title": "Test Story",
+        "journals": [{"title": "Entry 1", "body": "Journal body", "time_offset_minutes": 0}],
+        "chats": [{"senderId": "Alex", "text": "Hey", "isProtagonist": False, "time_offset_minutes": 30}],
+        "emails": [{"sender": "test@example.com", "subject": "Alert", "body": "Email body", "time_offset_minutes": 60}],
+        "receipts": [{"merchantName": "Coffee Shop", "amount": 4.50, "description": "Latte", "time_offset_minutes": 90}],
+        "voice_notes": [{"speaker": "Unknown", "transcript": "Hello there", "time_offset_minutes": 120}],
+    }
+    timeline = derive_story_timeline(final_output)
+    types = [e.event_type for e in timeline]
+    assert "journal" in types
+    assert "chat" in types
+    assert "email" in types
+    assert "receipt" in types
+    assert "voice_note" in types
+    assert len(timeline) == 5
+    # Verify content is populated
+    journal_entry = next(e for e in timeline if e.event_type == "journal")
+    assert journal_entry.content is not None
+    assert journal_entry.content["body"] == "Journal body"
+    # Verify sorted by time
+    times = [e.story_time for e in timeline]
+    assert times == sorted(times)
 
 
 def test_save_pipeline_persists_model_name_for_inherited_blocks(tmp_path: Path, monkeypatch):

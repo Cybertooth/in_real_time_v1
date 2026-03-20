@@ -1,7 +1,7 @@
 {
   "name": "Found Phone Director",
   "description": "Low-code story generation pipeline for found-phone narratives.",
-  "updated_at": "2026-03-20T03:47:21.733549+00:00",
+  "updated_at": "2026-03-20T05:55:56.480151+00:00",
   "default_models": {
     "GEMINI": "gemini-3-flash-preview",
     "OPENAI": "gpt-5.4-mini"

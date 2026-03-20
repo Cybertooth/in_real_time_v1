@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from time import perf_counter
 
-from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, BackgroundTasks, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 if __package__:
@@ -27,12 +28,13 @@ if __package__:
         BASE_DIR,
         RUNS_DIR,
         build_studio_bootstrap,
+        delete_named_pipeline,
         get_settings_payload,
-        load_pipeline,
+        list_named_pipelines,
         load_named_pipeline,
+        load_pipeline,
         load_run_result,
         load_settings,
-        list_named_pipelines,
         save_named_pipeline,
         save_pipeline,
         save_settings,
@@ -57,12 +59,13 @@ else:
         BASE_DIR,
         RUNS_DIR,
         build_studio_bootstrap,
+        delete_named_pipeline,
         get_settings_payload,
-        load_pipeline,
+        list_named_pipelines,
         load_named_pipeline,
+        load_pipeline,
         load_run_result,
         load_settings,
-        list_named_pipelines,
         save_named_pipeline,
         save_pipeline,
         save_settings,
@@ -72,9 +75,6 @@ else:
 app = FastAPI(title="Python Director Studio API")
 logger = get_logger("python_director.api")
 ADMIN_UI_DIR = BASE_DIR / "admin_ui"
-
-if ADMIN_UI_DIR.exists():
-    app.mount("/admin-static", StaticFiles(directory=ADMIN_UI_DIR), name="admin-static")
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,44 +118,37 @@ async def health():
     return {"status": "ok"}
 
 
-@app.get("/")
-async def admin_home():
-    index_file = ADMIN_UI_DIR / "index.html"
-    if not index_file.exists():
-        raise HTTPException(status_code=404, detail="Admin UI is missing.")
-    return FileResponse(index_file)
+# ---------------------------------------------------------------------------
+# API Router (all data endpoints under /api/ prefix)
+# ---------------------------------------------------------------------------
+router = APIRouter(prefix="/api")
 
 
-@app.get("/admin")
-async def admin_alias():
-    return await admin_home()
-
-
-@app.get("/studio")
+@router.get("/studio")
 async def get_studio():
     logger.info("Building studio bootstrap payload")
     return build_studio_bootstrap()
 
 
-@app.get("/pipeline")
+@router.get("/pipeline")
 async def get_pipeline():
     logger.info("Loading active pipeline")
     return load_pipeline()
 
 
-@app.put("/pipeline")
+@router.put("/pipeline")
 async def update_pipeline(pipeline: PipelineDefinition):
     logger.info("Saving active pipeline name=%s blocks=%s", pipeline.name, len(pipeline.blocks))
     return save_pipeline(pipeline)
 
 
-@app.get("/pipelines")
+@router.get("/pipelines")
 async def get_named_pipelines():
     logger.info("Listing named pipelines")
     return list_named_pipelines()
 
 
-@app.post("/pipelines/save")
+@router.post("/pipelines/save")
 async def save_pipeline_as_named(request: NamedPipelineSaveRequest):
     logger.info(
         "Saving named pipeline requested_name=%s blocks=%s set_active=%s",
@@ -175,7 +168,7 @@ async def save_pipeline_as_named(request: NamedPipelineSaveRequest):
     }
 
 
-@app.post("/pipelines/load")
+@router.post("/pipelines/load")
 async def load_pipeline_by_name(request: NamedPipelineLoadRequest):
     logger.info("Loading named pipeline key_or_name=%s set_active=%s", request.name, request.set_active)
     try:
@@ -192,26 +185,33 @@ async def load_pipeline_by_name(request: NamedPipelineLoadRequest):
     }
 
 
-@app.post("/pipeline/reset")
+@router.delete("/pipelines/{key}")
+async def delete_named_pipeline_endpoint(key: str):
+    if not delete_named_pipeline(key):
+        raise HTTPException(status_code=404, detail=f"Pipeline '{key}' not found")
+    return {"status": "ok", "pipeline_catalog": list_named_pipelines()}
+
+
+@router.post("/pipeline/reset")
 async def reset_pipeline_to_default():
     logger.warning("Resetting pipeline to default")
     return save_pipeline(get_default_pipeline())
 
 
-@app.post("/pipeline/snapshot")
+@router.post("/pipeline/snapshot")
 async def create_pipeline_snapshot(request: PipelineSnapshotRequest):
     logger.info("Creating pipeline snapshot label=%s", request.label or request.pipeline.name)
     path = snapshot_pipeline(request.pipeline, request.label)
     return {"status": "ok", "path": str(path)}
 
 
-@app.get("/settings")
+@router.get("/settings")
 async def get_settings():
     logger.info("Fetching settings payload")
     return get_settings_payload()
 
 
-@app.put("/settings")
+@router.put("/settings")
 async def update_settings(settings: AppSettings):
     logger.info(
         "Updating settings gemini_set=%s openai_set=%s creds_set=%s",
@@ -223,13 +223,13 @@ async def update_settings(settings: AppSettings):
     return get_settings_payload()
 
 
-@app.get("/runs")
+@router.get("/runs")
 async def list_runs():
     logger.info("Listing run summaries")
     return build_studio_bootstrap().run_summaries
 
 
-@app.get("/runs/{run_id}")
+@router.get("/runs/{run_id}")
 async def get_run(run_id: str):
     logger.info("Loading run details run_id=%s", run_id)
     try:
@@ -238,7 +238,7 @@ async def get_run(run_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@app.get("/runs/{run_id}/artifacts/{artifact_name}")
+@router.get("/runs/{run_id}/artifacts/{artifact_name}")
 async def get_run_artifact(run_id: str, artifact_name: str):
     logger.info("Fetching run artifact run_id=%s artifact=%s", run_id, artifact_name)
     if Path(artifact_name).name != artifact_name:
@@ -251,7 +251,15 @@ async def get_run_artifact(run_id: str, artifact_name: str):
     return FileResponse(path, media_type=media_type)
 
 
-@app.post("/run")
+@router.get("/runs/{run_id}/pipeline")
+async def get_run_pipeline(run_id: str):
+    snapshot_path = RUNS_DIR / run_id / "pipeline_snapshot.json"
+    if not snapshot_path.exists():
+        raise HTTPException(status_code=404, detail=f"Pipeline snapshot for run '{run_id}' not found")
+    return PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+
+
+@router.post("/run")
 async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
     logger.info(
         "Run requested run_id=%s persist_pipeline=%s inline_pipeline=%s",
@@ -291,12 +299,15 @@ def _bg_run_pipeline(run_id: str, pipeline: PipelineDefinition, settings: AppSet
         # runner already logs and updates progress status to FAILED
         pass
     finally:
-        # Keep in active_runs for a bit so polling can catch the final state
-        # In a real app we might use a TTL cache or just eventually prune
-        pass
+        # Schedule cleanup after 60 seconds
+        def _cleanup():
+            import time
+            time.sleep(60)
+            active_runs.pop(run_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
 
 
-@app.post("/runs/start")
+@router.post("/runs/start")
 async def start_run(
     background_tasks: BackgroundTasks,
     request: RunPipelineRequest = RunPipelineRequest(),
@@ -325,7 +336,7 @@ async def start_run(
     return initial_progress
 
 
-@app.get("/runs/{run_id}/status")
+@router.get("/runs/{run_id}/status")
 async def get_run_status(run_id: str):
     # Check in-memory first
     if run_id in active_runs:
@@ -357,7 +368,7 @@ async def get_run_status(run_id: str):
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
 
 
-@app.post("/compare")
+@router.post("/compare")
 async def compare_runs(request: CompareRunsRequest):
     logger.info(
         "Comparing runs baseline=%s candidate=%s",
@@ -373,7 +384,7 @@ async def compare_runs(request: CompareRunsRequest):
     return compare_final_outputs(request, baseline, candidate)
 
 
-@app.post("/upload/{run_id}")
+@router.post("/upload/{run_id}")
 async def upload_run(run_id: str):
     logger.info("Upload requested for run_id=%s", run_id)
     try:
@@ -400,6 +411,34 @@ async def upload_run(run_id: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "ok", "story_id": story_id}
+
+
+# ---------------------------------------------------------------------------
+# Include the API router
+# ---------------------------------------------------------------------------
+app.include_router(router)
+
+# ---------------------------------------------------------------------------
+# SPA fallback: serve React build or legacy admin UI
+# ---------------------------------------------------------------------------
+REACT_BUILD_DIR = BASE_DIR / "admin_ui_v3" / "dist"
+
+if REACT_BUILD_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=REACT_BUILD_DIR / "assets"), name="spa-assets")
+elif ADMIN_UI_DIR.exists():
+    app.mount("/admin-static", StaticFiles(directory=ADMIN_UI_DIR), name="admin-static")
+
+
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    if REACT_BUILD_DIR.exists():
+        index = REACT_BUILD_DIR / "index.html"
+        if index.exists():
+            return FileResponse(index)
+    old_index = ADMIN_UI_DIR / "index.html"
+    if old_index.exists():
+        return FileResponse(old_index)
+    raise HTTPException(404, detail="Admin UI not found.")
 
 
 if __name__ == "__main__":

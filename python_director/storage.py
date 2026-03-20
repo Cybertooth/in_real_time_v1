@@ -80,6 +80,15 @@ def _pipeline_path_by_key(key: str) -> Path:
     return PIPELINES_DIR / f"{_slugify(key)}.json"
 
 
+def delete_named_pipeline(key: str) -> bool:
+    path = _pipeline_path_by_key(key)
+    if not path.exists():
+        return False
+    path.unlink()
+    logger.info("Deleted named pipeline key=%s path=%s", key, path)
+    return True
+
+
 def _normalize_pipeline_models(pipeline: PipelineDefinition) -> PipelineDefinition:
     payload = pipeline.model_copy(deep=True)
     default_models = dict(payload.default_models or {})

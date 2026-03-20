@@ -30,6 +30,26 @@ if (-not $NoReload) {
     $uvicornArgs += "--reload"
 }
 
+# Auto-build React UI if dist/ is missing
+$uiDist = Join-Path $repoRoot "python_director\admin_ui_v3\dist"
+$uiDir = Join-Path $repoRoot "python_director\admin_ui_v3"
+if ((Test-Path $uiDir) -and -not (Test-Path $uiDist)) {
+    $npm = Get-Command npm -ErrorAction SilentlyContinue
+    if ($npm) {
+        Write-Host "Admin UI not built yet. Building..." -ForegroundColor Cyan
+        Push-Location $uiDir
+        try {
+            & npm install
+            & npm run build
+            Write-Host "Admin UI built." -ForegroundColor Green
+        } finally {
+            Pop-Location
+        }
+    } else {
+        Write-Host "WARNING: Admin UI not built and npm not found. Run director-install.ps1 first." -ForegroundColor Yellow
+    }
+}
+
 Push-Location $repoRoot
 try {
     Write-Host "Director Studio starting on http://$ServerHost`:$Port"
