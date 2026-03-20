@@ -111,13 +111,15 @@ export default function BlockInspector() {
               value={provider}
               onChange={(e) =>
                 updateBlockConfig(block.id, {
-                  provider: e.target.value as 'GEMINI' | 'OPENAI',
+                  provider: e.target.value as 'GEMINI' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER',
+                  model_name: null,
                 })
               }
               className={selectClass}
             >
-              <option value="GEMINI">GEMINI</option>
-              <option value="OPENAI">OPENAI</option>
+              {Object.keys(providerModels).map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
             </select>
           </label>
 
