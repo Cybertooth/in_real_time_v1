@@ -9,6 +9,7 @@ export default function PipelineMeta() {
 
   const geminiModels = providerModels['GEMINI'] || []
   const openaiModels = providerModels['OPENAI'] || []
+  const anthropicModels = providerModels['ANTHROPIC'] || []
 
   return (
     <div className="glass-panel p-4 flex flex-col gap-3">
@@ -61,7 +62,7 @@ export default function PipelineMeta() {
           </select>
         </label>
 
-        <label className="flex flex-col gap-1">
+        <label className="flex flex-col gap-1 mb-2">
           <span className="text-text-dim text-xs">OpenAI Default Model</span>
           <select
             value={pipeline.default_models['OPENAI'] || ''}
@@ -74,6 +75,26 @@ export default function PipelineMeta() {
           >
             <option value="">-- select --</option>
             {openaiModels.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-text-dim text-xs">Anthropic Default Model</span>
+          <select
+            value={pipeline.default_models['ANTHROPIC'] || ''}
+            onChange={(e) =>
+              updatePipelineMeta({
+                default_models: { ...pipeline.default_models, ANTHROPIC: e.target.value },
+              })
+            }
+            className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm w-full focus:border-mint outline-none"
+          >
+            <option value="">-- select --</option>
+            {anthropicModels.map((m) => (
               <option key={m} value={m}>
                 {m}
               </option>
