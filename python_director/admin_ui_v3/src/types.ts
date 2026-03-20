@@ -1,4 +1,4 @@
-export type ProviderType = 'GEMINI' | 'OPENAI' | 'ANTHROPIC'
+export type ProviderType = 'GEMINI' | 'OPENAI' | 'ANTHROPIC' | 'OPENROUTER'
 export type RunStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 export type BlockExecutionStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
 export type BlockType =
@@ -47,6 +47,7 @@ export interface AppSettings {
   gemini_api_key: string | null
   openai_api_key: string | null
   anthropic_api_key: string | null
+  openrouter_api_key: string | null
   google_application_credentials: string | null
 }
 
@@ -54,6 +55,7 @@ export interface SettingsStatus {
   gemini_configured: boolean
   openai_configured: boolean
   anthropic_configured: boolean
+  openrouter_configured: boolean
   google_credentials_configured: boolean
 }
 

@@ -10,6 +10,7 @@ class ProviderType(str, Enum):
     GEMINI = "GEMINI"
     OPENAI = "OPENAI"
     ANTHROPIC = "ANTHROPIC"
+    OPENROUTER = "OPENROUTER"
 
 
 class RunStatus(str, Enum):
@@ -84,6 +85,7 @@ class AppSettings(BaseModel):
     gemini_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
+    openrouter_api_key: Optional[str] = None
     google_application_credentials: Optional[str] = None
 
 
@@ -91,6 +93,7 @@ class SettingsStatus(BaseModel):
     gemini_configured: bool
     openai_configured: bool
     anthropic_configured: bool
+    openrouter_configured: bool
     google_credentials_configured: bool
 
 

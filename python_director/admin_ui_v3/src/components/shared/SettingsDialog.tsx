@@ -16,6 +16,7 @@ export default function SettingsDialog() {
   const [geminiKey, setGeminiKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
   const [anthropicKey, setAnthropicKey] = useState('')
+  const [openrouterKey, setOpenrouterKey] = useState('')
   const [googleCreds, setGoogleCreds] = useState('')
 
   useEffect(() => {
@@ -23,6 +24,7 @@ export default function SettingsDialog() {
       setGeminiKey(settings?.settings.gemini_api_key || '')
       setOpenaiKey(settings?.settings.openai_api_key || '')
       setAnthropicKey(settings?.settings.anthropic_api_key || '')
+      setOpenrouterKey(settings?.settings.openrouter_api_key || '')
       setGoogleCreds(settings?.settings.google_application_credentials || '')
       dialogRef.current?.showModal()
     } else {
@@ -35,6 +37,7 @@ export default function SettingsDialog() {
       gemini_api_key: geminiKey || null,
       openai_api_key: openaiKey || null,
       anthropic_api_key: anthropicKey || null,
+      openrouter_api_key: openrouterKey || null,
       google_application_credentials: googleCreds || null,
     }
     try {
@@ -136,6 +139,25 @@ export default function SettingsDialog() {
             placeholder="Enter Anthropic API key..."
             className={inputClass}
           />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+              OpenRouter API Key
+            </span>
+            {settings && statusBadge(settings.status.openrouter_configured)}
+          </div>
+          <input
+            type="password"
+            value={openrouterKey}
+            onChange={(e) => setOpenrouterKey(e.target.value)}
+            placeholder="Enter OpenRouter API key..."
+            className={inputClass}
+          />
+          <p className="text-text-dim text-xs mt-0.5">
+            Access Llama, Qwen, DeepSeek, Mistral and many others via openrouter.ai
+          </p>
         </label>
 
         <label className="flex flex-col gap-1">

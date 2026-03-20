@@ -399,6 +399,7 @@ class PipelineRunner:
             "GEMINI_API_KEY": self.settings.gemini_api_key,
             "OPENAI_API_KEY": self.settings.openai_api_key,
             "ANTHROPIC_API_KEY": self.settings.anthropic_api_key,
+            "OPENROUTER_API_KEY": self.settings.openrouter_api_key,
         }
 
     def _resolve_model_name(self, definition: PipelineDefinition, block: PipelineBlock) -> str:

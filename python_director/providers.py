@@ -132,6 +132,76 @@ class OpenAIProvider(AIProvider):
         return response.output_parsed
 
 
+class OpenRouterProvider(AIProvider):
+    """OpenAI-compatible provider routing to https://openrouter.ai/api/v1.
+
+    Uses chat.completions (not the OpenAI-specific Responses API) so it works
+    with any model OpenRouter hosts, including Llama, Mistral, Qwen, etc.
+    Structured output is implemented via function/tool calling.
+    """
+
+    BASE_URL = "https://openrouter.ai/api/v1"
+
+    def __init__(self, api_key: str):
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
+        self.client = OpenAI(api_key=api_key, base_url=self.BASE_URL, timeout=3600.0)
+        logger.info("OpenRouterProvider initialized")
+
+    def generate_content(self, config: BlockConfig, contents: str) -> str:
+        logger.debug("OpenRouter generate_content model=%s chars=%s", config.model_name, len(contents))
+        response = self.client.chat.completions.create(
+            model=config.model_name,
+            messages=[
+                {"role": "system", "content": config.system_instruction},
+                {"role": "user", "content": contents},
+            ],
+            temperature=config.temperature,
+        )
+        return response.choices[0].message.content or ""
+
+    def generate_structured_output(
+        self,
+        config: BlockConfig,
+        contents: str,
+        response_schema: type[BaseModel],
+    ) -> BaseModel:
+        import json as _json
+        logger.debug(
+            "OpenRouter generate_structured_output model=%s schema=%s chars=%s",
+            config.model_name,
+            response_schema.__name__,
+            len(contents),
+        )
+        tool_def = {
+            "type": "function",
+            "function": {
+                "name": "structured_output",
+                "description": f"Return a valid {response_schema.__name__} object.",
+                "parameters": response_schema.model_json_schema(),
+            },
+        }
+        response = self.client.chat.completions.create(
+            model=config.model_name,
+            messages=[
+                {"role": "system", "content": config.system_instruction},
+                {"role": "user", "content": contents},
+            ],
+            tools=[tool_def],  # type: ignore[list-item]
+            tool_choice={"type": "function", "function": {"name": "structured_output"}},
+            temperature=config.temperature,
+        )
+        msg = response.choices[0].message
+        if msg.tool_calls:
+            args = _json.loads(msg.tool_calls[0].function.arguments)
+            return response_schema.model_validate(args)
+        # Fallback: try parsing raw content as JSON
+        raw = msg.content or ""
+        return response_schema.model_validate_json(raw)
+
+
 class AnthropicProvider(AIProvider):
     def __init__(self, api_key: str):
         try:
@@ -198,6 +268,12 @@ def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -
         if not key:
             raise ValueError("OpenAI API key is missing. Add it in Settings before running OpenAI blocks.")
         return OpenAIProvider(api_key=key)
+
+    if provider_type == ProviderType.OPENROUTER:
+        key = api_keys.get("OPENROUTER_API_KEY")
+        if not key:
+            raise ValueError("OpenRouter API key is missing. Add it in Settings before running OpenRouter blocks.")
+        return OpenRouterProvider(api_key=key)
 
     if provider_type == ProviderType.ANTHROPIC:
         key = api_keys.get("ANTHROPIC_API_KEY")

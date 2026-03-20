@@ -226,6 +226,19 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "claude-opus-4-5",
         "claude-sonnet-4-5",
     ],
+    ProviderType.OPENROUTER.value: [
+        "meta-llama/llama-3.3-70b-instruct",
+        "meta-llama/llama-3.1-405b-instruct",
+        "qwen/qwen-2.5-72b-instruct",
+        "qwen/qwen3-235b-a22b",
+        "deepseek/deepseek-chat-v3-0324",
+        "deepseek/deepseek-r1",
+        "mistralai/mistral-large",
+        "mistralai/mistral-nemo",
+        "google/gemma-3-27b-it",
+        "microsoft/phi-4",
+        "nousresearch/hermes-3-llama-3.1-70b",
+    ],
 }
 
 PIPELINE_DEFAULT_MODELS: dict[str, str] = {
