@@ -223,6 +223,7 @@ def load_settings() -> AppSettings:
 
     payload.setdefault("gemini_api_key", os.getenv("GEMINI_API_KEY"))
     payload.setdefault("openai_api_key", os.getenv("OPENAI_API_KEY"))
+    payload.setdefault("anthropic_api_key", os.getenv("ANTHROPIC_API_KEY"))
     payload.setdefault(
         "google_application_credentials",
         os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
@@ -233,9 +234,10 @@ def load_settings() -> AppSettings:
 def save_settings(settings: AppSettings) -> AppSettings:
     _write_json(SETTINGS_FILE, settings.model_dump(mode="json"))
     logger.info(
-        "Saved settings gemini_set=%s openai_set=%s creds_set=%s",
+        "Saved settings gemini_set=%s openai_set=%s anthropic_set=%s creds_set=%s",
         bool(settings.gemini_api_key),
         bool(settings.openai_api_key),
+        bool(settings.anthropic_api_key),
         bool(settings.google_application_credentials),
     )
     return settings
@@ -248,6 +250,7 @@ def get_settings_payload() -> SettingsPayload:
         status=SettingsStatus(
             gemini_configured=bool(settings.gemini_api_key),
             openai_configured=bool(settings.openai_api_key),
+            anthropic_configured=bool(settings.anthropic_api_key),
             google_credentials_configured=bool(settings.google_application_credentials),
         ),
     )

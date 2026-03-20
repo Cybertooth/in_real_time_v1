@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class ProviderType(str, Enum):
     GEMINI = "GEMINI"
     OPENAI = "OPENAI"
+    ANTHROPIC = "ANTHROPIC"
 
 
 class RunStatus(str, Enum):
@@ -82,12 +83,14 @@ class PipelineCatalogItem(BaseModel):
 class AppSettings(BaseModel):
     gemini_api_key: Optional[str] = None
     openai_api_key: Optional[str] = None
+    anthropic_api_key: Optional[str] = None
     google_application_credentials: Optional[str] = None
 
 
 class SettingsStatus(BaseModel):
     gemini_configured: bool
     openai_configured: bool
+    anthropic_configured: bool
     google_credentials_configured: bool
 
 

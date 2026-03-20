@@ -219,6 +219,13 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gpt-5.4-pro",
         "gpt-5.4-nano",
     ],
+    ProviderType.ANTHROPIC.value: [
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+        "claude-haiku-4-5-20251001",
+        "claude-opus-4-5",
+        "claude-sonnet-4-5",
+    ],
 }
 
 PIPELINE_DEFAULT_MODELS: dict[str, str] = {
@@ -461,6 +468,23 @@ def get_default_pipeline() -> PipelineDefinition:
                     "response_schema_name": "BrainstormCritique",
                 },
             ),
+            build_block_from_template(
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_brainstorm_claude",
+                name="Council: Claude Review",
+                description="Independent brainstorm critique from Claude.",
+                input_blocks=["creative_brainstorm"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_BRAINSTORM_PROMPT,
+                    "provider": ProviderType.ANTHROPIC,
+                    "model_name": "claude-sonnet-4-6",
+                    "use_pipeline_default_model": False,
+                    "temperature": 0.6,
+                    "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "BrainstormCritique",
+                },
+            ),
             # ── Stage 3: Brainstorm council judge ─────────────────────────────────
             build_block_from_template(
                 BlockType.COUNCIL_JUDGE,
@@ -472,6 +496,7 @@ def get_default_pipeline() -> PipelineDefinition:
                     "council_brainstorm_gemini_pro",
                     "council_brainstorm_gemini_flash",
                     "council_brainstorm_openai",
+                    "council_brainstorm_claude",
                 ],
                 config_overrides={
                     "system_instruction": COUNCIL_BRAINSTORM_JUDGE_PROMPT,
@@ -484,6 +509,7 @@ def get_default_pipeline() -> PipelineDefinition:
                         "Council member 1 (Gemini Pro):\n{{council_brainstorm_gemini_pro}}\n\n"
                         "Council member 2 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\n"
                         "Council member 3 (OpenAI):\n{{council_brainstorm_openai}}\n\n"
+                        "Council member 4 (Claude):\n{{council_brainstorm_claude}}\n\n"
                         "Synthesize the council feedback and produce the upgraded brainstorm."
                     ),
                 },
@@ -546,6 +572,23 @@ def get_default_pipeline() -> PipelineDefinition:
                     "response_schema_name": "StoryCritique",
                 },
             ),
+            build_block_from_template(
+                BlockType.COUNCIL_MEMBER,
+                block_id="council_plan_claude",
+                name="Council: Plan Review (Claude)",
+                description="Independent StoryPlan critique from Claude.",
+                input_blocks=["structural_plan"],
+                config_overrides={
+                    "system_instruction": COUNCIL_MEMBER_PLAN_PROMPT,
+                    "provider": ProviderType.ANTHROPIC,
+                    "model_name": "claude-sonnet-4-6",
+                    "use_pipeline_default_model": False,
+                    "temperature": 0.5,
+                    "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
+                    "response_mime_type": "application/json",
+                    "response_schema_name": "StoryCritique",
+                },
+            ),
             # ── Stage 6: Plan council judge ───────────────────────────────────────
             build_block_from_template(
                 BlockType.COUNCIL_JUDGE,
@@ -557,6 +600,7 @@ def get_default_pipeline() -> PipelineDefinition:
                     "council_plan_gemini_pro",
                     "council_plan_gemini_flash",
                     "council_plan_openai",
+                    "council_plan_claude",
                 ],
                 config_overrides={
                     "system_instruction": COUNCIL_PLAN_JUDGE_PROMPT,
@@ -569,6 +613,7 @@ def get_default_pipeline() -> PipelineDefinition:
                         "Council member 1 (Gemini Pro):\n{{council_plan_gemini_pro}}\n\n"
                         "Council member 2 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\n"
                         "Council member 3 (OpenAI):\n{{council_plan_openai}}\n\n"
+                        "Council member 4 (Claude):\n{{council_plan_claude}}\n\n"
                         "Synthesize the council feedback and produce the upgraded StoryPlan."
                     ),
                     "response_mime_type": "application/json",

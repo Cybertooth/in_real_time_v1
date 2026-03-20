@@ -4,6 +4,7 @@ python-dotenv
 pytest
 pydantic
 openai
+anthropic
 fastapi
 uvicorn
 python-multipart

@@ -15,12 +15,14 @@ export default function SettingsDialog() {
 
   const [geminiKey, setGeminiKey] = useState('')
   const [openaiKey, setOpenaiKey] = useState('')
+  const [anthropicKey, setAnthropicKey] = useState('')
   const [googleCreds, setGoogleCreds] = useState('')
 
   useEffect(() => {
     if (settingsOpen) {
       setGeminiKey(settings?.settings.gemini_api_key || '')
       setOpenaiKey(settings?.settings.openai_api_key || '')
+      setAnthropicKey(settings?.settings.anthropic_api_key || '')
       setGoogleCreds(settings?.settings.google_application_credentials || '')
       dialogRef.current?.showModal()
     } else {
@@ -32,6 +34,7 @@ export default function SettingsDialog() {
     const payload: AppSettings = {
       gemini_api_key: geminiKey || null,
       openai_api_key: openaiKey || null,
+      anthropic_api_key: anthropicKey || null,
       google_application_credentials: googleCreds || null,
     }
     try {
@@ -115,6 +118,22 @@ export default function SettingsDialog() {
             value={openaiKey}
             onChange={(e) => setOpenaiKey(e.target.value)}
             placeholder="Enter OpenAI API key..."
+            className={inputClass}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+              Anthropic API Key
+            </span>
+            {settings && statusBadge(settings.status.anthropic_configured)}
+          </div>
+          <input
+            type="password"
+            value={anthropicKey}
+            onChange={(e) => setAnthropicKey(e.target.value)}
+            placeholder="Enter Anthropic API key..."
             className={inputClass}
           />
         </label>

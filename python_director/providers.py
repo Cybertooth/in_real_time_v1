@@ -132,6 +132,59 @@ class OpenAIProvider(AIProvider):
         return response.output_parsed
 
 
+class AnthropicProvider(AIProvider):
+    def __init__(self, api_key: str):
+        try:
+            import anthropic as _anthropic
+        except ImportError as exc:
+            raise ImportError("anthropic is not installed. Run script\\director-install.cmd first.") from exc
+        self._anthropic = _anthropic
+        self.client = _anthropic.Anthropic(api_key=api_key)
+        logger.info("AnthropicProvider initialized")
+
+    def generate_content(self, config: BlockConfig, contents: str) -> str:
+        logger.debug("Anthropic generate_content model=%s chars=%s", config.model_name, len(contents))
+        response = self.client.messages.create(
+            model=config.model_name,
+            max_tokens=8096,
+            system=config.system_instruction,
+            messages=[{"role": "user", "content": contents}],
+            temperature=config.temperature,
+        )
+        return response.content[0].text  # type: ignore[union-attr]
+
+    def generate_structured_output(
+        self,
+        config: BlockConfig,
+        contents: str,
+        response_schema: type[BaseModel],
+    ) -> BaseModel:
+        logger.debug(
+            "Anthropic generate_structured_output model=%s schema=%s chars=%s",
+            config.model_name,
+            response_schema.__name__,
+            len(contents),
+        )
+        tool_def = {
+            "name": "structured_output",
+            "description": f"Return a valid {response_schema.__name__} object.",
+            "input_schema": response_schema.model_json_schema(),
+        }
+        response = self.client.messages.create(
+            model=config.model_name,
+            max_tokens=8096,
+            system=config.system_instruction,
+            messages=[{"role": "user", "content": contents}],
+            tools=[tool_def],  # type: ignore[list-item]
+            tool_choice={"type": "tool", "name": "structured_output"},
+            temperature=config.temperature,
+        )
+        for block in response.content:
+            if block.type == "tool_use":
+                return response_schema.model_validate(block.input)  # type: ignore[union-attr]
+        raise ValueError("Anthropic did not return a tool_use block in the response.")
+
+
 def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -> AIProvider:
     logger.info("Resolving provider type=%s", provider_type)
     if provider_type == ProviderType.GEMINI:
@@ -145,5 +198,11 @@ def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -
         if not key:
             raise ValueError("OpenAI API key is missing. Add it in Settings before running OpenAI blocks.")
         return OpenAIProvider(api_key=key)
+
+    if provider_type == ProviderType.ANTHROPIC:
+        key = api_keys.get("ANTHROPIC_API_KEY")
+        if not key:
+            raise ValueError("Anthropic API key is missing. Add it in Settings before running Anthropic blocks.")
+        return AnthropicProvider(api_key=key)
 
     raise ValueError(f"Unsupported provider: {provider_type}")
