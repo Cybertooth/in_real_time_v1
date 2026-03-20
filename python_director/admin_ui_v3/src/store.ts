@@ -69,6 +69,8 @@ interface StudioState {
   showToast: (message: string, isError?: boolean) => void
   setSettingsOpen: (open: boolean) => void
   startRun: (seedPrompt?: string, tags?: string[]) => Promise<void>
+  rerunFromRun: (runId: string, seedPrompt?: string | null, tags?: string[]) => Promise<void>
+  deleteRun: (runId: string) => Promise<void>
   stopPolling: () => void
   loadRunProgress: (runId: string) => Promise<void>
   setPipeline: (pipeline: PipelineDefinition) => void
@@ -366,6 +368,55 @@ export const useStore = create<StudioState>((set, get) => ({
       set({ pollTimer: timer })
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to start run'
+      get().showToast(msg, true)
+    }
+  },
+
+  rerunFromRun: async (runId, seedPrompt, tags) => {
+    get().stopPolling()
+    try {
+      const progress = await api.rerunRun(runId, seedPrompt, tags)
+      set({ activeRunId: progress.run_id, activeRunProgress: progress, pollInterval: 1500 })
+
+      const poll = async () => {
+        const { activeRunId } = get()
+        if (!activeRunId) return
+        try {
+          const p = await api.getRunStatus(activeRunId)
+          set({ activeRunProgress: p, pollInterval: 1500 })
+          if (p.status === 'succeeded' || p.status === 'failed') {
+            set({ pollTimer: null })
+            get().showToast(
+              p.status === 'succeeded' ? 'Re-run completed successfully' : `Re-run failed: ${p.error_message ?? 'Unknown error'}`,
+              p.status === 'failed',
+            )
+            get().loadStudio()
+            return
+          }
+          const timer = setTimeout(poll, 1500)
+          set({ pollTimer: timer })
+        } catch {
+          const newInterval = Math.min(get().pollInterval * 2, 10000)
+          set({ pollInterval: newInterval })
+          const timer = setTimeout(poll, newInterval)
+          set({ pollTimer: timer })
+        }
+      }
+      const timer = setTimeout(poll, 1500)
+      set({ pollTimer: timer })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to start re-run'
+      get().showToast(msg, true)
+    }
+  },
+
+  deleteRun: async (runId) => {
+    try {
+      await api.deleteRun(runId)
+      set({ runSummaries: get().runSummaries.filter((r) => r.run_id !== runId) })
+      get().showToast('Run deleted')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete run'
       get().showToast(msg, true)
     }
   },

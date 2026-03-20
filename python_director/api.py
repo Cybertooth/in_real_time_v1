@@ -20,6 +20,7 @@ if __package__:
         NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineSnapshotRequest,
+        RerunRequest,
         RunPipelineRequest,
         RunProgress,
         RunStatus,
@@ -29,6 +30,7 @@ if __package__:
         RUNS_DIR,
         build_studio_bootstrap,
         delete_named_pipeline,
+        delete_run,
         get_settings_payload,
         list_named_pipelines,
         load_named_pipeline,
@@ -51,6 +53,7 @@ else:
         NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineSnapshotRequest,
+        RerunRequest,
         RunPipelineRequest,
         RunProgress,
         RunStatus,
@@ -60,6 +63,7 @@ else:
         RUNS_DIR,
         build_studio_bootstrap,
         delete_named_pipeline,
+        delete_run,
         get_settings_payload,
         list_named_pipelines,
         load_named_pipeline,
@@ -381,6 +385,59 @@ async def get_run_status(run_id: str):
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+
+
+@router.post("/runs/{run_id}/rerun")
+async def rerun_run(
+    run_id: str,
+    background_tasks: BackgroundTasks,
+    request: RerunRequest = RerunRequest(),
+):
+    logger.info("Re-run requested from run_id=%s", run_id)
+
+    # Load the original pipeline snapshot (seed-free)
+    snapshot_path = RUNS_DIR / run_id / "pipeline_snapshot.json"
+    if not snapshot_path.exists():
+        raise HTTPException(status_code=404, detail=f"Pipeline snapshot for run '{run_id}' not found.")
+    pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+
+    # Resolve seed/tags: use provided overrides, or fall back to what the original run used
+    if request.use_original_seed and request.seed_prompt is None:
+        try:
+            original = load_run_result(run_id)
+            seed_prompt = original.seed_prompt
+            tags = original.tags
+        except FileNotFoundError:
+            seed_prompt = None
+            tags = []
+    else:
+        seed_prompt = request.seed_prompt
+        tags = request.tags
+
+    settings = load_settings()
+    new_run_id = f"run_{int(perf_counter() * 1000)}"
+
+    initial_progress = RunProgress(
+        run_id=new_run_id,
+        timestamp=str(new_run_id),
+        pipeline_name=pipeline.name,
+        status=RunStatus.QUEUED,
+        block_count=len([b for b in pipeline.blocks if b.enabled]),
+        block_sequence=[b.id for b in pipeline.blocks if b.enabled],
+    )
+    active_runs[new_run_id] = initial_progress
+
+    background_tasks.add_task(_bg_run_pipeline, new_run_id, pipeline, settings, seed_prompt, tags)
+    logger.info("Re-run started new_run_id=%s from_run_id=%s", new_run_id, run_id)
+    return initial_progress
+
+
+@router.delete("/runs/{run_id}")
+async def delete_run_endpoint(run_id: str):
+    logger.info("Delete run requested run_id=%s", run_id)
+    if not delete_run(run_id):
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+    return {"status": "ok", "run_id": run_id}
 
 
 @router.post("/compare")

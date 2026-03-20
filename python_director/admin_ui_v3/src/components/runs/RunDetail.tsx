@@ -1,26 +1,32 @@
 import { useEffect, useState } from 'react'
-import { useParams, NavLink, Routes, Route, Navigate } from 'react-router-dom'
+import { useParams, NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store'
 import * as api from '../../api'
 import type { RunProgress } from '../../types'
 import Badge from '../shared/Badge'
+import RunDialog from '../shared/RunDialog'
+import ConfirmDialog from '../shared/ConfirmDialog'
 import BlockAccordion from './BlockAccordion'
 import TimelineView from './TimelineView'
 import ExperiencePreview from './ExperiencePreview'
 
 export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
+  const navigate = useNavigate()
   const showToast = useStore((s) => s.showToast)
   const activeRunProgress = useStore((s) => s.activeRunProgress)
   const activeRunId = useStore((s) => s.activeRunId)
+  const rerunFromRun = useStore((s) => s.rerunFromRun)
+  const deleteRun = useStore((s) => s.deleteRun)
 
   const [runData, setRunData] = useState<RunProgress | null>(null)
   const [loading, setLoading] = useState(true)
+  const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
 
   useEffect(() => {
     if (!runId) return
 
-    // If this is the active run, use the live progress
     if (runId === activeRunId && activeRunProgress) {
       setRunData(activeRunProgress)
       setLoading(false)
@@ -41,7 +47,6 @@ export default function RunDetail() {
       })
   }, [runId, activeRunId, activeRunProgress, showToast])
 
-  // Keep syncing with active run progress
   useEffect(() => {
     if (runId === activeRunId && activeRunProgress) {
       setRunData(activeRunProgress)
@@ -64,26 +69,21 @@ export default function RunDetail() {
     )
   }
 
+  const isActive = runId === activeRunId
+  const isFinished = runData.status === 'succeeded' || runData.status === 'failed'
+
   const statusVariant = () => {
     switch (runData.status) {
-      case 'succeeded':
-        return 'success' as const
-      case 'failed':
-        return 'error' as const
-      case 'running':
-        return 'warning' as const
-      default:
-        return 'default' as const
+      case 'succeeded': return 'success' as const
+      case 'failed': return 'error' as const
+      case 'running': return 'warning' as const
+      default: return 'default' as const
     }
   }
 
   const formatTime = (ts: string | null) => {
     if (!ts) return '--'
-    try {
-      return new Date(ts).toLocaleString()
-    } catch {
-      return ts
-    }
+    try { return new Date(ts).toLocaleString() } catch { return ts }
   }
 
   const handleUpload = async () => {
@@ -98,6 +98,24 @@ export default function RunDetail() {
     }
   }
 
+  const handleRerun = (seedPrompt: string, tags: string[]) => {
+    setRerunDialogOpen(false)
+    if (!runId) return
+    rerunFromRun(runId, seedPrompt || null, tags)
+    navigate('/runs')
+  }
+
+  const handleDelete = async () => {
+    setDeleteDialogOpen(false)
+    if (!runId) return
+    await deleteRun(runId)
+    navigate('/runs')
+  }
+
+  // Seed/tags from the stored run progress (present if set when run was created)
+  const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
+  const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
+
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 text-sm font-medium transition-colors ${
       isActive
@@ -106,67 +124,93 @@ export default function RunDetail() {
     }`
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Header */}
-      <div className="p-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <h2 className="text-lg font-semibold text-text">
-            {runData.final_title || runData.pipeline_name}
-          </h2>
-          <Badge variant={statusVariant()}>{runData.status}</Badge>
+    <>
+      <div className="flex flex-col h-full">
+        {/* Header */}
+        <div className="p-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <h2 className="text-lg font-semibold text-text">
+              {runData.final_title || runData.pipeline_name}
+            </h2>
+            <Badge variant={statusVariant()}>{runData.status}</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-text-dim">{formatTime(runData.started_at)}</span>
+
+            {isFinished && (
+              <button
+                type="button"
+                onClick={() => setRerunDialogOpen(true)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-surface border border-border text-text hover:bg-surface-raised transition-colors"
+              >
+                Re-run
+              </button>
+            )}
+
+            {runData.status === 'succeeded' && (
+              <button
+                type="button"
+                onClick={handleUpload}
+                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-mint text-black hover:brightness-110 transition-colors"
+              >
+                Upload
+              </button>
+            )}
+
+            {!isActive && (
+              <button
+                type="button"
+                onClick={() => setDeleteDialogOpen(true)}
+                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-danger-soft text-danger border border-danger/30 hover:brightness-110 transition-colors"
+              >
+                Delete
+              </button>
+            )}
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-text-dim">
-            {formatTime(runData.started_at)}
-          </span>
-          {runData.status === 'succeeded' && (
-            <button
-              type="button"
-              onClick={handleUpload}
-              className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-mint text-black hover:brightness-110 transition-colors"
-            >
-              Upload
-            </button>
-          )}
+
+        {/* Sub-tab navigation */}
+        <nav className="flex items-center gap-1 px-4 border-b border-border">
+          <NavLink to={`/runs/${runId}/blocks`} className={navLinkClass}>Blocks</NavLink>
+          <NavLink to={`/runs/${runId}/timeline`} className={navLinkClass}>Timeline</NavLink>
+          <NavLink to={`/runs/${runId}/experience`} className={navLinkClass}>Experience</NavLink>
+        </nav>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          <Routes>
+            <Route
+              path="blocks"
+              element={<BlockAccordion blockSequence={runData.block_sequence} blockTraces={runData.block_traces} />}
+            />
+            <Route path="timeline" element={<TimelineView timeline={runData.timeline} />} />
+            <Route path="experience" element={<ExperiencePreview timeline={runData.timeline} />} />
+            <Route path="*" element={<Navigate to="blocks" replace />} />
+          </Routes>
         </div>
       </div>
 
-      {/* Sub-tab navigation */}
-      <nav className="flex items-center gap-1 px-4 border-b border-border">
-        <NavLink to={`/runs/${runId}/blocks`} className={navLinkClass}>
-          Blocks
-        </NavLink>
-        <NavLink to={`/runs/${runId}/timeline`} className={navLinkClass}>
-          Timeline
-        </NavLink>
-        <NavLink to={`/runs/${runId}/experience`} className={navLinkClass}>
-          Experience
-        </NavLink>
-      </nav>
+      {/* Re-run dialog — pre-populated with original seed/tags */}
+      <RunDialog
+        open={rerunDialogOpen}
+        onClose={() => setRerunDialogOpen(false)}
+        onStart={handleRerun}
+        initialSeedPrompt={storedSeed ?? ''}
+        initialTags={storedTags ?? []}
+        title="Re-run Pipeline"
+        submitLabel="Start Re-run"
+      />
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <Routes>
-          <Route
-            path="blocks"
-            element={
-              <BlockAccordion
-                blockSequence={runData.block_sequence}
-                blockTraces={runData.block_traces}
-              />
-            }
-          />
-          <Route
-            path="timeline"
-            element={<TimelineView timeline={runData.timeline} />}
-          />
-          <Route
-            path="experience"
-            element={<ExperiencePreview timeline={runData.timeline} />}
-          />
-          <Route path="*" element={<Navigate to="blocks" replace />} />
-        </Routes>
-      </div>
-    </div>
+      {/* Delete confirmation dialog */}
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Delete this run?"
+        description={`"${runData.final_title || runData.pipeline_name}" (${formatTime(runData.started_at)}) will be permanently deleted. All block outputs, artifacts, and timeline data will be lost.`}
+        confirmLabel="Delete Run"
+        confirmVariant="danger"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
+    </>
   )
 }

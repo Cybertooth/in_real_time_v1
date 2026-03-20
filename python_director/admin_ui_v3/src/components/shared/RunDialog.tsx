@@ -5,26 +5,42 @@ interface RunDialogProps {
   open: boolean
   onClose: () => void
   onStart: (seedPrompt: string, tags: string[]) => void
+  initialSeedPrompt?: string
+  initialTags?: string[]
+  title?: string
+  submitLabel?: string
 }
 
-export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
+export default function RunDialog({
+  open,
+  onClose,
+  onStart,
+  initialSeedPrompt = '',
+  initialTags = [],
+  title = 'Start Dry Run',
+  submitLabel = 'Start Run',
+}: RunDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
-  const [seedPrompt, setSeedPrompt] = useState('')
-  const [tags, setTags] = useState<string[]>([])
+  const [seedPrompt, setSeedPrompt] = useState(initialSeedPrompt)
+  const [tags, setTags] = useState<string[]>(initialTags)
   const [tagInput, setTagInput] = useState('')
 
+  // Sync initial values when the dialog opens (e.g. re-run pre-populates)
   useEffect(() => {
     if (open) {
+      setSeedPrompt(initialSeedPrompt)
+      setTags(initialTags)
+      setTagInput('')
       dialogRef.current?.showModal()
     } else {
       dialogRef.current?.close()
     }
-  }, [open])
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const addTag = () => {
     const trimmed = tagInput.trim()
     if (trimmed && !tags.includes(trimmed)) {
-      setTags([...tags, trimmed])
+      setTags((prev) => [...prev, trimmed])
     }
     setTagInput('')
   }
@@ -34,7 +50,7 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
       e.preventDefault()
       addTag()
     } else if (e.key === 'Backspace' && tagInput === '' && tags.length > 0) {
-      setTags(tags.slice(0, -1))
+      setTags((prev) => prev.slice(0, -1))
     }
   }
 
@@ -45,10 +61,6 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
     setTagInput('')
   }
 
-  const handleClose = () => {
-    onClose()
-  }
-
   return (
     <dialog
       ref={dialogRef}
@@ -57,7 +69,7 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
     >
       <div className="p-6 flex flex-col gap-5">
         <div>
-          <h2 className="text-lg font-semibold text-text">Start Dry Run</h2>
+          <h2 className="text-lg font-semibold text-text">{title}</h2>
           <p className="text-xs text-text-dim mt-1">
             Optionally steer the story with a seed prompt and genre tags.
           </p>
@@ -75,7 +87,7 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
             className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm w-full focus:border-mint outline-none resize-none"
           />
           <p className="text-text-dim text-xs">
-            This will be injected into the creative brainstorm prompt to steer the story.
+            Injected into the creative brainstorm prompt to steer the story.
           </p>
         </label>
 
@@ -92,7 +104,7 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
                 {tag}
                 <button
                   type="button"
-                  onClick={() => setTags(tags.filter((t) => t !== tag))}
+                  onClick={() => setTags((prev) => prev.filter((t) => t !== tag))}
                   className="text-mint/60 hover:text-mint cursor-pointer bg-transparent border-none text-sm leading-none"
                 >
                   ×
@@ -120,11 +132,11 @@ export default function RunDialog({ open, onClose, onStart }: RunDialogProps) {
             onClick={handleStart}
             className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-mint text-black hover:brightness-110 transition-colors"
           >
-            Start Run
+            {submitLabel}
           </button>
           <button
             type="button"
-            onClick={handleClose}
+            onClick={onClose}
             className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-surface border border-border text-text hover:bg-surface-raised transition-colors"
           >
             Cancel

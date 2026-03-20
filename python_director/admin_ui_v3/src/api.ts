@@ -131,3 +131,24 @@ export function uploadRun(
     { method: 'POST' },
   )
 }
+
+export function rerunRun(
+  runId: string,
+  seedPrompt?: string | null,
+  tags?: string[],
+): Promise<RunProgress> {
+  const body: Record<string, unknown> = { use_original_seed: seedPrompt === undefined }
+  if (seedPrompt !== undefined) body.seed_prompt = seedPrompt
+  if (tags !== undefined) body.tags = tags
+  return request<RunProgress>(`/api/runs/${encodeURIComponent(runId)}/rerun`, {
+    method: 'POST',
+    ...json(body),
+  })
+}
+
+export function deleteRun(runId: string): Promise<{ status: string; run_id: string }> {
+  return request<{ status: string; run_id: string }>(
+    `/api/runs/${encodeURIComponent(runId)}`,
+    { method: 'DELETE' },
+  )
+}

@@ -402,6 +402,8 @@ def list_run_summaries() -> list[RunSummary]:
                     final_metrics=run_result.final_metrics,
                     mode=run_result.mode,
                     error_message=run_result.error_message,
+                    seed_prompt=run_result.seed_prompt,
+                    tags=run_result.tags,
                 )
             )
             continue
@@ -428,6 +430,16 @@ def load_run_result(run_id: str) -> RunResult:
     run_result = RunResult.model_validate_json(run_result_path.read_text(encoding="utf-8"))
     logger.info("Loaded run result run_id=%s", run_id)
     return run_result.model_copy(update={"artifacts": _artifact_files_for_folder(run_dir)})
+
+
+def delete_run(run_id: str) -> bool:
+    import shutil
+    run_dir = RUNS_DIR / run_id
+    if not run_dir.exists():
+        return False
+    shutil.rmtree(run_dir)
+    logger.info("Deleted run run_id=%s", run_id)
+    return True
 
 
 def build_studio_bootstrap() -> StudioBootstrap:

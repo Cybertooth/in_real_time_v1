@@ -115,6 +115,8 @@ export interface RunSummary {
   final_metrics: Record<string, number>
   mode: string
   error_message: string | null
+  seed_prompt: string | null
+  tags: string[]
 }
 
 export interface RunProgress {

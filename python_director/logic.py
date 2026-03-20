@@ -637,6 +637,9 @@ class PipelineRunner:
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
 
+        # Keep the original definition for snapshotting (seed must not be baked in)
+        original_definition = definition
+
         # Inject seed prompt and tags into the first creative_outliner block's prompt
         if seed_prompt or tags:
             injected_parts: list[str] = []
@@ -765,6 +768,8 @@ class PipelineRunner:
             },
             final_metrics=final_metrics,
             mode="dry_run",
+            seed_prompt=seed_prompt or None,
+            tags=list(tags or []),
             outputs={block_id: _serialize_output(value) for block_id, value in outputs.items()},
             final_output=final_output,
             block_sequence=block_sequence,
@@ -773,7 +778,8 @@ class PipelineRunner:
             stats=progress.stats,
         )
 
-        save_run_result(result, definition)
+        # Save the ORIGINAL pipeline (without seed prefix baked in) so re-runs work cleanly
+        save_run_result(result, original_definition)
         logger.info(
             "Run complete status=%s run_id=%s blocks=%s final_title=%s quality_score=%s",
             progress.status,

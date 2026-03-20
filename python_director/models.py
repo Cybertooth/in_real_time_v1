@@ -160,6 +160,8 @@ class RunSummary(BaseModel):
     final_metrics: dict[str, float | int] = Field(default_factory=dict)
     mode: str = "dry_run"
     error_message: Optional[str] = None
+    seed_prompt: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class RunResult(RunSummary):
@@ -214,6 +216,12 @@ class NamedPipelineSaveRequest(BaseModel):
 class NamedPipelineLoadRequest(BaseModel):
     name: str
     set_active: bool = True
+
+
+class RerunRequest(BaseModel):
+    seed_prompt: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    use_original_seed: bool = True  # if True and no override, use stored seed/tags
 
 
 class CompareRunsRequest(BaseModel):
