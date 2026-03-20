@@ -66,9 +66,19 @@ No additional UI component libraries. All components are custom-built to match t
 
 The sidebar is visible in all views. It shows the pipeline block list with real-time status dots during runs. A collapse toggle reduces it to an icon rail.
 
-## 5. Views
+## 5. Polling & Live Run Monitoring
 
-### 5.1 Pipeline Editor (`/editor`)
+The UI polls `GET /api/runs/{run_id}/status` for live run updates.
+
+- **Interval**: 1.5 seconds while a run is active
+- **Backoff**: If a poll request fails (network error or 5xx), double the interval up to a max of 10 seconds. Reset to 1.5s on next successful poll.
+- **Termination**: Stop polling when `status` is `succeeded` or `failed`. Refresh the run list on termination.
+- **QUEUED state**: Between `/api/runs/start` returning and the background task beginning, the run has `status: "queued"` with no block traces. The UI shows a "Starting..." state with an indeterminate spinner.
+- **Cleanup**: The backend removes entries from the in-memory `active_runs` dict 60 seconds after the run reaches a terminal status (`succeeded` or `failed`). After removal, the polling endpoint falls back to on-disk data seamlessly.
+
+## 6. Views
+
+### 6.1 Pipeline Editor (`/editor`)
 
 The default view. Selecting a block in the sidebar opens its inspector in the main area.
 
@@ -81,19 +91,23 @@ The default view. Selecting a block in the sidebar opens its inspector in the ma
 - **Dependencies**: Checkbox list of other blocks
 - **Actions**: Move Up/Down, Duplicate, Delete
 
-When no block is selected, the main area shows a welcome state: pipeline overview stats (block count, provider breakdown) and a visual dependency graph.
+When no block is selected, the main area shows a welcome state: pipeline overview stats (block count, provider breakdown) and a textual dependency summary listing each block and its inputs.
 
-### 5.2 Runs View (`/runs` and `/runs/:runId`)
+Block ID rename is a frontend-only operation: when the user changes a block ID, the UI updates all `input_blocks` arrays and `{{old_id}}` references in prompt templates across the in-memory pipeline before saving.
+
+### 6.2 Runs View (`/runs` and `/runs/:runId`)
 
 **Left sub-panel: Run List**
 - Active runs at top with pulsing mint indicator and progress percentage
 - Historical runs below, sorted newest-first
-- Each card shows: timestamp, pipeline name, status badge (succeeded/failed), quality score, word count
+- Each card shows: timestamp, pipeline name, status badge (succeeded/failed), quality proxy score (from `final_metrics.quality_proxy_score`), word count
 - Click to select → loads into main area
 
 **Main area for selected run — 3 sub-tabs:**
 
-#### 5.2.1 Blocks Tab
+The 3 sub-tabs are rendered as nested tabs within the main content area (not top-level nav). URL routing: `/runs/:runId/blocks`, `/runs/:runId/timeline`, `/runs/:runId/experience`. Default sub-tab is `blocks`. Back button navigates between sub-tabs, then back to the run list.
+
+#### 6.2.1 Blocks Tab
 Vertical accordion of pipeline blocks in execution order:
 - Each block header shows: name, type badge, provider badge, status dot, elapsed time
 - Expanding a block reveals:
@@ -102,13 +116,13 @@ Vertical accordion of pipeline blocks in execution order:
   - **Error section** (if failed): Clear error message banner + collapsible "Technical Details" with full traceback
 - For a live-running pipeline: completed blocks are expandable, the currently running block shows a skeleton/spinner, pending blocks are grayed out
 
-#### 5.2.2 Timeline Tab
+#### 6.2.2 Timeline Tab
 Chronological vertical timeline of all story artifacts extracted from the run's final output:
 - Each entry: time marker (Day X, HH:MM AM/PM), type icon (journal/chat/email/receipt/voice), title, content preview (first ~100 chars)
 - Entries are color-coded by type
 - Clicking an entry expands to show full content in a formatted card
 
-#### 5.2.3 Experience Preview Tab ("Uber-View")
+#### 6.2.3 Experience Preview Tab ("Uber-View")
 Simulates the reader's experience as a vertical feed of artifact cards, grouped by delivery time:
 
 ```
@@ -145,7 +159,10 @@ Each artifact type has its own card style:
 - **Receipt**: Transaction card with merchant, amount, description
 - **Voice Note**: Audio-note style with speaker + transcript
 
-### 5.3 Compare View (`/compare`)
+#### 6.2.4 Upload to Firestore
+For succeeded runs, a "Upload to Firestore" button appears in the run detail header. It calls `POST /api/upload/{run_id}`. The button is disabled if Google credentials are not configured (checked via settings status). Shows a confirmation dialog before uploading. On success, shows a toast with the `story_id`.
+
+### 6.3 Compare View (`/compare`)
 
 - Two run selectors (dropdowns)
 - **Metrics panel**: Grid of delta cards showing baseline vs candidate for all story metrics (total artifacts, word counts by type, quality proxy score). Green/red color coding for improvements/regressions.
@@ -153,7 +170,7 @@ Each artifact type has its own card style:
 - **Side-by-side Experience Preview**: Both runs' uber-views rendered side-by-side with synchronized scrolling
 - **Block-by-block diff** (optional expandable section): For each block, show output from both runs side-by-side
 
-## 6. Run-in-Progress Indicator
+## 7. Run-in-Progress Indicator
 
 Regardless of which view is active, the top bar shows:
 - A pulsing mint dot + "Running: {pipeline_name}..." text
@@ -162,7 +179,22 @@ Regardless of which view is active, the top bar shows:
 
 The sidebar block list always shows live status dots during a run (pending/running/succeeded/failed). The "Dry Run" button in the top bar is disabled while a run is active.
 
-## 7. Content Formatting (Non-Technical Users)
+## 8. Settings Dialog
+
+Accessed via the "Settings" button in the top bar. Opens as a modal dialog.
+
+**Contents:**
+- Gemini API Key (password input)
+- OpenAI API Key (password input)
+- Google Credentials Path (text input)
+- Status badges showing which providers are configured (green READY / red MISSING)
+- "Save Changes" button → calls `PUT /api/settings`
+- "Cancel" button → closes without saving
+- "Fresh Start" button (danger) → clears localStorage, resets pipeline to default, reloads studio
+
+Settings values sync to the backend on save and are cached in `localStorage` to survive refreshes. The dialog pre-fills from the backend response (settings payload from the `/api/studio` bootstrap).
+
+## 9. Content Formatting (Non-Technical Users)
 
 All block outputs are rendered through a formatting layer:
 
@@ -180,54 +212,92 @@ All block outputs are rendered through a formatting layer:
 
 A "View Raw JSON" toggle is available on every output card for power users.
 
-## 8. API Changes
+## 10. Error & Empty States
 
-### 8.1 Fix `derive_story_timeline()` (logic.py)
+| State | Behavior |
+|---|---|
+| Backend unreachable | Full-screen error overlay: "Cannot reach Director Studio backend. Is the server running on port 8001?" with a "Retry" button |
+| No API keys configured | Banner at top of editor view: "Configure API keys in Settings before running a pipeline" |
+| No runs exist | Runs view shows empty state: "No runs yet. Start a dry run from the Pipeline Editor." |
+| No saved pipelines | Pipeline library dropdown shows "No saved pipelines" with save button still enabled |
+| No blocks in pipeline | Block list shows "Add blocks using the template rail below" |
+| Poll returns 404 | Stop polling, show toast: "Run no longer available", refresh run list |
+| Run started without keys | Show the API error from the backend as a toast (the backend already validates this) |
+
+## 11. API Changes
+
+### 11.1 API Route Prefix
+
+All backend API endpoints move under the `/api/` prefix to cleanly separate API routes from SPA routes. For example:
+- `GET /studio` → `GET /api/studio`
+- `PUT /pipeline` → `PUT /api/pipeline`
+- `POST /runs/start` → `POST /api/runs/start`
+- `GET /runs/{run_id}/status` → `GET /api/runs/{run_id}/status`
+- `POST /compare` → `POST /api/compare`
+- `PUT /settings` → `PUT /api/settings`
+- etc.
+
+Implementation: wrap all existing routes in an `APIRouter(prefix="/api")` and mount it on the app.
+
+### 11.2 Fix `derive_story_timeline()` (logic.py)
 Currently only extracts journals and chats. Must also extract:
-- Emails (event_type="email", title=subject)
-- Receipts (event_type="receipt", title=merchantName)
-- Voice notes (event_type="voice_note", title=speaker)
+- Emails: `event_type="email"`, `title=subject`, `block_id=f"email_{i}"`
+- Receipts: `event_type="receipt"`, `title=merchantName`, `block_id=f"receipt_{i}"`
+- Voice notes: `event_type="voice_note"`, `title=speaker`, `block_id=f"voice_note_{i}"`
 
-### 8.2 New Endpoint: `DELETE /pipelines/{key}`
+### 11.3 Enrich `RunTimelineEntry` with content
+
+Add an optional `content: dict[str, Any] | None` field to `RunTimelineEntry`. The `derive_story_timeline()` function populates it with the full artifact data (e.g., the journal's title+body, the chat message, the email fields). This allows the Timeline and Experience Preview tabs to render content directly from the timeline entries without cross-referencing back to `final_output`.
+
+### 11.4 New Endpoint: `DELETE /api/pipelines/{key}`
 Delete a saved pipeline from the library.
 
 ```python
-@app.delete("/pipelines/{key}")
+@router.delete("/pipelines/{key}")
 async def delete_named_pipeline(key: str):
     # Delete the file at PIPELINES_DIR / f"{key}.json"
     # Return 404 if not found
     # Return {"status": "ok"}
 ```
 
-### 8.3 New Endpoint: `GET /runs/{run_id}/pipeline`
-Return the pipeline snapshot used for a specific run.
+### 11.5 New Endpoint: `GET /api/runs/{run_id}/pipeline`
+Return the pipeline snapshot used for a specific run. Returns 404 if the snapshot does not exist (pre-snapshot-era runs).
 
 ```python
-@app.get("/runs/{run_id}/pipeline")
+@router.get("/runs/{run_id}/pipeline")
 async def get_run_pipeline(run_id: str):
     # Read RUNS_DIR / run_id / "pipeline_snapshot.json"
-    # Return as PipelineDefinition
+    # Return as PipelineDefinition, or 404
 ```
 
-### 8.4 Serve React Build
-Update FastAPI to serve the React build output:
+### 11.6 `active_runs` Cleanup
+
+Add a cleanup mechanism: after a run reaches terminal status (`succeeded` or `failed`), a background task waits 60 seconds and then removes the entry from `active_runs`. This prevents unbounded memory growth while giving the polling client time to observe the final state.
+
+### 11.7 Serve React Build (SPA Fallback)
+
+With the `/api/` prefix in place, the SPA fallback is safe:
 
 ```python
-# Mount the React build directory
 REACT_BUILD_DIR = BASE_DIR / "admin_ui_v3" / "dist"
-if REACT_BUILD_DIR.exists():
-    app.mount("/admin-static", StaticFiles(directory=REACT_BUILD_DIR), name="admin-static")
 
-# Serve index.html for all non-API routes (SPA fallback)
+# Serve built React assets
+if REACT_BUILD_DIR.exists():
+    app.mount("/assets", StaticFiles(directory=REACT_BUILD_DIR / "assets"), name="assets")
+
+# SPA fallback: serve index.html for all non-API routes
+# This is registered AFTER the /api router and /assets mount
 @app.get("/{full_path:path}")
 async def spa_fallback(full_path: str):
     index = REACT_BUILD_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    raise HTTPException(404)
+    if not index.exists():
+        raise HTTPException(404, "UI not built. Run: npm run build in admin_ui_v3/")
+    return FileResponse(index)
 ```
 
-## 9. Project Structure
+During migration: if `admin_ui_v3/dist/` does not exist, fall back to serving the old `admin_ui/` directory at `/admin-static` as before.
+
+## 12. Project Structure
 
 ```
 python_director/
@@ -292,7 +362,7 @@ python_director/
 │   └── dist/                  # Built output (gitignored, generated by npm run build)
 ```
 
-## 10. Zustand Store Shape
+## 13. Zustand Store Shape
 
 ```typescript
 interface StudioStore {
@@ -319,7 +389,7 @@ interface StudioStore {
 }
 ```
 
-## 11. Tailwind Theme Configuration
+## 14. Tailwind Theme Configuration
 
 Custom theme extending Tailwind defaults to match the glassmorphic dark aesthetic:
 
@@ -344,7 +414,27 @@ fontFamily: {
 
 Glassmorphic panels use `backdrop-blur-xl bg-surface border border-border rounded-2xl`.
 
-## 12. Build & Deployment Scripts
+## 15. Vite Dev Proxy Configuration
+
+```typescript
+// vite.config.ts
+export default defineConfig({
+  server: {
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8001',
+        changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    outDir: 'dist',
+  },
+});
+```
+
+## 16. Build & Deployment Scripts
 
 ### Updated `script/director-install.ps1`
 ```
@@ -369,14 +459,14 @@ Glassmorphic panels use `backdrop-blur-xl bg-surface border border-border rounde
 
 All `.cmd` wrappers remain unchanged (they just invoke the `.ps1` files).
 
-## 13. Migration Plan
+## 17. Migration Plan
 
 1. Create `admin_ui_v3/` as a new React project alongside the existing `admin_ui/`
 2. FastAPI serves whichever exists (prefer `admin_ui_v3/dist/` if present, fall back to `admin_ui/`)
 3. Once v3 is complete and validated, remove the old `admin_ui/` directory
 4. Update `.gitignore` to exclude `admin_ui_v3/node_modules/` and `admin_ui_v3/dist/`
 
-## 14. Out of Scope (Future)
+## 18. Out of Scope (Future)
 
 - Multi-user support / authentication
 - Pipeline categories and tagging
