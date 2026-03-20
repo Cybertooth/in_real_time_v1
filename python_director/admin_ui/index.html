@@ -3,213 +3,281 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Director Studio</title>
+    <title>Director Studio | Creative Workspace</title>
     <link rel="stylesheet" href="/admin-static/styles.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
   </head>
   <body>
-    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
+    
     <header class="topbar">
-      <div>
+      <div class="brand">
         <h1>Director Studio</h1>
-        <p id="subtitle">Design and iterate story pipelines with dry runs and artifact diffing.</p>
+        <p id="subtitle" class="dim">Creative Workspace v2</p>
       </div>
       <div class="toolbar">
-        <button id="refreshStudioBtn" class="btn ghost">Refresh</button>
-        <button id="savePipelineBtn" class="btn">Save Pipeline</button>
-        <button id="snapshotPipelineBtn" class="btn ghost">Snapshot Prompts</button>
-        <button id="resetPipelineBtn" class="btn ghost">Reset Default</button>
-        <button id="runPipelineBtn" class="btn accent">Dry Run</button>
-        <button id="openSettingsBtn" class="btn ghost">Settings</button>
+        <button id="refreshStudioBtn" class="btn">Refresh</button>
+        <button id="snapshotPipelineBtn" class="btn">Snapshot Prompts</button>
+        <button id="resetPipelineBtn" class="btn">Reset Default</button>
+        <button id="openSettingsBtn" class="btn">Settings</button>
+        <div class="divider"></div>
+        <button id="runPipelineBtn" class="btn primary">Dry Run</button>
+        <button id="tabCompareBtn" class="btn">Compare Runs</button>
       </div>
     </header>
 
-    <main class="layout">
-      <section class="panel left">
-        <div class="panel-header">
-          <h2>Pipeline Canvas</h2>
-          <p>UML-style low-code flow. Use the edit icon on a block to tune prompts, provider, and dependencies.</p>
-        </div>
-        <div class="pipeline-meta">
-          <label>
-            Pipeline Name
-            <input id="pipelineNameInput" type="text" />
-          </label>
-          <label>
-            Description
-            <input id="pipelineDescriptionInput" type="text" />
-          </label>
-          <div class="pipeline-library">
-            <label>
-              Saved Pipelines
-              <select id="pipelineLibrarySelect"></select>
-            </label>
-            <button id="loadPipelineBtn" class="btn ghost" type="button">Load</button>
-            <button id="saveNamedPipelineBtn" class="btn ghost" type="button">Save As Named</button>
+    <main class="workspace">
+      <!-- Left Panel: Library -->
+      <aside class="sidebar">
+        <h2>Pipeline Library</h2>
+        
+        <div class="sidebar-section">
+          <div class="field-group">
+            <label class="field-label">Pipeline Name</label>
+            <input id="pipelineNameInput" type="text" placeholder="Pipeline Name" />
           </div>
-          <div class="pipeline-defaults">
-            <label>
-              Gemini Default Model
-              <select id="pipelineGeminiModelInput"></select>
-            </label>
-            <label>
-              OpenAI Default Model
-              <select id="pipelineOpenaiModelInput"></select>
-            </label>
+          <div class="field-group" style="margin-top: 12px;">
+            <label class="field-label">Description</label>
+            <input id="pipelineDescriptionInput" type="text" placeholder="Short description" />
           </div>
         </div>
-        <div id="pipelineCanvas" class="pipeline-canvas"></div>
-        <div id="templateRail" class="template-rail"></div>
+
+        <div class="sidebar-section">
+          <label class="field-label">Saved Pipelines</label>
+          <select id="pipelineLibrarySelect" style="margin-bottom: 8px;"></select>
+          <div style="display: flex; gap: 8px;">
+            <button id="loadPipelineBtn" class="btn" style="flex: 1;">Load</button>
+            <button id="saveNamedPipelineBtn" class="btn" style="flex: 1;">Save As Named</button>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <label class="field-label">Pipeline Defaults</label>
+          <div class="field-group" style="margin-bottom: 8px;">
+            <label class="field-label" style="font-size: 0.7rem;">Gemini Core</label>
+            <select id="pipelineGeminiModelInput"></select>
+          </div>
+          <div class="field-group">
+            <label class="field-label" style="font-size: 0.7rem;">OpenAI Core</label>
+            <select id="pipelineOpenaiModelInput"></select>
+          </div>
+        </div>
+        
+        <div class="pipeline-list" id="pipelineCanvas"></div>
+
+        <div class="sidebar-section" style="margin-top: auto;">
+          <label class="field-label">Add Block Template</label>
+          <div id="templateRail" class="template-rail"></div>
+        </div>
+
+        <div style="padding-top: 12px;">
+          <button id="savePipelineBtn" class="btn primary" style="width: 100%;">Save Design</button>
+        </div>
+      </aside>
+
+      <!-- Center Panel: Command Center -->
+      <section class="editor-main">
+        <div id="activeRunBanner" class="progress-banner hidden">
+          <div style="display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600;">
+            <span id="runStatusLabel">Running Pipeline...</span>
+            <span id="runProgressText">0%</span>
+          </div>
+          <div class="progress-track">
+            <div id="runProgressFill" class="progress-fill" style="width: 0%;"></div>
+          </div>
+        </div>
+
+        <div class="command-center">
+          <div id="inspectorEmpty" class="empty" style="flex: 1; display: flex; align-items: center; justify-content: center;">
+            <p>Select a block from the library to edit.</p>
+          </div>
+
+          <form id="blockInspector" class="editor-wrapper hidden">
+            <div class="editor-header">
+              <h2 id="currentBlockTitle">Block Name</h2>
+              <div style="display: flex; gap: 8px; align-items: center;">
+                <span id="blockIdBadge" class="dim" style="font-size: 0.8rem; font-family: monospace;">BLOCK_ID</span>
+                <div id="blockStatusDot" class="status-dot"></div>
+              </div>
+            </div>
+
+            <div class="inspector-grid">
+              <div class="field-group">
+                <label class="field-label">Block ID</label>
+                <input id="blockIdInput" type="text" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Block Name</label>
+                <input id="blockNameInput" type="text" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Type</label>
+                <input id="blockTypeInput" type="text" disabled />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Enabled</label>
+                <select id="blockEnabledInput">
+                  <option value="true">Enabled</option>
+                  <option value="false">Disabled</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Provider</label>
+                <select id="blockProviderInput">
+                  <option value="GEMINI">Gemini</option>
+                  <option value="OPENAI">OpenAI</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Model Override</label>
+                <select id="blockModelSourceInput">
+                  <option value="default">Pipeline Default</option>
+                  <option value="custom">Block Override</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label class="field-label">Model Selection</label>
+                <input id="blockModelInput" list="providerModelList" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Temperature</label>
+                <input id="blockTempInput" type="number" min="0" max="2" step="0.1" />
+              </div>
+              <div class="field-group">
+                <label class="field-label">Response Schema</label>
+                <select id="blockSchemaInput"></select>
+              </div>
+            </div>
+            <div id="blockModelHint" class="field-hint dim" style="font-size: 0.75rem; margin-top: 4px;"></div>
+
+            <div class="field-group" style="margin-top: 16px;">
+              <label class="field-label">System Instruction</label>
+              <textarea id="blockSystemInstructionInput" class="prompt-editor" style="height: 100px; min-height: 80px;"></textarea>
+            </div>
+            
+            <div class="field-group" style="margin-top: 16px;">
+              <label class="field-label">Prompt Template</label>
+              <textarea id="blockPromptTemplateInput" class="prompt-editor"></textarea>
+            </div>
+
+            <div class="field-group" style="margin-top: 16px;">
+              <label class="field-label">Dependencies</label>
+              <div id="dependencyCheckboxes" class="dependency-list"></div>
+            </div>
+            
+            <div style="margin-top: 24px; display: flex; justify-content: space-between;">
+              <div style="display: flex; gap: 8px;">
+                <button id="moveBlockLeftBtn" type="button" class="btn">Move Up</button>
+                <button id="moveBlockRightBtn" type="button" class="btn">Move Down</button>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <button id="duplicateBlockBtn" type="button" class="btn">Duplicate</button>
+                <button id="deleteBlockBtn" type="button" class="btn danger">Delete</button>
+              </div>
+            </div>
+          </form>
+        </div>
       </section>
 
-      <section class="panel middle">
-        <div class="panel-header">
-          <h2>Block Inspector</h2>
-          <p>Prompts are auto-snapshotted via filesystem snapshots.</p>
-        </div>
-        <div id="inspectorEmpty" class="empty">Select a block to edit details.</div>
-        <form id="blockInspector" class="inspector hidden">
-          <div class="inspector-grid">
-            <label>
-              Block ID
-              <input id="blockIdInput" type="text" />
-            </label>
-            <label>
-              Block Name
-              <input id="blockNameInput" type="text" />
-            </label>
-            <label>
-              Block Type
-              <input id="blockTypeInput" type="text" disabled />
-            </label>
-            <label>
-              Enabled
-              <select id="blockEnabledInput">
-                <option value="true">Enabled</option>
-                <option value="false">Disabled</option>
-              </select>
-            </label>
-            <label>
-              Provider
-              <select id="blockProviderInput">
-                <option value="GEMINI">Gemini</option>
-                <option value="OPENAI">OpenAI</option>
-              </select>
-            </label>
-            <label>
-              Model Source
-              <select id="blockModelSourceInput">
-                <option value="default">Pipeline Default</option>
-                <option value="custom">Block Override</option>
-              </select>
-            </label>
-            <label>
-              Model
-              <input id="blockModelInput" list="providerModelList" />
-              <datalist id="providerModelList"></datalist>
-            </label>
-            <label>
-              Temperature
-              <input id="blockTempInput" type="number" min="0" max="2" step="0.1" />
-            </label>
-            <label>
-              Response Schema
-              <select id="blockSchemaInput"></select>
-            </label>
-          </div>
-          <div id="blockModelHint" class="field-hint"></div>
-
-          <label>
-            System Instruction
-            <textarea id="blockSystemInstructionInput" rows="8"></textarea>
-          </label>
-          <label>
-            Prompt Template
-            <textarea id="blockPromptTemplateInput" rows="8"></textarea>
-          </label>
-
-          <div>
-            <h3>Dependencies</h3>
-            <div id="dependencyCheckboxes" class="dependency-list"></div>
-          </div>
-
-          <div class="inspector-actions">
-            <button id="moveBlockLeftBtn" type="button" class="btn ghost">Move Up</button>
-            <button id="moveBlockRightBtn" type="button" class="btn ghost">Move Down</button>
-            <button id="duplicateBlockBtn" type="button" class="btn ghost">Duplicate</button>
-            <button id="deleteBlockBtn" type="button" class="btn danger">Delete</button>
-          </div>
-        </form>
-      </section>
-
-      <section class="panel right">
-        <div class="panel-header">
-          <h2>Run Lab</h2>
-          <p>Dry run pipeline and compare final artifacts to evaluate quality impact.</p>
-        </div>
-        <div class="run-meta">
-          <div class="status-box">
-            <h3>Latest Status</h3>
-            <p id="runStatusLabel">No run yet.</p>
-          </div>
-          <div class="status-box">
-            <h3>Quality Proxy</h3>
-            <p id="qualityScoreLabel">-</p>
-          </div>
-        </div>
-        <div id="runsList" class="runs-list"></div>
-        <div id="runDetails" class="run-details"></div>
-
-        <div class="compare-section">
-          <h3>Compare Final Artifacts</h3>
-          <div class="compare-controls">
-            <select id="baselineRunSelect"></select>
-            <select id="candidateRunSelect"></select>
-            <button id="compareRunsBtn" class="btn accent">Compare</button>
-          </div>
-          <div id="compareResult" class="compare-result"></div>
+      <!-- Right Panel: Monitor & Inspector -->
+      <aside class="monitor-right">
+        <div class="tabs">
+          <button id="tabMonitorBtn" class="tab-btn active">Monitor</button>
+          <button id="tabTimelineBtn" class="tab-btn">Timeline</button>
+          <button id="tabHistoryBtn" class="tab-btn">History</button>
+          <button id="tabLogsBtn" class="tab-btn">Logs</button>
         </div>
 
-        <div class="ui-log-section">
-          <div class="ui-log-header">
-            <h3>UI Activity Log</h3>
-            <div style="display:flex;gap:8px;">
-              <button id="copyUiLogBtn" class="btn ghost" type="button">Copy</button>
-              <button id="clearUiLogBtn" class="btn ghost" type="button">Clear</button>
+        <div id="tabMonitor" class="tab-pane">
+          <div class="summary-stats">
+            <div class="stat-card">
+              <div id="qualityScoreLabel" class="stat-val">-</div>
+              <div class="stat-label">Quality Score</div>
+            </div>
+            <div class="stat-card">
+              <div id="wordCountLabel" class="stat-val">0</div>
+              <div class="stat-label">Total Words</div>
             </div>
           </div>
-          <div id="uiLogPanel" class="ui-log-panel"></div>
+          <h2>Live Artifact Feed</h2>
+          <div id="artifactFeed" class="artifact-feed"></div>
         </div>
-      </section>
+
+        <div id="tabTimeline" class="tab-pane hidden">
+          <h2>Story Narrative</h2>
+          <div id="storyTimeline" class="timeline-container"></div>
+        </div>
+
+        <div id="tabHistory" class="tab-pane hidden">
+          <h2>Past Runs</h2>
+          <div id="runsList" class="runs-list"></div>
+        </div>
+
+        <div id="tabLogs" class="tab-pane hidden" style="flex-direction: column; display: flex; height: 100%;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <h2>UI Activity</h2>
+            <div style="display: flex; gap: 8px;">
+              <button id="copyUiLogBtn" class="btn" style="padding: 4px 8px; font-size: 0.75rem;">Copy</button>
+              <button id="clearUiLogBtn" class="btn danger" style="padding: 4px 8px; font-size: 0.75rem;">Clear</button>
+            </div>
+          </div>
+          <div id="uiLogPanel" class="ui-log-panel" style="flex: 1; overflow-y: auto;"></div>
+        </div>
+      </aside>
     </main>
+
+    <!-- Overlay for Comparison -->
+    <div id="compareOverlay" class="hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 1000; padding: 40px; display: flex; flex-direction: column;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
+        <h2>Compare Runs</h2>
+        <button id="closeCompareBtn" class="btn">&times; Close</button>
+      </div>
+      
+      <div class="glass-panel" style="display: flex; gap: 20px; align-items: flex-end;">
+        <div class="field-group">
+          <label class="field-label">Baseline (Previous)</label>
+          <select id="baselineRunSelect"></select>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Candidate (Current)</label>
+          <select id="candidateRunSelect"></select>
+        </div>
+        <button id="compareRunsBtn" class="btn primary">Start Comparison</button>
+      </div>
+
+      <div id="compareResult" style="flex: 1; overflow-y: auto; margin-top: 20px;"></div>
+    </div>
 
     <div id="toast" class="toast hidden"></div>
 
     <dialog id="settingsDialog">
       <form id="settingsForm" method="dialog">
         <h2>Provider Settings</h2>
-        <p>Stored locally in <code>python_director/settings.local.json</code>.</p>
-        <p>Also remembered in your browser localStorage for convenience.</p>
-        <label>
-          Gemini API Key
+        <div class="field-group" style="margin-bottom: 12px;">
+          <label class="field-label">Gemini API Key</label>
           <input id="geminiKeyInput" type="password" />
-        </label>
-        <label>
-          OpenAI API Key
+        </div>
+        <div class="field-group" style="margin-bottom: 12px;">
+          <label class="field-label">OpenAI API Key</label>
           <input id="openaiKeyInput" type="password" />
-        </label>
-        <label>
-          Google Credentials Path (optional for upload)
+        </div>
+        <div class="field-group" style="margin-bottom: 12px;">
+          <label class="field-label">Google Credentials Path</label>
           <input id="googleCredPathInput" type="text" />
-        </label>
-        <div id="settingsStatusBadges" class="badge-row"></div>
-        <div class="dialog-actions">
-          <button id="freshStartBtn" type="button" class="btn ghost">Fresh Start</button>
-          <button id="cancelSettingsBtn" type="button" class="btn ghost">Cancel</button>
-          <button id="saveSettingsBtn" type="button" class="btn accent">Save</button>
+        </div>
+        <div id="settingsStatusBadges" class="badge-row" style="margin-bottom: 12px; display: flex; gap: 8px;"></div>
+        
+        <div class="dialog-actions" style="margin-top: 20px; display: flex; justify-content: space-between;">
+          <button id="freshStartBtn" type="button" class="btn danger">Fresh Start</button>
+          <div style="display: flex; gap: 8px;">
+            <button id="cancelSettingsBtn" type="button" class="btn">Cancel</button>
+            <button id="saveSettingsBtn" type="button" class="btn primary">Save Changes</button>
+          </div>
         </div>
       </form>
     </dialog>
 
+    <datalist id="providerModelList"></datalist>
     <script src="/admin-static/app.js"></script>
   </body>
 </html>

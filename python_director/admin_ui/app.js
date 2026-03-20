@@ -5,46 +5,55 @@ const state = {
   selectedBlockId: null,
   runs: [],
   activeRun: null,
+  activeRunProgress: null,
+  activeTab: "tabMonitor",
   comparison: null,
   settingsPayload: null,
   uiLogs: [],
   requestSeq: 0,
+  pollTimer: null,
 };
 
-const LOCAL_SETTINGS_KEY = "director_studio_provider_settings_v1";
-const UI_LOG_STORAGE_KEY = "director_studio_ui_activity_log_v1";
+const LOCAL_SETTINGS_KEY = "director_studio_provider_settings_v3";
+const UI_LOG_STORAGE_KEY = "director_studio_ui_activity_log_v2";
 const UI_LOG_LIMIT = 500;
 const FALLBACK_PIPELINE_DEFAULT_MODELS = {
   GEMINI: "gemini-2.5-flash",
-  OPENAI: "gpt-5.4-mini",
+  OPENAI: "gpt-4o-mini",
 };
 
 const els = {
-  pipelineCanvas: document.getElementById("pipelineCanvas"),
-  templateRail: document.getElementById("templateRail"),
+  // Sidebar (Library & Settings)
   pipelineNameInput: document.getElementById("pipelineNameInput"),
   pipelineDescriptionInput: document.getElementById("pipelineDescriptionInput"),
   pipelineLibrarySelect: document.getElementById("pipelineLibrarySelect"),
-  pipelineGeminiModelInput: document.getElementById("pipelineGeminiModelInput"),
-  pipelineOpenaiModelInput: document.getElementById("pipelineOpenaiModelInput"),
   loadPipelineBtn: document.getElementById("loadPipelineBtn"),
   saveNamedPipelineBtn: document.getElementById("saveNamedPipelineBtn"),
+  pipelineGeminiModelInput: document.getElementById("pipelineGeminiModelInput"),
+  pipelineOpenaiModelInput: document.getElementById("pipelineOpenaiModelInput"),
+  pipelineCanvas: document.getElementById("pipelineCanvas"),
+  templateRail: document.getElementById("templateRail"),
   savePipelineBtn: document.getElementById("savePipelineBtn"),
-  snapshotPipelineBtn: document.getElementById("snapshotPipelineBtn"),
-  runPipelineBtn: document.getElementById("runPipelineBtn"),
-  resetPipelineBtn: document.getElementById("resetPipelineBtn"),
+
+  // Topbar
   refreshStudioBtn: document.getElementById("refreshStudioBtn"),
-  runsList: document.getElementById("runsList"),
-  runDetails: document.getElementById("runDetails"),
-  baselineRunSelect: document.getElementById("baselineRunSelect"),
-  candidateRunSelect: document.getElementById("candidateRunSelect"),
-  compareRunsBtn: document.getElementById("compareRunsBtn"),
-  compareResult: document.getElementById("compareResult"),
+  snapshotPipelineBtn: document.getElementById("snapshotPipelineBtn"),
+  resetPipelineBtn: document.getElementById("resetPipelineBtn"),
+  openSettingsBtn: document.getElementById("openSettingsBtn"),
+  runPipelineBtn: document.getElementById("runPipelineBtn"),
+  tabCompareBtn: document.getElementById("tabCompareBtn"),
+
+  // Center (Command Center)
+  activeRunBanner: document.getElementById("activeRunBanner"),
   runStatusLabel: document.getElementById("runStatusLabel"),
-  qualityScoreLabel: document.getElementById("qualityScoreLabel"),
-  toast: document.getElementById("toast"),
+  runProgressText: document.getElementById("runProgressText"),
+  runProgressFill: document.getElementById("runProgressFill"),
   inspectorEmpty: document.getElementById("inspectorEmpty"),
   blockInspector: document.getElementById("blockInspector"),
+  currentBlockTitle: document.getElementById("currentBlockTitle"),
+  blockIdBadge: document.getElementById("blockIdBadge"),
+  blockStatusDot: document.getElementById("blockStatusDot"),
+  
   blockIdInput: document.getElementById("blockIdInput"),
   blockNameInput: document.getElementById("blockNameInput"),
   blockTypeInput: document.getElementById("blockTypeInput"),
@@ -53,147 +62,157 @@ const els = {
   blockModelSourceInput: document.getElementById("blockModelSourceInput"),
   blockModelInput: document.getElementById("blockModelInput"),
   blockModelHint: document.getElementById("blockModelHint"),
-  providerModelList: document.getElementById("providerModelList"),
   blockTempInput: document.getElementById("blockTempInput"),
   blockSchemaInput: document.getElementById("blockSchemaInput"),
   blockSystemInstructionInput: document.getElementById("blockSystemInstructionInput"),
   blockPromptTemplateInput: document.getElementById("blockPromptTemplateInput"),
   dependencyCheckboxes: document.getElementById("dependencyCheckboxes"),
+  
   moveBlockLeftBtn: document.getElementById("moveBlockLeftBtn"),
   moveBlockRightBtn: document.getElementById("moveBlockRightBtn"),
   duplicateBlockBtn: document.getElementById("duplicateBlockBtn"),
   deleteBlockBtn: document.getElementById("deleteBlockBtn"),
+
+  // Right (Monitor)
+  tabMonitorBtn: document.getElementById("tabMonitorBtn"),
+  tabTimelineBtn: document.getElementById("tabTimelineBtn"),
+  tabHistoryBtn: document.getElementById("tabHistoryBtn"),
+  tabLogsBtn: document.getElementById("tabLogsBtn"),
+  
+  tabMonitor: document.getElementById("tabMonitor"),
+  tabTimeline: document.getElementById("tabTimeline"),
+  tabHistory: document.getElementById("tabHistory"),
+  tabLogs: document.getElementById("tabLogs"),
+  
+  qualityScoreLabel: document.getElementById("qualityScoreLabel"),
+  wordCountLabel: document.getElementById("wordCountLabel"),
+  artifactFeed: document.getElementById("artifactFeed"),
+  storyTimeline: document.getElementById("storyTimeline"),
+  runsList: document.getElementById("runsList"),
+  
+  uiLogPanel: document.getElementById("uiLogPanel"),
+  copyUiLogBtn: document.getElementById("copyUiLogBtn"),
+  clearUiLogBtn: document.getElementById("clearUiLogBtn"),
+
+  // Compare Overlay
+  compareOverlay: document.getElementById("compareOverlay"),
+  closeCompareBtn: document.getElementById("closeCompareBtn"),
+  baselineRunSelect: document.getElementById("baselineRunSelect"),
+  candidateRunSelect: document.getElementById("candidateRunSelect"),
+  compareRunsBtn: document.getElementById("compareRunsBtn"),
+  compareResult: document.getElementById("compareResult"),
+
+  // Settings & Toast
   settingsDialog: document.getElementById("settingsDialog"),
-  openSettingsBtn: document.getElementById("openSettingsBtn"),
-  cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
-  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
-  freshStartBtn: document.getElementById("freshStartBtn"),
   geminiKeyInput: document.getElementById("geminiKeyInput"),
   openaiKeyInput: document.getElementById("openaiKeyInput"),
   googleCredPathInput: document.getElementById("googleCredPathInput"),
   settingsStatusBadges: document.getElementById("settingsStatusBadges"),
-  clearUiLogBtn: document.getElementById("clearUiLogBtn"),
-  copyUiLogBtn: document.getElementById("copyUiLogBtn"),
-  uiLogPanel: document.getElementById("uiLogPanel"),
+  freshStartBtn: document.getElementById("freshStartBtn"),
+  cancelSettingsBtn: document.getElementById("cancelSettingsBtn"),
+  saveSettingsBtn: document.getElementById("saveSettingsBtn"),
+  providerModelList: document.getElementById("providerModelList"),
+  toast: document.getElementById("toast"),
 };
+
+/* --- Utilities & Storage --- */
+
+function showToast(message, isError = false) {
+  els.toast.textContent = message;
+  els.toast.classList.remove("hidden");
+  els.toast.style.borderColor = isError ? "var(--danger)" : "var(--mint)";
+  window.clearTimeout(showToast._timer);
+  showToast._timer = window.setTimeout(() => els.toast.classList.add("hidden"), 3000);
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]));
+}
+
+function deepClone(v) { return JSON.parse(JSON.stringify(v)); }
+
+function uid(prefix) { return `${prefix}_${Math.random().toString(36).slice(2, 7)}`; }
 
 function getLocalSettings() {
   try {
     const raw = window.localStorage.getItem(LOCAL_SETTINGS_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    return parsed;
-  } catch (_error) {
-    return {};
-  }
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
 }
 
 function setLocalSettings(settings) {
-  try {
-    window.localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings));
-  } catch (_error) {
-    // Ignore storage failures (private mode / browser policies).
-  }
+  try { window.localStorage.setItem(LOCAL_SETTINGS_KEY, JSON.stringify(settings)); } catch (e) {}
 }
 
 function getStoredUiLogs() {
   try {
     const raw = window.localStorage.getItem(UI_LOG_STORAGE_KEY);
-    if (!raw) {
-      return [];
-    }
+    if (!raw) return [];
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed
-      .filter((entry) => entry && typeof entry.text === "string")
-      .map((entry) => ({
-        level: typeof entry.level === "string" ? entry.level : "info",
-        text: entry.text,
-      }))
-      .slice(-UI_LOG_LIMIT);
-  } catch (_error) {
-    return [];
-  }
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
 }
 
 function setStoredUiLogs(logs) {
-  try {
-    window.localStorage.setItem(UI_LOG_STORAGE_KEY, JSON.stringify(logs.slice(-UI_LOG_LIMIT)));
-  } catch (_error) {
-    // Ignore storage failures (private mode / browser policies).
-  }
+  try { window.localStorage.setItem(UI_LOG_STORAGE_KEY, JSON.stringify(logs.slice(-UI_LOG_LIMIT))); } catch (e) {}
 }
 
-function clearBrowserCacheState() {
-  try {
-    window.localStorage.removeItem(LOCAL_SETTINGS_KEY);
-    window.localStorage.removeItem(UI_LOG_STORAGE_KEY);
-  } catch (_error) {
-    // Ignore storage failures.
-  }
-  state.uiLogs = [];
+function uiLog(level, message, meta = null) {
+  const timestamp = new Date().toISOString();
+  const normalized = (level || "info").toLowerCase();
+  let details = meta ? ` ${typeof meta === 'string' ? meta : JSON.stringify(meta)}` : "";
+  const line = `[${timestamp}] [${normalized.toUpperCase()}] ${message}${details}`;
+  
+  state.uiLogs.push({ level: normalized, text: line });
+  if (state.uiLogs.length > UI_LOG_LIMIT) state.uiLogs.splice(0, state.uiLogs.length - UI_LOG_LIMIT);
+  setStoredUiLogs(state.uiLogs);
   renderUiLogs();
 }
 
-function uid(prefix) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 7)}`;
-}
-
-function deepClone(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-
-function formatDate(value) {
-  try {
-    return new Date(value).toLocaleString();
-  } catch (_error) {
-    return value;
+function renderUiLogs() {
+  if (!els.uiLogPanel) return;
+  if (!state.uiLogs.length) {
+    els.uiLogPanel.innerHTML = '<div class="ui-log-entry info">No UI activity logged yet.</div>';
+    return;
   }
+  els.uiLogPanel.innerHTML = state.uiLogs.map(e => `<div class="ui-log-entry ${e.level}">${escapeHtml(e.text)}</div>`).join("");
+  els.uiLogPanel.scrollTop = els.uiLogPanel.scrollHeight;
 }
 
-function jsonPretty(value) {
-  return JSON.stringify(value, null, 2);
+async function request(path, options = {}) {
+  const method = options.method || "GET";
+  const reqId = ++state.requestSeq;
+  uiLog("debug", `HTTP request #${reqId} ${method} ${path}`);
+  const started = performance.now();
+  
+  const response = await fetch(path, {
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const text = await response.text();
+  let data = {};
+  if (text) { try { data = JSON.parse(text); } catch { data = { detail: text }; } }
+  
+  if (!response.ok) {
+    uiLog("error", `HTTP failure #${reqId} ${method} ${path}`, { status: response.status, detail: data.detail });
+    throw new Error(data.detail || text || `Request failed: ${response.status}`);
+  }
+  
+  uiLog("debug", `HTTP success #${reqId} ${method} ${path}`, { status: response.status, elapsed_ms: Math.round(performance.now() - started) });
+  return data;
 }
 
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function safeJson(value) {
-  return escapeHtml(jsonPretty(value));
-}
+/* --- Core Pipeline Logic --- */
 
 function ensurePipelineDefaults(pipeline) {
-  if (!pipeline) {
-    return pipeline;
-  }
-  if (!pipeline.default_models || typeof pipeline.default_models !== "object") {
-    pipeline.default_models = {};
-  }
+  if (!pipeline) return pipeline;
+  if (!pipeline.default_models) pipeline.default_models = {};
   Object.entries(FALLBACK_PIPELINE_DEFAULT_MODELS).forEach(([provider, model]) => {
-    if (!pipeline.default_models[provider]) {
-      pipeline.default_models[provider] = model;
-    }
+    if (!pipeline.default_models[provider]) pipeline.default_models[provider] = model;
   });
-  (pipeline.blocks || []).forEach((block) => {
-    if (!block.config) {
-      block.config = {};
-    }
-    if (typeof block.config.use_pipeline_default_model !== "boolean") {
-      block.config.use_pipeline_default_model = false;
-    }
+  (pipeline.blocks || []).forEach(block => {
+    if (!block.config) block.config = {};
+    if (typeof block.config.use_pipeline_default_model !== "boolean") block.config.use_pipeline_default_model = false;
     if (block.config.use_pipeline_default_model) {
       block.config.model_name = pipeline.default_models[block.config.provider] || block.config.model_name || null;
     } else if (block.config.model_name === undefined) {
@@ -204,280 +223,132 @@ function ensurePipelineDefaults(pipeline) {
 }
 
 function getPipelineDefaultModel(provider) {
-  return (
-    state.pipeline?.default_models?.[provider] ||
-    state.studio?.pipeline?.default_models?.[provider] ||
-    FALLBACK_PIPELINE_DEFAULT_MODELS[provider] ||
-    ""
-  );
+  return state.pipeline?.default_models?.[provider] || state.studio?.pipeline?.default_models?.[provider] || FALLBACK_PIPELINE_DEFAULT_MODELS[provider] || "";
 }
 
 function getEffectiveModelForBlock(block) {
-  if (!block) {
-    return "";
-  }
-  if (block.config.use_pipeline_default_model) {
-    return getPipelineDefaultModel(block.config.provider);
-  }
-  return block.config.model_name || getPipelineDefaultModel(block.config.provider);
-}
-
-function showToast(message, isError = false) {
-  els.toast.textContent = message;
-  els.toast.classList.remove("hidden");
-  els.toast.style.borderColor = isError ? "rgba(255,127,127,0.65)" : "rgba(112,245,194,0.45)";
-  window.clearTimeout(showToast._timer);
-  showToast._timer = window.setTimeout(() => {
-    els.toast.classList.add("hidden");
-  }, 2600);
-}
-
-function uiLog(level, message, meta = null) {
-  const timestamp = new Date().toISOString();
-  const normalized = (level || "info").toLowerCase();
-  let details = "";
-  if (meta) {
-    if (typeof meta === "string") {
-      details = ` ${meta}`;
-    } else {
-      try {
-        details = ` ${JSON.stringify(meta)}`;
-      } catch (_error) {
-        details = " [meta=unserializable]";
-      }
-    }
-  }
-  const line = `[${timestamp}] [${normalized.toUpperCase()}] ${message}${details}`;
-  state.uiLogs.push({ level: normalized, text: line });
-  if (state.uiLogs.length > UI_LOG_LIMIT) {
-    state.uiLogs.splice(0, state.uiLogs.length - UI_LOG_LIMIT);
-  }
-  setStoredUiLogs(state.uiLogs);
-  if (normalized === "error") {
-    console.error(line);
-  } else if (normalized === "warn") {
-    console.warn(line);
-  } else {
-    console.log(line);
-  }
-  renderUiLogs();
-}
-
-function renderUiLogs() {
-  if (!els.uiLogPanel) {
-    return;
-  }
-  if (!state.uiLogs.length) {
-    els.uiLogPanel.innerHTML = `<div class="ui-log-entry info">No UI activity logged yet.</div>`;
-    return;
-  }
-  els.uiLogPanel.innerHTML = state.uiLogs
-    .map((entry) => `<div class="ui-log-entry ${entry.level}">${escapeHtml(entry.text)}</div>`)
-    .join("");
-  els.uiLogPanel.scrollTop = els.uiLogPanel.scrollHeight;
-}
-
-async function request(path, options = {}) {
-  const method = options.method || "GET";
-  const requestId = ++state.requestSeq;
-  uiLog("debug", `HTTP request #${requestId} ${method} ${path}`);
-  const started = performance.now();
-  const response = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
-  const text = await response.text();
-  let data = {};
-  if (text) {
-    try {
-      data = JSON.parse(text);
-    } catch (_error) {
-      data = { detail: text };
-    }
-  }
-  if (!response.ok) {
-    uiLog("error", `HTTP failure #${requestId} ${method} ${path}`, {
-      status: response.status,
-      detail: data.detail || text,
-      elapsed_ms: Math.round(performance.now() - started),
-    });
-    throw new Error(data.detail || text || `Request failed: ${response.status}`);
-  }
-  uiLog("debug", `HTTP success #${requestId} ${method} ${path}`, {
-    status: response.status,
-    elapsed_ms: Math.round(performance.now() - started),
-  });
-  return data;
+  if (!block) return "";
+  return block.config.use_pipeline_default_model ? getPipelineDefaultModel(block.config.provider) : (block.config.model_name || getPipelineDefaultModel(block.config.provider));
 }
 
 function getSelectedBlock() {
-  if (!state.pipeline || !state.selectedBlockId) {
-    return null;
-  }
-  return state.pipeline.blocks.find((block) => block.id === state.selectedBlockId) || null;
+  return state.pipeline?.blocks.find(b => b.id === state.selectedBlockId) || null;
 }
 
-function blockAt(index) {
-  return state.pipeline.blocks[index] || null;
-}
-
-function selectBlock(blockId, scrollInspector = false) {
+function selectBlock(blockId) {
   uiLog("info", `Selecting block ${blockId}`);
   state.selectedBlockId = blockId;
-  renderInspector();
   renderPipelineCanvas();
-  if (scrollInspector) {
-    els.blockInspector.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
+  renderInspector();
 }
 
+function moveSelectedBlock(offset) {
+  const selected = getSelectedBlock();
+  if (!selected) return;
+  const index = state.pipeline.blocks.findIndex(b => b.id === selected.id);
+  const target = index + offset;
+  if (target < 0 || target >= state.pipeline.blocks.length) return;
+  const temp = state.pipeline.blocks[index];
+  state.pipeline.blocks[index] = state.pipeline.blocks[target];
+  state.pipeline.blocks[target] = temp;
+  uiLog("info", "Block moved", { block_id: selected.id, from: index, to: target });
+  renderPipelineCanvas();
+}
+
+/* --- Render Functions --- */
+
 function renderPipelineMeta() {
-  if (!state.pipeline) {
-    return;
-  }
-  ensurePipelineDefaults(state.pipeline);
+  if (!state.pipeline) return;
   els.pipelineNameInput.value = state.pipeline.name || "";
   els.pipelineDescriptionInput.value = state.pipeline.description || "";
-  const geminiOptions = state.studio?.provider_models?.GEMINI || [];
-  const openaiOptions = state.studio?.provider_models?.OPENAI || [];
-  const selectedGeminiModel = getPipelineDefaultModel("GEMINI");
-  const selectedOpenaiModel = getPipelineDefaultModel("OPENAI");
-  const normalizedGeminiOptions = selectedGeminiModel && !geminiOptions.includes(selectedGeminiModel)
-    ? [selectedGeminiModel, ...geminiOptions]
-    : geminiOptions;
-  const normalizedOpenaiOptions = selectedOpenaiModel && !openaiOptions.includes(selectedOpenaiModel)
-    ? [selectedOpenaiModel, ...openaiOptions]
-    : openaiOptions;
-  els.pipelineGeminiModelInput.innerHTML = normalizedGeminiOptions
-    .map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`)
-    .join("");
-  els.pipelineOpenaiModelInput.innerHTML = normalizedOpenaiOptions
-    .map((model) => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`)
-    .join("");
-  els.pipelineGeminiModelInput.value = selectedGeminiModel;
-  els.pipelineOpenaiModelInput.value = selectedOpenaiModel;
+  
+  const gOpts = state.studio?.provider_models?.GEMINI || [];
+  const oOpts = state.studio?.provider_models?.OPENAI || [];
+  const selG = getPipelineDefaultModel("GEMINI");
+  const selO = getPipelineDefaultModel("OPENAI");
+  
+  els.pipelineGeminiModelInput.innerHTML = (!gOpts.includes(selG) && selG ? [selG, ...gOpts] : gOpts).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+  els.pipelineOpenaiModelInput.innerHTML = (!oOpts.includes(selO) && selO ? [selO, ...oOpts] : oOpts).map(m => `<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join("");
+  els.pipelineGeminiModelInput.value = selG;
+  els.pipelineOpenaiModelInput.value = selO;
 }
 
 function renderPipelineLibrary() {
-  const catalog = state.pipelineCatalog || [];
-  if (!catalog.length) {
+  if (!state.pipelineCatalog?.length) {
     els.pipelineLibrarySelect.innerHTML = `<option value="">No saved pipelines yet</option>`;
     return;
   }
-  els.pipelineLibrarySelect.innerHTML = catalog
-    .map(
-      (item) =>
-        `<option value="${escapeHtml(item.key)}">${escapeHtml(item.name)} (${item.block_count} blocks)</option>`,
-    )
-    .join("");
+  els.pipelineLibrarySelect.innerHTML = state.pipelineCatalog.map(i => `<option value="${escapeHtml(i.key)}">${escapeHtml(i.name)} (${i.block_count} blocks)</option>`).join("");
 }
 
 function renderPipelineCanvas() {
   const blocks = state.pipeline?.blocks || [];
   els.pipelineCanvas.innerHTML = "";
-  blocks.forEach((block, index) => {
-    const effectiveModel = getEffectiveModelForBlock(block);
-    const modelModeLabel = block.config.use_pipeline_default_model ? "default" : "override";
-    const card = document.createElement("div");
-    card.className = `block-card ${block.id === state.selectedBlockId ? "selected" : ""} ${block.enabled ? "" : "disabled"}`;
-    card.innerHTML = `
-      <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">
-        <strong>${escapeHtml(block.name)}</strong>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <span class="chip">${escapeHtml(block.config.provider)}</span>
-          <button type="button" class="block-edit-btn" data-edit="${escapeHtml(block.id)}">✎ Edit</button>
+  
+  blocks.forEach((block, idx) => {
+    const trace = state.activeRunProgress?.block_traces?.[block.id];
+    const statusClass = trace?.status?.toLowerCase() || (block.enabled ? "pending" : "skipped");
+    const item = document.createElement("div");
+    
+    item.className = `block-nav-item ${block.id === state.selectedBlockId ? "active" : ""} ${statusClass} ${!block.enabled ? "dim" : ""}`;
+    item.innerHTML = `
+      <div class="status-dot"></div>
+      <div style="flex: 1;">
+        <div style="font-weight: 500; font-size: 0.9rem; display: flex; justify-content: space-between;">
+          ${escapeHtml(block.name)}
+          <span style="font-size: 0.7rem;" class="chip">${escapeHtml(block.type)}</span>
         </div>
+        <div style="font-size: 0.75rem;" class="dim">${escapeHtml(block.id)}</div>
       </div>
-      <div style="font-size:11px;color:var(--text-dim);margin-top:6px;">${escapeHtml(block.id)}</div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="chip">${escapeHtml(block.type)}</span>
-        <span class="chip">${escapeHtml(modelModeLabel)}: ${escapeHtml(effectiveModel)}</span>
-        ${block.config.response_schema_name ? `<span class="chip">${escapeHtml(block.config.response_schema_name)}</span>` : ""}
+      <div style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,0.05);">
+        ${escapeHtml(block.config.provider)}
       </div>
-      ${
-        block.input_blocks.length
-          ? `<div style="margin-top:8px;color:var(--text-dim);font-size:11px;">in: ${escapeHtml(block.input_blocks.join(", "))}</div>`
-          : ""
-      }
     `;
-    card.addEventListener("click", () => {
-      selectBlock(block.id);
-    });
-    const editBtn = card.querySelector(".block-edit-btn");
-    if (editBtn) {
-      editBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        selectBlock(block.id, true);
-      });
-    }
-    els.pipelineCanvas.appendChild(card);
-
-    if (index < blocks.length - 1) {
-      const arrow = document.createElement("div");
-      arrow.className = "block-arrow";
-      arrow.textContent = "↓";
-      els.pipelineCanvas.appendChild(arrow);
+    item.addEventListener("click", () => selectBlock(block.id));
+    els.pipelineCanvas.appendChild(item);
+    
+    if (idx < blocks.length - 1) {
+      const arr = document.createElement("div");
+      arr.className = "block-arrow";
+      arr.textContent = "↓";
+      els.pipelineCanvas.appendChild(arr);
     }
   });
 }
 
-function createBlockFromTemplate(template) {
-  const baseId = template.type.replaceAll("-", "_");
-  const existing = new Set(state.pipeline.blocks.map((block) => block.id));
-  let candidate = baseId;
-  let index = 1;
-  while (existing.has(candidate)) {
-    index += 1;
-    candidate = `${baseId}_${index}`;
-  }
-  const block = {
-    id: candidate,
-    name: template.name,
-    description: template.description || "",
-    type: template.type,
-    enabled: true,
-    input_blocks: [],
-    config: deepClone(template.config),
-  };
-  if (typeof block.config.use_pipeline_default_model !== "boolean") {
-    block.config.use_pipeline_default_model = false;
-  }
-  if (block.config.model_name === undefined) {
-    block.config.model_name = null;
-  }
+function createBlockFromTemplate(t) {
+  const baseId = t.type.replaceAll("-", "_");
+  const existing = new Set(state.pipeline.blocks.map(b => b.id));
+  let candidate = baseId, idx = 1;
+  while(existing.has(candidate)) { idx++; candidate = `${baseId}_${idx}`; }
+  const block = { id: candidate, name: t.name, description: t.description || "", type: t.type, enabled: true, input_blocks: [], config: deepClone(t.config) };
+  if(typeof block.config.use_pipeline_default_model !== "boolean") block.config.use_pipeline_default_model = false;
+  if(block.config.model_name === undefined) block.config.model_name = null;
   return block;
 }
 
 function renderTemplateRail() {
   els.templateRail.innerHTML = "";
-  (state.studio?.block_templates || []).forEach((template) => {
+  (state.studio?.block_templates || []).forEach(t => {
     const item = document.createElement("div");
     item.className = "template-item";
-    item.innerHTML = `
-      <span class="chip">${escapeHtml(template.type)}</span>
-      <span style="font-size:12px;color:var(--text-dim);">${escapeHtml(template.name)}</span>
-      <button class="btn ghost" type="button">Add</button>
-    `;
+    item.innerHTML = `<span class="chip">${escapeHtml(t.type)}</span><span style="font-size: 0.7rem; color: var(--text-dim); flex: 1; margin: 0 8px;">${escapeHtml(t.name)}</span><button class="btn" style="padding: 2px 6px; font-size: 0.7rem;">+ Add</button>`;
     item.querySelector("button").addEventListener("click", () => {
-      const newBlock = createBlockFromTemplate(template);
-      const selectedIndex = state.pipeline.blocks.findIndex((block) => block.id === state.selectedBlockId);
-      const insertIndex = selectedIndex >= 0 ? selectedIndex + 1 : state.pipeline.blocks.length;
-      state.pipeline.blocks.splice(insertIndex, 0, newBlock);
-      state.selectedBlockId = newBlock.id;
-      uiLog("info", "Added block from template", { block_id: newBlock.id, type: newBlock.type });
-      renderAll();
+      const nb = createBlockFromTemplate(t);
+      const sidx = state.pipeline.blocks.findIndex(b => b.id === state.selectedBlockId);
+      state.pipeline.blocks.splice(sidx >= 0 ? sidx + 1 : state.pipeline.blocks.length, 0, nb);
+      state.selectedBlockId = nb.id;
+      uiLog("info", "Block added from template", { id: nb.id, type: nb.type });
+      renderPipelineCanvas();
+      renderInspector();
     });
     els.templateRail.appendChild(item);
   });
 }
 
-function refreshModelList(provider, selectedModel = "") {
-  const options = state.studio?.provider_models?.[provider] || [];
-  const normalizedOptions = selectedModel && !options.includes(selectedModel) ? [selectedModel, ...options] : options;
-  els.providerModelList.innerHTML = normalizedOptions.map((model) => `<option value="${model}"></option>`).join("");
+function refreshModelList(provider, selected = "") {
+  const opts = state.studio?.provider_models?.[provider] || [];
+  els.providerModelList.innerHTML = (!opts.includes(selected) && selected ? [selected, ...opts] : opts).map(m => `<option value="${escapeHtml(m)}"></option>`).join("");
 }
 
 function renderInspector() {
@@ -485,13 +356,16 @@ function renderInspector() {
   if (!selected) {
     els.inspectorEmpty.classList.remove("hidden");
     els.blockInspector.classList.add("hidden");
-    if (els.blockModelHint) {
-      els.blockModelHint.textContent = "";
-    }
     return;
   }
   els.inspectorEmpty.classList.add("hidden");
   els.blockInspector.classList.remove("hidden");
+
+  els.currentBlockTitle.textContent = selected.name;
+  els.blockIdBadge.textContent = selected.id;
+  
+  const trace = state.activeRunProgress?.block_traces?.[selected.id];
+  els.blockStatusDot.className = `status-dot ${trace?.status?.toLowerCase() || (selected.enabled ? "pending" : "skipped")}`;
 
   els.blockIdInput.value = selected.id;
   els.blockNameInput.value = selected.name;
@@ -500,792 +374,369 @@ function renderInspector() {
   els.blockProviderInput.value = selected.config.provider;
   refreshModelList(selected.config.provider, selected.config.model_name || "");
   els.blockModelSourceInput.value = selected.config.use_pipeline_default_model ? "default" : "custom";
-  els.blockModelInput.value = selected.config.use_pipeline_default_model
-    ? getEffectiveModelForBlock(selected)
-    : selected.config.model_name || "";
+  els.blockModelInput.value = selected.config.use_pipeline_default_model ? getEffectiveModelForBlock(selected) : (selected.config.model_name || "");
   els.blockModelInput.disabled = selected.config.use_pipeline_default_model;
   els.blockTempInput.value = selected.config.temperature;
   els.blockSystemInstructionInput.value = selected.config.system_instruction;
   els.blockPromptTemplateInput.value = selected.config.prompt_template;
-  const pipelineDefaultModel = getPipelineDefaultModel(selected.config.provider);
-  const effectiveModel = getEffectiveModelForBlock(selected);
-  els.blockModelHint.textContent = selected.config.use_pipeline_default_model
-    ? `Using pipeline default model for ${selected.config.provider}: ${effectiveModel || pipelineDefaultModel || "not set"}`
-    : `Override active. Pipeline default for ${selected.config.provider}: ${pipelineDefaultModel || "not set"}`;
+
+  const pdm = getPipelineDefaultModel(selected.config.provider);
+  const em = getEffectiveModelForBlock(selected);
+  els.blockModelHint.textContent = selected.config.use_pipeline_default_model ? `Inheriting pipeline default: ${em || pdm || "not set"}` : `Override active. (Pipeline default is ${pdm || "not set"})`;
 
   const schemas = state.studio?.schemas || [];
-  els.blockSchemaInput.innerHTML = `<option value="">None</option>${schemas
-    .map((schema) => `<option value="${schema}">${schema}</option>`)
-    .join("")}`;
+  els.blockSchemaInput.innerHTML = `<option value="">None</option>${schemas.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("")}`;
   els.blockSchemaInput.value = selected.config.response_schema_name || "";
 
   els.dependencyCheckboxes.innerHTML = "";
-  state.pipeline.blocks
-    .filter((candidate) => candidate.id !== selected.id)
-    .forEach((candidate) => {
-      const wrapper = document.createElement("label");
-      wrapper.className = "dependency-item";
-      const checked = selected.input_blocks.includes(candidate.id) ? "checked" : "";
-      wrapper.innerHTML = `<input type="checkbox" data-id="${candidate.id}" ${checked}/> ${candidate.name}`;
-      els.dependencyCheckboxes.appendChild(wrapper);
-    });
-}
-
-function renameBlockId(oldId, newId) {
-  if (!newId || oldId === newId) {
-    return true;
-  }
-  if (state.pipeline.blocks.some((block) => block.id === newId)) {
-    showToast(`Block id '${newId}' already exists.`, true);
-    return false;
-  }
-  state.pipeline.blocks.forEach((block) => {
-    block.input_blocks = block.input_blocks.map((value) => (value === oldId ? newId : value));
+  state.pipeline.blocks.filter(c => c.id !== selected.id).forEach(c => {
+    const w = document.createElement("div");
+    w.className = "dependency-item";
+    w.innerHTML = `<input type="checkbox" data-id="${escapeHtml(c.id)}" ${selected.input_blocks.includes(c.id) ? "checked" : ""}/> ${escapeHtml(c.name)}`;
+    els.dependencyCheckboxes.appendChild(w);
   });
-  state.selectedBlockId = newId;
-  return true;
 }
 
 function bindInspectorEvents() {
-  els.blockIdInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    const nextId = els.blockIdInput.value.trim();
-    if (!nextId) {
-      els.blockIdInput.value = selected.id;
-      return;
-    }
-    if (!renameBlockId(selected.id, nextId)) {
-      els.blockIdInput.value = selected.id;
-      return;
-    }
-    const oldId = selected.id;
-    selected.id = nextId;
-    uiLog("info", "Block ID changed", { from: oldId, to: nextId });
-    renderPipelineCanvas();
-    renderInspector();
+  function renameId(oldId, newId) {
+    if(!newId || oldId===newId) return true;
+    if(state.pipeline.blocks.some(b => b.id === newId)) { showToast("ID exists", true); return false; }
+    state.pipeline.blocks.forEach(b => b.input_blocks = b.input_blocks.map(v => v === oldId ? newId : v));
+    state.selectedBlockId = newId;
+    return true;
+  }
+  
+  els.blockIdInput.addEventListener("change", e => {
+    const b = getSelectedBlock();
+    if(b && renameId(b.id, e.target.value.trim())) { uiLog("info", "ID changed", {to: b.id}); renderPipelineCanvas(); renderInspector(); }
+    else if(b) e.target.value = b.id;
   });
-
-  els.blockNameInput.addEventListener("input", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
+  
+  els.blockNameInput.addEventListener("input", e => { const b = getSelectedBlock(); if(b) { b.name = e.target.value; renderPipelineCanvas(); }});
+  els.blockEnabledInput.addEventListener("change", e => { const b = getSelectedBlock(); if(b) { b.enabled = e.target.value === "true"; renderPipelineCanvas(); renderInspector(); }});
+  
+  els.blockProviderInput.addEventListener("change", e => {
+    const b = getSelectedBlock();
+    if(b) {
+      b.config.provider = e.target.value;
+      refreshModelList(b.config.provider);
+      b.config.model_name = getPipelineDefaultModel(b.config.provider);
+      renderPipelineCanvas(); renderInspector();
     }
-    selected.name = els.blockNameInput.value;
-    renderPipelineCanvas();
   });
-  els.blockNameInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    uiLog("debug", "Block name updated", { block_id: selected.id, name: selected.name });
+  
+  els.blockModelSourceInput.addEventListener("change", e => {
+    const b = getSelectedBlock();
+    if(b) { b.config.use_pipeline_default_model = e.target.value === "default"; renderInspector(); }
   });
-
-  els.blockEnabledInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.enabled = els.blockEnabledInput.value === "true";
-    uiLog("info", "Block enabled state changed", { block_id: selected.id, enabled: selected.enabled });
-    renderPipelineCanvas();
-  });
-
-  els.blockProviderInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.provider = els.blockProviderInput.value;
-    refreshModelList(selected.config.provider, selected.config.model_name || "");
-    const preferred = getPipelineDefaultModel(selected.config.provider) || (state.studio?.provider_models?.[selected.config.provider] || [])[0];
-    if (!selected.config.use_pipeline_default_model && preferred) {
-      selected.config.model_name = preferred;
-      els.blockModelInput.value = preferred;
-    }
-    uiLog("info", "Block provider changed", {
-      block_id: selected.id,
-      provider: selected.config.provider,
-      model_name: getEffectiveModelForBlock(selected),
-      using_pipeline_default_model: selected.config.use_pipeline_default_model,
-    });
-    renderPipelineCanvas();
-    renderInspector();
-  });
-
-  els.blockModelSourceInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.use_pipeline_default_model = els.blockModelSourceInput.value === "default";
-    if (selected.config.use_pipeline_default_model) {
-      selected.config.model_name = getPipelineDefaultModel(selected.config.provider);
-    } else if (!selected.config.model_name) {
-      selected.config.model_name = getPipelineDefaultModel(selected.config.provider);
-    }
-    uiLog("info", "Block model source changed", {
-      block_id: selected.id,
-      use_pipeline_default_model: selected.config.use_pipeline_default_model,
-      effective_model: getEffectiveModelForBlock(selected),
-    });
-    renderPipelineCanvas();
-    renderInspector();
-  });
-
-  els.blockModelInput.addEventListener("input", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.model_name = els.blockModelInput.value;
-    uiLog("debug", "Block model updated", {
-      block_id: selected.id,
-      model_name: selected.config.model_name,
-    });
-    renderPipelineCanvas();
-    renderInspector();
-  });
-
-  els.blockTempInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.temperature = Number(els.blockTempInput.value || 0.7);
-    uiLog("debug", "Block temperature updated", {
-      block_id: selected.id,
-      temperature: selected.config.temperature,
-    });
-  });
-
-  els.blockSchemaInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.response_schema_name = els.blockSchemaInput.value || null;
-    selected.config.response_mime_type = selected.config.response_schema_name ? "application/json" : null;
-    uiLog("info", "Block schema changed", {
-      block_id: selected.id,
-      response_schema_name: selected.config.response_schema_name,
-    });
-    renderPipelineCanvas();
-  });
-
-  els.blockSystemInstructionInput.addEventListener("input", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.system_instruction = els.blockSystemInstructionInput.value;
-  });
-  els.blockSystemInstructionInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    uiLog("debug", "System instruction edited", {
-      block_id: selected.id,
-      chars: selected.config.system_instruction.length,
-    });
-  });
-
-  els.blockPromptTemplateInput.addEventListener("input", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    selected.config.prompt_template = els.blockPromptTemplateInput.value;
-  });
-  els.blockPromptTemplateInput.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    uiLog("debug", "Prompt template edited", {
-      block_id: selected.id,
-      chars: selected.config.prompt_template.length,
-    });
-  });
-
+  
+  els.blockModelInput.addEventListener("input", e => { const b = getSelectedBlock(); if(b) { b.config.model_name = e.target.value; }});
+  els.blockTempInput.addEventListener("change", e => { const b = getSelectedBlock(); if(b) { b.config.temperature = Number(e.target.value); }});
+  els.blockSchemaInput.addEventListener("change", e => { const b = getSelectedBlock(); if(b) { b.config.response_schema_name = e.target.value || null; b.config.response_mime_type = b.config.response_schema_name ? "application/json" : null; }});
+  
+  els.blockSystemInstructionInput.addEventListener("input", e => { const b = getSelectedBlock(); if(b) b.config.system_instruction = e.target.value; });
+  els.blockPromptTemplateInput.addEventListener("input", e => { const b = getSelectedBlock(); if(b) b.config.prompt_template = e.target.value; });
+  
   els.dependencyCheckboxes.addEventListener("change", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    const checked = [...els.dependencyCheckboxes.querySelectorAll("input[type='checkbox']:checked")].map(
-      (input) => input.dataset.id,
-    );
-    selected.input_blocks = checked;
-    uiLog("info", "Block dependencies changed", {
-      block_id: selected.id,
-      input_blocks: checked,
-    });
-    renderPipelineCanvas();
+    const b = getSelectedBlock();
+    if(b) { b.input_blocks = Array.from(els.dependencyCheckboxes.querySelectorAll("input:checked")).map(i => i.dataset.id); renderPipelineCanvas(); }
   });
 
   els.moveBlockLeftBtn.addEventListener("click", () => moveSelectedBlock(-1));
   els.moveBlockRightBtn.addEventListener("click", () => moveSelectedBlock(1));
-
+  
   els.duplicateBlockBtn.addEventListener("click", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    const duplicate = deepClone(selected);
-    duplicate.id = uid(`${selected.id}_copy`);
-    duplicate.name = `${selected.name} Copy`;
-    const index = state.pipeline.blocks.findIndex((block) => block.id === selected.id);
-    state.pipeline.blocks.splice(index + 1, 0, duplicate);
-    state.selectedBlockId = duplicate.id;
-    uiLog("info", "Block duplicated", { source_block_id: selected.id, new_block_id: duplicate.id });
-    renderAll();
+    const b = getSelectedBlock();
+    if(!b) return;
+    const d = deepClone(b);
+    d.id = uid(`${b.id}_copy`); d.name = `${b.name} Copy`;
+    state.pipeline.blocks.splice(state.pipeline.blocks.findIndex(x => x.id === b.id)+1, 0, d);
+    state.selectedBlockId = d.id;
+    uiLog("info", "Block duplicated");
+    renderPipelineCanvas(); renderInspector();
   });
-
+  
   els.deleteBlockBtn.addEventListener("click", () => {
-    const selected = getSelectedBlock();
-    if (!selected) {
-      return;
-    }
-    if (state.pipeline.blocks.length <= 1) {
-      showToast("Pipeline must keep at least one block.", true);
-      return;
-    }
-    state.pipeline.blocks = state.pipeline.blocks.filter((block) => block.id !== selected.id);
-    state.pipeline.blocks.forEach((block) => {
-      block.input_blocks = block.input_blocks.filter((value) => value !== selected.id);
-    });
-    state.selectedBlockId = state.pipeline.blocks[0]?.id || null;
-    uiLog("warn", "Block deleted", { block_id: selected.id });
-    renderAll();
+    const b = getSelectedBlock();
+    if(!b || state.pipeline.blocks.length <= 1) return;
+    state.pipeline.blocks = state.pipeline.blocks.filter(x => x.id !== b.id);
+    state.pipeline.blocks.forEach(x => x.input_blocks = x.input_blocks.filter(id => id !== b.id));
+    state.selectedBlockId = state.pipeline.blocks[0].id;
+    uiLog("warn", "Block deleted", {id: b.id});
+    renderPipelineCanvas(); renderInspector();
   });
 }
 
-function moveSelectedBlock(offset) {
-  const selected = getSelectedBlock();
-  if (!selected) {
-    return;
-  }
-  const index = state.pipeline.blocks.findIndex((block) => block.id === selected.id);
-  const target = index + offset;
-  if (target < 0 || target >= state.pipeline.blocks.length) {
-    return;
-  }
-  const temp = state.pipeline.blocks[index];
-  state.pipeline.blocks[index] = state.pipeline.blocks[target];
-  state.pipeline.blocks[target] = temp;
-  uiLog("info", "Block moved", {
-    block_id: selected.id,
-    from_index: index,
-    to_index: target,
-  });
-  renderPipelineCanvas();
+/* --- Runs & Monitor Logic --- */
+
+function renderArtifactFeed() {
+  const traces = state.activeRunProgress?.block_traces || {};
+  const seq = state.activeRunProgress?.block_sequence || [];
+  els.artifactFeed.innerHTML = seq.map(id => {
+    const t = traces[id];
+    if(!t || !t.output) return "";
+    return `<div class="artifact-card"><div class="artifact-header"><span style="font-weight: 600;">${escapeHtml(id)}</span><span class="dim" style="font-size: 0.7rem;">${escapeHtml(t.model_name)}</span></div><div class="artifact-body"><pre style="white-space: pre-wrap; font-size: 0.8rem;">${typeof t.output === 'string' ? escapeHtml(t.output) : escapeHtml(JSON.stringify(t.output, null, 2))}</pre></div></div>`;
+  }).join("");
+  els.artifactFeed.scrollTop = els.artifactFeed.scrollHeight;
 }
 
-function renderRuns() {
-  els.runsList.innerHTML = "";
-  if (!state.runs.length) {
-    els.runsList.innerHTML = `<div class="empty">No dry runs yet. Save and run to start quality iteration.</div>`;
-  }
-  state.runs.forEach((run) => {
-    const card = document.createElement("div");
-    card.className = `run-card ${state.activeRun?.run_id === run.run_id ? "active" : ""}`;
-    card.innerHTML = `
-      <strong>${escapeHtml(run.final_title || "Untitled Output")}</strong>
-      <div style="margin-top:6px;font-size:12px;color:var(--text-dim);">${escapeHtml(run.run_id)}</div>
-      <div style="font-size:11px;color:var(--text-dim);">${formatDate(run.timestamp)}</div>
-      <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap;">
-        <span class="chip">${run.block_count} blocks</span>
-        <span class="chip">score: ${run.final_metrics?.quality_proxy_score ?? "-"}</span>
+function renderStoryTimeline() {
+  const timeline = state.activeRunProgress?.timeline || [];
+  if (!timeline.length) { els.storyTimeline.innerHTML = '<div class="empty">No narrative events yet.</div>'; return; }
+  els.storyTimeline.innerHTML = timeline.map(e => `
+    <div class="timeline-row">
+      <div class="time-stamp">${escapeHtml(e.day)}<br/>${escapeHtml(e.time)}</div>
+      <div class="timeline-marker"></div>
+      <div class="timeline-content">
+        <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(e.title)}</div>
+        <div class="dim" style="font-size: 0.75rem;">${escapeHtml(e.event_type)} (${escapeHtml(e.block_id)})</div>
       </div>
-    `;
-    card.addEventListener("click", async () => {
+    </div>
+  `).join("");
+}
+
+function renderRunsList() {
+  els.runsList.innerHTML = state.runs.length ? state.runs.map(run => `
+    <div class="run-card">
+      <div style="font-weight: 600; font-size: 0.85rem;">${escapeHtml(run.final_title || "Untitled Run")}</div>
+      <div class="dim" style="font-size: 0.7rem; margin-top: 4px;">${new Date(run.timestamp).toLocaleString()}</div>
+      <div class="dim" style="font-size: 0.7rem;">Score: ${run.final_metrics?.quality_proxy_score || "-"} | Words: ${run.stats?.total_words || 0}</div>
+      <button class="btn ghost" style="font-size: 0.7rem; padding: 4px; margin-top: 8px;" onclick="loadHistoricalRun('${run.run_id}')">Inspect</button>
+    </div>
+  `).join("") : '<div class="empty">No past runs yet.</div>';
+}
+
+window.loadHistoricalRun = async function(runId) {
+  try {
+    const detail = await request(`/runs/${runId}`);
+    state.activeRunProgress = detail;
+    switchTab("tabMonitor");
+    renderPipelineCanvas(); renderInspector(); renderMonitor();
+  } catch (err) { showToast(err.message, true); }
+}
+
+function renderMonitor() {
+  const p = state.activeRunProgress;
+  if (!p) return;
+  els.qualityScoreLabel.textContent = p.final_metrics?.quality_proxy_score || "-";
+  els.wordCountLabel.textContent = p.stats?.total_words || "0";
+  renderArtifactFeed();
+  renderStoryTimeline();
+}
+
+function switchTab(tabId) {
+  state.activeTab = tabId;
+  ["tabMonitor", "tabTimeline", "tabHistory", "tabLogs"].forEach(t => {
+    els[t].classList.toggle("hidden", t !== tabId);
+    els[t + "Btn"].classList.toggle("active", t === tabId);
+  });
+}
+
+async function startRun() {
+  try {
+    await savePipeline();
+    els.runPipelineBtn.disabled = true;
+    els.activeRunBanner.classList.remove("hidden");
+    els.runProgressFill.style.width = "0%"; els.runProgressText.textContent = "0%";
+    
+    const initial = await request("/runs/start", { method: "POST", body: JSON.stringify({ pipeline: state.pipeline, persist_pipeline: true }) });
+    state.activeRunProgress = initial;
+    switchTab("tabMonitor");
+    
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(async () => {
       try {
-        uiLog("info", "Loading run details", { run_id: run.run_id });
-        const detail = await request(`/runs/${run.run_id}`);
-        state.activeRun = detail;
-        state.runStatusLabel.textContent = `Loaded ${run.run_id} (${formatDate(run.timestamp)})`;
-        state.qualityScoreLabel.textContent = String(detail.final_metrics?.quality_proxy_score ?? "-");
-        renderRuns();
-        renderRunDetails();
-      } catch (error) {
-        showToast(error.message, true);
-      }
-    });
-    els.runsList.appendChild(card);
-  });
+        const p = await request(`/runs/${initial.run_id}/status`);
+        state.activeRunProgress = p;
+        const done = Object.values(p.block_traces || {}).filter(t => t.status === 'SUCCEEDED' || t.status === 'SKIPPED').length;
+        const total = p.block_sequence.length;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        
+        els.runProgressFill.style.width = `${pct}%`; els.runProgressText.textContent = `${pct}%`;
+        els.runStatusLabel.textContent = p.status.toUpperCase();
+        
+        renderPipelineCanvas(); renderInspector(); renderMonitor();
+
+        if (p.status === 'succeeded' || p.status === 'failed') {
+          clearInterval(state.pollTimer); state.pollTimer = null;
+          els.runPipelineBtn.disabled = false;
+          showToast(p.status === 'succeeded' ? "Run Complete" : "Run Failed", p.status === 'failed');
+          setTimeout(() => els.activeRunBanner.classList.add("hidden"), 3000);
+          loadStudio();
+        }
+      } catch (e) { console.error("Poll error", e); }
+    }, 1000);
+  } catch (err) { showToast(err.message, true); els.runPipelineBtn.disabled = false; }
 }
 
-function renderRunDetails() {
-  if (!state.activeRun) {
-    els.runDetails.innerHTML = `<div class="empty">Select a run to inspect prompts, block outputs, and generated artifacts.</div>`;
-    return;
-  }
+/* --- App Initialization & Bindings --- */
 
-  const run = state.activeRun;
-  const blockIds = run.block_sequence || Object.keys(run.outputs || {});
-  const detailsHtml = blockIds
-    .map((blockId) => {
-      const trace = run.block_traces?.[blockId];
-      const output = run.outputs?.[blockId];
-      return `
-        <details>
-          <summary>${escapeHtml(blockId)}</summary>
-          ${
-            trace
-              ? `<div style="margin:6px 0;color:var(--text-dim);font-size:12px;">
-                  ${escapeHtml(trace.provider)} / ${escapeHtml(trace.model_name)} / temp ${trace.temperature}
-                </div>
-                <pre>${safeJson(trace.resolved_prompt)}</pre>`
-              : ""
-          }
-          <pre>${safeJson(output)}</pre>
-        </details>
-      `;
-    })
-    .join("");
-
-  const artifacts = (run.artifacts || [])
-    .map(
-      (artifact) =>
-        `<li><a class="artifact-link" target="_blank" href="/runs/${encodeURIComponent(run.run_id)}/artifacts/${encodeURIComponent(artifact.name)}">${escapeHtml(artifact.name)}</a> (${artifact.size_bytes} bytes)</li>`,
-    )
-    .join("");
-
-  els.runDetails.innerHTML = `
-    <div style="margin-bottom:8px;">
-      <strong>Final Artifact</strong>
-      <pre>${safeJson(run.final_output)}</pre>
-    </div>
-    <div style="margin-bottom:8px;">
-      <strong>Block Traces</strong>
-      ${detailsHtml || '<div class="empty">No block details found.</div>'}
-    </div>
-    <div>
-      <strong>Saved Files</strong>
-      <ul>${artifacts || "<li>No artifacts found.</li>"}</ul>
-    </div>
-  `;
-}
-
-function renderCompareSelectors() {
-  const options = state.runs
-    .map((run) => `<option value="${run.run_id}">${run.run_id} | ${run.final_title || "Untitled"}</option>`)
-    .join("");
-  els.baselineRunSelect.innerHTML = options;
-  els.candidateRunSelect.innerHTML = options;
-
-  if (state.runs.length > 1) {
-    els.baselineRunSelect.value = state.runs[1].run_id;
-    els.candidateRunSelect.value = state.runs[0].run_id;
-  } else if (state.runs.length === 1) {
-    els.baselineRunSelect.value = state.runs[0].run_id;
-    els.candidateRunSelect.value = state.runs[0].run_id;
-  }
-}
-
-function renderComparison() {
-  if (!state.comparison) {
-    els.compareResult.innerHTML = `<div class="empty">Pick two runs and compare final artifacts.</div>`;
-    return;
-  }
-  const metrics = state.comparison.metrics
-    .map((metric) => {
-      const deltaClass = Number(metric.delta) >= 0 ? "delta-up" : "delta-down";
-      const deltaSign = Number(metric.delta) >= 0 ? "+" : "";
-      return `<tr>
-        <td>${escapeHtml(metric.label)}</td>
-        <td>${metric.baseline}</td>
-        <td>${metric.candidate}</td>
-        <td class="${deltaClass}">${deltaSign}${metric.delta}</td>
-      </tr>`;
-    })
-    .join("");
-  const notes = (state.comparison.quality_notes || [])
-    .map((note) => `<li>${escapeHtml(note)}</li>`)
-    .join("");
-
-  els.compareResult.innerHTML = `
-    ${notes ? `<ul>${notes}</ul>` : ""}
-    <table class="metrics-table">
-      <thead>
-        <tr><th>Metric</th><th>Baseline</th><th>Candidate</th><th>Delta</th></tr>
-      </thead>
-      <tbody>${metrics}</tbody>
-    </table>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;">
-      <div>
-        <strong>Baseline: ${escapeHtml(state.comparison.baseline_title || state.comparison.baseline_run_id)}</strong>
-        <pre>${safeJson(state.comparison.baseline_output)}</pre>
-      </div>
-      <div>
-        <strong>Candidate: ${escapeHtml(state.comparison.candidate_title || state.comparison.candidate_run_id)}</strong>
-        <pre>${safeJson(state.comparison.candidate_output)}</pre>
-      </div>
-    </div>
-  `;
+async function savePipeline() {
+  state.pipeline.name = els.pipelineNameInput.value.trim() || "Untitled Pipeline";
+  state.pipeline.description = els.pipelineDescriptionInput.value.trim();
+  ensurePipelineDefaults(state.pipeline);
+  const saved = await request("/pipeline", { method: "PUT", body: JSON.stringify(state.pipeline) });
+  state.pipeline = ensurePipelineDefaults(saved);
+  showToast("Pipeline Saved");
+  uiLog("info", "Pipeline saved", { name: saved.name });
+  renderPipelineCanvas(); renderPipelineMeta();
 }
 
 function renderSettingsDialog() {
-  const payload = state.settingsPayload;
-  if (!payload) {
-    return;
-  }
+  const p = state.settingsPayload;
+  if (!p) return;
   const local = getLocalSettings();
-  const geminiKey = payload.settings?.gemini_api_key || local.gemini_api_key || "";
-  const openaiKey = payload.settings?.openai_api_key || local.openai_api_key || "";
-  const credPath =
-    payload.settings?.google_application_credentials ||
-    local.google_application_credentials ||
-    "";
-
-  els.geminiKeyInput.value = geminiKey;
-  els.openaiKeyInput.value = openaiKey;
-  els.googleCredPathInput.value = credPath;
-  const status = payload.status || {};
-  const badges = [
-    ["Gemini", status.gemini_configured],
-    ["OpenAI", status.openai_configured],
-    ["Google Upload", status.google_credentials_configured],
-  ];
-  els.settingsStatusBadges.innerHTML = badges
-    .map(([label, ok]) => `<span class="chip">${label}: ${ok ? "ready" : "missing"}</span>`)
-    .join("");
+  els.geminiKeyInput.value = p.settings?.gemini_api_key || local.gemini_api_key || "";
+  els.openaiKeyInput.value = p.settings?.openai_api_key || local.openai_api_key || "";
+  els.googleCredPathInput.value = p.settings?.google_application_credentials || local.google_application_credentials || "";
+  
+  els.settingsStatusBadges.innerHTML = [
+    ["Gemini", p.status?.gemini_configured],
+    ["OpenAI", p.status?.openai_configured],
+    ["Google", p.status?.google_credentials_configured],
+  ].map(([l, ok]) => `<span class="badge ${ok ? 'success' : 'error'}">${l}: ${ok ? 'READY' : 'MISSING'}</span>`).join("");
 }
 
-function renderAll() {
-  renderPipelineMeta();
-  renderPipelineLibrary();
-  renderPipelineCanvas();
-  renderTemplateRail();
-  renderInspector();
-  renderRuns();
-  renderRunDetails();
-  renderCompareSelectors();
-  renderComparison();
-  renderSettingsDialog();
+function renderComparison() {
+  if (!state.comparison) { els.compareResult.innerHTML = ''; return; }
+  const c = state.comparison;
+  
+  const metricsHtml = c.metrics.map(m => {
+    const d = parseFloat(m.delta);
+    return `<div class="stat-card"><div class="stat-label">${escapeHtml(m.label)}</div><div class="stat-val">${m.candidate}</div><div class="dim" style="font-size: 0.7rem;">vs ${m.baseline} (<span class="${d>0?'mint':d<0?'danger':''}">${d>0?'+':''}${m.delta}</span>)</div></div>`;
+  }).join("");
+
+  els.compareResult.innerHTML = `
+    <div class="summary-stats" style="margin-bottom: 24px;">${metricsHtml}</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <div class="glass-panel" style="padding: 16px;">
+        <h4 class="dim" style="margin-bottom: 12px; font-size: 0.8rem;">BASELINE: ${escapeHtml(c.baseline_run_id)}</h4>
+        <pre style="white-space: pre-wrap; font-size: 0.75rem;">${typeof c.baseline_output === 'string' ? escapeHtml(c.baseline_output) : escapeHtml(JSON.stringify(c.baseline_output, null, 2))}</pre>
+      </div>
+      <div class="glass-panel" style="padding: 16px;">
+        <h4 class="dim" style="margin-bottom: 12px; font-size: 0.8rem;">CANDIDATE: ${escapeHtml(c.candidate_run_id)}</h4>
+        <pre style="white-space: pre-wrap; font-size: 0.75rem;">${typeof c.candidate_output === 'string' ? escapeHtml(c.candidate_output) : escapeHtml(JSON.stringify(c.candidate_output, null, 2))}</pre>
+      </div>
+    </div>
+  `;
+}
+
+function bindTopLevelEvents() {
+  els.refreshStudioBtn.addEventListener("click", loadStudio);
+  els.savePipelineBtn.addEventListener("click", savePipeline);
+  els.runPipelineBtn.addEventListener("click", startRun);
+  
+  els.tabMonitorBtn.addEventListener("click", () => switchTab("tabMonitor"));
+  els.tabTimelineBtn.addEventListener("click", () => switchTab("tabTimeline"));
+  els.tabHistoryBtn.addEventListener("click", () => switchTab("tabHistory"));
+  els.tabLogsBtn.addEventListener("click", () => switchTab("tabLogs"));
+  
+  els.pipelineGeminiModelInput.addEventListener("change", e => { state.pipeline.default_models.GEMINI = e.target.value; savePipeline(); });
+  els.pipelineOpenaiModelInput.addEventListener("change", e => { state.pipeline.default_models.OPENAI = e.target.value; savePipeline(); });
+  
+  els.saveNamedPipelineBtn.addEventListener("click", async () => {
+    const name = window.prompt("Save pipeline as name:", state.pipeline.name);
+    if (!name || !name.trim()) return;
+    try {
+      await request("/pipelines/save", { method: "POST", body: JSON.stringify({ name: name.trim(), pipeline: state.pipeline, set_active: true }) });
+      uiLog("info", "Named pipeline saved", { name });
+      showToast(`Saved: ${name}`);
+      loadStudio();
+    } catch (e) { showToast(e.message, true); }
+  });
+  
+  els.loadPipelineBtn.addEventListener("click", async () => {
+    const name = els.pipelineLibrarySelect.value;
+    if (!name) return;
+    try {
+      await request("/pipelines/load", { method: "POST", body: JSON.stringify({ name, set_active: true }) });
+      uiLog("info", "Loaded pipeline", { name });
+      showToast(`Loaded: ${name}`);
+      loadStudio();
+    } catch (e) { showToast(e.message, true); }
+  });
+  
+  els.snapshotPipelineBtn.addEventListener("click", async () => {
+    try {
+      await savePipeline();
+      const r = await request("/pipeline/snapshot", { method: "POST", body: JSON.stringify({ pipeline: state.pipeline, label: state.pipeline.name }) });
+      showToast("Snapshot created"); uiLog("info", "Snapshot created", {path: r.path});
+    } catch (e) { showToast(e.message, true); }
+  });
+  
+  els.resetPipelineBtn.addEventListener("click", async () => {
+    try {
+      await request("/pipeline/reset", { method: "POST", body: "{}" });
+      showToast("Pipeline reset"); uiLog("info", "Pipeline reset");
+      loadStudio();
+    } catch (e) { showToast(e.message, true); }
+  });
+
+  els.tabCompareBtn.addEventListener("click", () => {
+    els.compareOverlay.classList.remove("hidden");
+    const opts = state.runs.map(r => `<option value="${r.run_id}">${r.run_id} | ${r.final_title || 'Untitled'}</option>`).join("");
+    els.baselineRunSelect.innerHTML = opts; els.candidateRunSelect.innerHTML = opts;
+  });
+  els.closeCompareBtn.addEventListener("click", () => els.compareOverlay.classList.add("hidden"));
+  els.compareRunsBtn.addEventListener("click", async () => {
+    try {
+      state.comparison = await request("/compare", {
+        method: "POST",
+        body: JSON.stringify({ baseline_run_id: els.baselineRunSelect.value, candidate_run_id: els.candidateRunSelect.value })
+      });
+      renderComparison(); uiLog("info", "Runs compared");
+    } catch (err) { showToast(err.message, true); }
+  });
+
+  els.openSettingsBtn.addEventListener("click", () => { renderSettingsDialog(); els.settingsDialog.showModal(); });
+  els.cancelSettingsBtn.addEventListener("click", () => els.settingsDialog.close());
+  els.saveSettingsBtn.addEventListener("click", async () => {
+    const s = { gemini_api_key: els.geminiKeyInput.value, openai_api_key: els.openaiKeyInput.value, google_application_credentials: els.googleCredPathInput.value };
+    setLocalSettings(s);
+    try {
+      state.settingsPayload = await request("/settings", { method: "PUT", body: JSON.stringify(s) });
+      els.settingsDialog.close(); showToast("Settings Saved");
+    } catch (err) { showToast(err.message, true); }
+  });
+  
+  els.freshStartBtn.addEventListener("click", async () => {
+    if(!window.confirm("Fresh start? Wipes local cache + pipeline.")) return;
+    try {
+      window.localStorage.removeItem(LOCAL_SETTINGS_KEY); window.localStorage.removeItem(UI_LOG_STORAGE_KEY);
+      state.uiLogs = [];
+      await request("/pipeline/reset", { method: "POST", body: "{}" });
+      els.settingsDialog.close(); showToast("Fresh start complete");
+      loadStudio();
+    } catch (e) { showToast(e.message, true); }
+  });
+  
+  els.clearUiLogBtn.addEventListener("click", () => { state.uiLogs = []; setStoredUiLogs([]); renderUiLogs(); });
+  els.copyUiLogBtn.addEventListener("click", () => { navigator.clipboard.writeText(state.uiLogs.map(l => l.text).join('\n')); showToast("Logs copied"); });
 }
 
 async function loadStudio() {
   try {
-    uiLog("info", "Loading studio bootstrap payload");
-    const studio = await request("/studio");
-    state.studio = studio;
-    state.pipeline = ensurePipelineDefaults(deepClone(studio.pipeline));
-    state.pipelineCatalog = studio.pipeline_catalog || [];
-    state.runs = studio.run_summaries || [];
-    state.settingsPayload = studio.settings;
-    state.selectedBlockId = state.pipeline.blocks?.[0]?.id || null;
-    if (state.runs.length) {
-      state.runStatusLabel.textContent = `Loaded ${state.runs.length} historical runs`;
-    }
-    uiLog("info", "Studio loaded", {
-      blocks: state.pipeline.blocks.length,
-      named_pipelines: state.pipelineCatalog.length,
-      runs: state.runs.length,
-    });
-    renderAll();
-  } catch (error) {
-    uiLog("error", "Studio load failed", error.message);
-    showToast(error.message, true);
-  }
-}
-
-async function savePipeline() {
-  try {
-    state.pipeline.name = els.pipelineNameInput.value.trim() || "Found Phone Director";
-    state.pipeline.description = els.pipelineDescriptionInput.value.trim();
-    ensurePipelineDefaults(state.pipeline);
-    const saved = await request("/pipeline", {
-      method: "PUT",
-      body: jsonPretty(state.pipeline),
-    });
-    state.pipeline = ensurePipelineDefaults(saved);
-    uiLog("info", "Pipeline saved", { name: saved.name, blocks: saved.blocks.length });
-    showToast("Pipeline saved.");
-    renderAll();
-  } catch (error) {
-    uiLog("error", "Pipeline save failed", error.message);
-    showToast(error.message, true);
-  }
-}
-
-async function runPipeline() {
-  try {
-    uiLog("info", "Run requested", { pipeline: state.pipeline?.name });
-    await savePipeline();
-    els.runPipelineBtn.disabled = true;
-    els.runStatusLabel.textContent = "Running dry run...";
-    const run = await request("/run", {
-      method: "POST",
-      body: jsonPretty({
-        pipeline: state.pipeline,
-        persist_pipeline: true,
-      }),
-    });
-    const runDetail = await request(`/runs/${run.run_id}`);
-    state.activeRun = runDetail;
-    state.runs.unshift(run);
-    state.runStatusLabel.textContent = `Run complete: ${run.run_id}`;
-    state.qualityScoreLabel.textContent = String(runDetail.final_metrics?.quality_proxy_score ?? "-");
-    uiLog("info", "Run completed", {
-      run_id: run.run_id,
-      blocks: run.block_count,
-      quality_proxy_score: runDetail.final_metrics?.quality_proxy_score ?? null,
-    });
-    showToast(`Dry run complete: ${run.run_id}`);
-    renderAll();
-  } catch (error) {
-    uiLog("error", "Run failed", error.message);
-    showToast(error.message, true);
-    els.runStatusLabel.textContent = "Run failed.";
-  } finally {
-    els.runPipelineBtn.disabled = false;
-  }
-}
-
-function bindTopLevelEvents() {
-  els.savePipelineBtn.addEventListener("click", savePipeline);
-  els.runPipelineBtn.addEventListener("click", runPipeline);
-  els.refreshStudioBtn.addEventListener("click", loadStudio);
-  els.pipelineGeminiModelInput.addEventListener("change", () => {
-    if (!state.pipeline) {
-      return;
-    }
-    ensurePipelineDefaults(state.pipeline);
-    state.pipeline.default_models.GEMINI = els.pipelineGeminiModelInput.value;
-    state.pipeline.blocks.forEach((block) => {
-      if (block.config.provider === "GEMINI" && block.config.use_pipeline_default_model) {
-        block.config.model_name = els.pipelineGeminiModelInput.value;
-      }
-    });
-    uiLog("info", "Pipeline Gemini default model changed", { model_name: els.pipelineGeminiModelInput.value });
+    const s = await request("/studio");
+    state.studio = s;
+    state.pipeline = ensurePipelineDefaults(deepClone(s.pipeline));
+    state.pipelineCatalog = s.pipeline_catalog || [];
+    state.runs = s.run_summaries || [];
+    state.settingsPayload = s.settings;
+    if (!state.selectedBlockId) state.selectedBlockId = state.pipeline.blocks?.[0]?.id || null;
+    
+    renderPipelineMeta();
+    renderPipelineLibrary();
     renderPipelineCanvas();
+    renderTemplateRail();
     renderInspector();
-  });
-  els.pipelineOpenaiModelInput.addEventListener("change", () => {
-    if (!state.pipeline) {
-      return;
-    }
-    ensurePipelineDefaults(state.pipeline);
-    state.pipeline.default_models.OPENAI = els.pipelineOpenaiModelInput.value;
-    state.pipeline.blocks.forEach((block) => {
-      if (block.config.provider === "OPENAI" && block.config.use_pipeline_default_model) {
-        block.config.model_name = els.pipelineOpenaiModelInput.value;
-      }
-    });
-    uiLog("info", "Pipeline OpenAI default model changed", { model_name: els.pipelineOpenaiModelInput.value });
-    renderPipelineCanvas();
-    renderInspector();
-  });
-
-  els.saveNamedPipelineBtn.addEventListener("click", async () => {
-    if (!state.pipeline) {
-      return;
-    }
-    const suggested = (els.pipelineNameInput.value || state.pipeline.name || "").trim();
-    const name = window.prompt("Save pipeline as name:", suggested);
-    if (!name || !name.trim()) {
-      return;
-    }
-    try {
-      uiLog("info", "Saving named pipeline", { name: name.trim() });
-      const result = await request("/pipelines/save", {
-        method: "POST",
-        body: jsonPretty({
-          name: name.trim(),
-          pipeline: state.pipeline,
-          set_active: true,
-        }),
-      });
-      state.pipeline = ensurePipelineDefaults(result.pipeline);
-      state.pipelineCatalog = result.pipeline_catalog || state.pipelineCatalog;
-      uiLog("info", "Named pipeline saved", { name: name.trim() });
-      showToast(`Saved named pipeline: ${name.trim()}`);
-      renderAll();
-    } catch (error) {
-      uiLog("error", "Save named pipeline failed", error.message);
-      showToast(error.message, true);
-    }
-  });
-
-  els.loadPipelineBtn.addEventListener("click", async () => {
-    const key = els.pipelineLibrarySelect.value;
-    if (!key) {
-      showToast("Pick a saved pipeline first.", true);
-      return;
-    }
-    try {
-      uiLog("info", "Loading named pipeline", { key });
-      const result = await request("/pipelines/load", {
-        method: "POST",
-        body: jsonPretty({
-          name: key,
-          set_active: true,
-        }),
-      });
-      state.pipeline = ensurePipelineDefaults(result.pipeline);
-      state.pipelineCatalog = result.pipeline_catalog || state.pipelineCatalog;
-      state.selectedBlockId = state.pipeline.blocks?.[0]?.id || null;
-      uiLog("info", "Named pipeline loaded", { key, blocks: state.pipeline.blocks.length });
-      showToast(`Loaded pipeline: ${key}`);
-      renderAll();
-    } catch (error) {
-      uiLog("error", "Load named pipeline failed", error.message);
-      showToast(error.message, true);
-    }
-  });
-
-  els.snapshotPipelineBtn.addEventListener("click", async () => {
-    try {
-      uiLog("info", "Creating pipeline snapshot");
-      await savePipeline();
-      const result = await request("/pipeline/snapshot", {
-        method: "POST",
-        body: jsonPretty({
-          pipeline: state.pipeline,
-          label: state.pipeline.name,
-        }),
-      });
-      showToast(`Snapshot saved: ${result.path}`);
-      uiLog("info", "Snapshot created", { path: result.path });
-    } catch (error) {
-      uiLog("error", "Snapshot failed", error.message);
-      showToast(error.message, true);
-    }
-  });
-
-  els.resetPipelineBtn.addEventListener("click", async () => {
-    try {
-      uiLog("warn", "Resetting pipeline to default");
-      const pipeline = await request("/pipeline/reset", { method: "POST", body: "{}" });
-      state.pipeline = ensurePipelineDefaults(pipeline);
-      state.selectedBlockId = pipeline.blocks?.[0]?.id || null;
-      showToast("Pipeline reset to default.");
-      uiLog("info", "Pipeline reset complete", { blocks: pipeline.blocks.length });
-      renderAll();
-    } catch (error) {
-      uiLog("error", "Pipeline reset failed", error.message);
-      showToast(error.message, true);
-    }
-  });
-
-  els.compareRunsBtn.addEventListener("click", async () => {
-    const baselineRunId = els.baselineRunSelect.value;
-    const candidateRunId = els.candidateRunSelect.value;
-    if (!baselineRunId || !candidateRunId) {
-      showToast("Select two runs first.", true);
-      return;
-    }
-    try {
-      uiLog("info", "Comparing runs", { baselineRunId, candidateRunId });
-      state.comparison = await request("/compare", {
-        method: "POST",
-        body: jsonPretty({
-          baseline_run_id: baselineRunId,
-          candidate_run_id: candidateRunId,
-        }),
-      });
-      renderComparison();
-      showToast("Comparison ready.");
-      uiLog("info", "Run comparison complete", { metrics: state.comparison.metrics.length });
-    } catch (error) {
-      uiLog("error", "Run comparison failed", error.message);
-      showToast(error.message, true);
-    }
-  });
-
-  els.openSettingsBtn.addEventListener("click", () => {
-    uiLog("info", "Opening settings dialog");
+    renderRunsList();
     renderSettingsDialog();
-    els.settingsDialog.showModal();
-  });
-  els.cancelSettingsBtn.addEventListener("click", () => {
-    uiLog("info", "Closing settings dialog");
-    els.settingsDialog.close();
-  });
-
-  els.saveSettingsBtn.addEventListener("click", async () => {
-    const nextSettings = {
-      gemini_api_key: els.geminiKeyInput.value.trim() || null,
-      openai_api_key: els.openaiKeyInput.value.trim() || null,
-      google_application_credentials: els.googleCredPathInput.value.trim() || null,
-    };
-    setLocalSettings(nextSettings);
-    uiLog("info", "Saving settings", {
-      gemini_set: Boolean(nextSettings.gemini_api_key),
-      openai_set: Boolean(nextSettings.openai_api_key),
-      creds_set: Boolean(nextSettings.google_application_credentials),
-    });
-    try {
-      const payload = await request("/settings", {
-        method: "PUT",
-        body: jsonPretty(nextSettings),
-      });
-      state.settingsPayload = payload;
-      renderSettingsDialog();
-      showToast("Settings saved (local + backend).");
-      uiLog("info", "Settings saved (local + backend)");
-      els.settingsDialog.close();
-    } catch (error) {
-      uiLog("warn", "Settings saved locally but backend sync failed", error.message);
-      showToast(`Saved locally. Backend sync failed: ${error.message}`, true);
-    }
-  });
-
-  if (els.freshStartBtn) {
-    els.freshStartBtn.addEventListener("click", async () => {
-      const confirmed = window.confirm(
-        "Fresh Start will clear browser cache (saved keys + UI logs), reset active pipeline to default, and reload studio. Continue?",
-      );
-      if (!confirmed) {
-        return;
-      }
-      try {
-        clearBrowserCacheState();
-        uiLog("warn", "Fresh start requested: browser cache cleared");
-        await request("/pipeline/reset", { method: "POST", body: "{}" });
-        uiLog("info", "Active pipeline reset to default");
-        await loadStudio();
-        showToast("Fresh start complete.");
-        els.settingsDialog.close();
-      } catch (error) {
-        uiLog("error", "Fresh start failed", error.message);
-        showToast(`Fresh start failed: ${error.message}`, true);
-      }
-    });
-  }
-
-  if (els.clearUiLogBtn) {
-    els.clearUiLogBtn.addEventListener("click", () => {
-      state.uiLogs = [];
-      setStoredUiLogs([]);
-      renderUiLogs();
-      uiLog("info", "UI activity log cleared");
-    });
-  }
-
-  if (els.copyUiLogBtn) {
-    els.copyUiLogBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(state.uiLogs.map((entry) => entry.text).join("\n"));
-        showToast("Copied UI logs to clipboard.");
-        uiLog("info", "Copied UI activity logs to clipboard", { lines: state.uiLogs.length });
-      } catch (error) {
-        uiLog("warn", "Failed to copy UI logs", error.message);
-        showToast("Could not copy logs to clipboard.", true);
-      }
-    });
-  }
+  } catch (err) { uiLog("error", "Failed to load studio", err.message); }
 }
 
 bindInspectorEvents();
 bindTopLevelEvents();
 state.uiLogs = getStoredUiLogs();
 renderUiLogs();
-uiLog("info", "Director Studio UI bootstrapping");
+uiLog("info", "Creative Workspace v3 Bootstrapped");
 loadStudio();

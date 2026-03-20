@@ -125,6 +125,24 @@ class BlockTrace(BaseModel):
     elapsed_ms: Optional[float] = None
 
 
+class RunTimelineEntry(BaseModel):
+    block_id: str
+    event_type: str = "artifact_drop"  # e.g., journal, email, chat, receipt
+    story_day: int = 1
+    story_time: str = "09:00 AM"
+    title: str = ""
+
+
+class RunStats(BaseModel):
+    total_words: int = 0
+    total_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    block_count: int = 0
+    success_rate: float = 0.0
+    average_tension_score: float | None = None
+    character_mentions: dict[str, int] = Field(default_factory=dict)
+
+
 class RunSummary(BaseModel):
     run_id: str
     timestamp: str
@@ -146,6 +164,8 @@ class RunResult(RunSummary):
     block_sequence: list[str] = Field(default_factory=list)
     block_traces: dict[str, BlockTrace] = Field(default_factory=dict)
     artifacts: list[ArtifactFile] = Field(default_factory=list)
+    timeline: list[RunTimelineEntry] = Field(default_factory=list)
+    stats: RunStats = Field(default_factory=RunStats)
 
 
 class RunProgress(BaseModel):
@@ -163,6 +183,8 @@ class RunProgress(BaseModel):
     final_metrics: dict[str, float | int] = Field(default_factory=dict)
     block_sequence: list[str] = Field(default_factory=list)
     block_traces: dict[str, BlockTrace] = Field(default_factory=dict)
+    timeline: list[RunTimelineEntry] = Field(default_factory=list)
+    stats: RunStats = Field(default_factory=RunStats)
 
 
 class RunPipelineRequest(BaseModel):

@@ -322,6 +322,8 @@ def run_progress_from_result(run_result: RunResult) -> RunProgress:
         final_metrics=run_result.final_metrics,
         block_sequence=run_result.block_sequence,
         block_traces=run_result.block_traces,
+        timeline=run_result.timeline,
+        stats=run_result.stats,
     )
 
 

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from time import perf_counter
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +20,8 @@ if __package__:
         PipelineDefinition,
         PipelineSnapshotRequest,
         RunPipelineRequest,
+        RunProgress,
+        RunStatus,
     )
     from .storage import (
         BASE_DIR,
@@ -48,6 +50,8 @@ else:
         PipelineDefinition,
         PipelineSnapshotRequest,
         RunPipelineRequest,
+        RunProgress,
+        RunStatus,
     )
     from storage import (
         BASE_DIR,
@@ -79,6 +83,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# In-memory store for active run progress
+active_runs: dict[str, RunProgress] = {}
 
 
 @app.middleware("http")
@@ -272,6 +279,84 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
+def _bg_run_pipeline(run_id: str, pipeline: PipelineDefinition, settings: AppSettings):
+    runner = PipelineRunner(settings)
+
+    def _progress_callback(p: RunProgress):
+        active_runs[run_id] = p
+
+    try:
+        runner.run_pipeline(pipeline, run_id=run_id, progress_callback=_progress_callback)
+    except Exception:
+        # runner already logs and updates progress status to FAILED
+        pass
+    finally:
+        # Keep in active_runs for a bit so polling can catch the final state
+        # In a real app we might use a TTL cache or just eventually prune
+        pass
+
+
+@app.post("/runs/start")
+async def start_run(
+    background_tasks: BackgroundTasks,
+    request: RunPipelineRequest = RunPipelineRequest(),
+):
+    run_id = request.run_id or f"run_{int(perf_counter() * 1000)}"
+    logger.info("Async run start requested run_id=%s", run_id)
+
+    pipeline = request.pipeline or load_pipeline()
+    if request.persist_pipeline:
+        pipeline = save_pipeline(pipeline)
+
+    settings = load_settings()
+
+    initial_progress = RunProgress(
+        run_id=run_id,
+        timestamp=Path().cwd().name,  # placeholder, runner will set real one
+        pipeline_name=pipeline.name,
+        status=RunStatus.QUEUED,
+        block_count=len(pipeline.blocks),
+        block_sequence=[b.id for b in pipeline.blocks if b.enabled],
+    )
+    active_runs[run_id] = initial_progress
+
+    background_tasks.add_task(_bg_run_pipeline, run_id, pipeline, settings)
+
+    return initial_progress
+
+
+@app.get("/runs/{run_id}/status")
+async def get_run_status(run_id: str):
+    # Check in-memory first
+    if run_id in active_runs:
+        return active_runs[run_id]
+
+    # Fallback to disk
+    progress_path = RUNS_DIR / run_id / "run_progress.json"
+    if progress_path.exists():
+        return RunProgress.model_validate_json(progress_path.read_text(encoding="utf-8"))
+
+    # If result exists but progress doesn't (old runs), synthesize progress
+    try:
+        result = load_run_result(run_id)
+        return RunProgress(
+            run_id=result.run_id,
+            timestamp=result.timestamp,
+            pipeline_name=result.pipeline_name,
+            status=result.status,
+            block_count=result.block_count,
+            current_block_id=result.current_block_id,
+            final_title=result.final_title,
+            final_metrics=result.final_metrics,
+            block_sequence=result.block_sequence,
+            block_traces=result.block_traces,
+            timeline=result.timeline,
+            stats=result.stats,
+        )
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+
+
 @app.post("/compare")
 async def compare_runs(request: CompareRunsRequest):
     logger.info(
@@ -320,4 +405,4 @@ async def upload_run(run_id: str):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("python_director.api:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("api:app", host="0.0.0.0", port=8042, reload=False)

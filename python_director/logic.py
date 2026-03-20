@@ -13,13 +13,18 @@ if __package__:
     from .log_utils import get_logger
     from .models import (
         AppSettings,
+        BlockExecutionStatus,
         BlockTrace,
         CompareRunsRequest,
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
         RunComparison,
+        RunProgress,
         RunResult,
+        RunStats,
+        RunStatus,
+        RunTimelineEntry,
         SCHEMA_MAP,
     )
     from .providers import get_provider
@@ -28,13 +33,18 @@ else:
     from log_utils import get_logger
     from models import (
         AppSettings,
+        BlockExecutionStatus,
         BlockTrace,
         CompareRunsRequest,
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
         RunComparison,
+        RunProgress,
         RunResult,
+        RunStats,
+        RunStatus,
+        RunTimelineEntry,
         SCHEMA_MAP,
     )
     from providers import get_provider
@@ -106,6 +116,78 @@ def _story_metrics(final_output: dict[str, Any] | None) -> dict[str, float | int
         2,
     )
     return metrics
+
+
+def calculate_run_stats(traces: dict[str, BlockTrace], final_output: Any = None) -> RunStats:
+    stats = RunStats(block_count=len(traces))
+    total_tokens = 0
+    total_cost = 0.0
+    success_count = 0
+
+    for trace in traces.values():
+        if trace.status == BlockExecutionStatus.SUCCEEDED:
+            success_count += 1
+        # Basic cost estimation if we had token counts in traces (placeholder for now)
+        # total_tokens += trace.metrics.get("tokens", 0)
+
+    if stats.block_count > 0:
+        stats.success_rate = round(float(success_count) / stats.block_count, 2)
+
+
+    if isinstance(final_output, dict):
+        story_metrics = _story_metrics(final_output)
+        stats.total_words = story_metrics.get("total_words", 0)
+        # stats.average_tension_score = story_metrics.get("average_tension", None)
+
+    return stats
+
+
+def derive_story_timeline(final_output: Any) -> list[RunTimelineEntry]:
+    if not isinstance(final_output, dict):
+        return []
+
+    entries: list[RunTimelineEntry] = []
+
+    def _to_clock(total_mins: int) -> str:
+        # Simplistic mapping: 0 mins = 09:00 AM
+        base_hour = 9
+        hours = (base_hour + (total_mins // 60)) % 24
+        mins = total_mins % 60
+        ampm = "AM" if hours < 12 else "PM"
+        display_hour = hours if hours <= 12 else hours - 12
+        if display_hour == 0:
+            display_hour = 12
+        return f"{display_hour:02d}:{mins:02d} {ampm}"
+
+    # Extract journals
+    for i, j in enumerate(final_output.get("journals", [])):
+        mins = j.get("time_offset_minutes", 0)
+        entries.append(
+            RunTimelineEntry(
+                block_id=f"journal_{i}",
+                event_type="journal",
+                story_day=(mins // (24 * 60)) + 1,
+                story_time=_to_clock(mins),
+                title=j.get("title", f"Journal Entry {i+1}"),
+            )
+        )
+
+    # Extract chats
+    for i, c in enumerate(final_output.get("chats", [])):
+        mins = c.get("time_offset_minutes", 0)
+        entries.append(
+            RunTimelineEntry(
+                block_id=f"chat_{i}",
+                event_type="chat",
+                story_day=(mins // (24 * 60)) + 1,
+                story_time=_to_clock(mins),
+                title=f"Chat: {c.get('senderId', 'Unknown')}",
+            )
+        )
+
+    # Sort by day and time
+    entries.sort(key=lambda x: (x.story_day, x.story_time))
+    return entries
 
 
 def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, candidate: RunResult) -> RunComparison:
@@ -238,11 +320,36 @@ class PipelineRunner:
         logger.info("Execution order resolved blocks=%s", [block.id for block in order])
         return order
 
-    def run_pipeline(self, definition: PipelineDefinition, run_id: str | None = None) -> RunResult:
+    def run_pipeline(
+        self,
+        definition: PipelineDefinition,
+        run_id: str | None = None,
+        progress_callback: Any | None = None,
+    ) -> RunResult:
         run_id = run_id or f"run_{int(time.time())}"
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        
+        sorted_blocks = self._sorted_blocks(definition)
+        block_sequence = [b.id for b in sorted_blocks]
+        
+        progress = RunProgress(
+            run_id=run_id,
+            timestamp=started_at.isoformat(),
+            pipeline_name=definition.name,
+            status=RunStatus.RUNNING,
+            block_count=len(sorted_blocks),
+            block_sequence=block_sequence,
+            started_at=started_at.isoformat(),
+        )
+        
+        def _persist_progress():
+            path = run_dir / "run_progress.json"
+            path.write_text(progress.model_dump_json(indent=2), encoding="utf-8")
+            if progress_callback:
+                progress_callback(progress)
+
         logger.info(
             "Run start run_id=%s pipeline=%s block_count=%s output_dir=%s",
             run_id,
@@ -250,89 +357,141 @@ class PipelineRunner:
             len(definition.blocks),
             run_dir,
         )
+        _persist_progress()
 
         outputs: dict[str, Any] = {}
         traces: dict[str, BlockTrace] = {}
         provider_summary: Counter[str] = Counter()
         execution_order: list[str] = []
 
-        for block in self._sorted_blocks(definition):
-            block_started = time.time()
-            effective_model_name = self._resolve_model_name(definition, block)
-            effective_config = block.config.model_copy(update={"model_name": effective_model_name})
-            provider_summary[block.config.provider.value] += 1
-            execution_order.append(block.id)
-            logger.info(
-                "Block start id=%s type=%s provider=%s model=%s temp=%s inherited_model=%s",
-                block.id,
-                block.type,
-                effective_config.provider,
-                effective_config.model_name,
-                effective_config.temperature,
-                block.config.use_pipeline_default_model,
-            )
-
-            contents = block.config.prompt_template
-            replaced_inputs = 0
-            for input_id in block.input_blocks:
-                if input_id not in outputs:
-                    logger.warning("Block id=%s missing_input=%s (placeholder left unresolved)", block.id, input_id)
-                    continue
-                input_value = outputs[input_id]
-                serialized = (
-                    input_value.model_dump_json(indent=2)
-                    if isinstance(input_value, BaseModel)
-                    else json.dumps(input_value, indent=2)
-                    if isinstance(input_value, (dict, list))
-                    else str(input_value)
+        try:
+            for block in sorted_blocks:
+                block_started = time.time()
+                progress.current_block_id = block.id
+                
+                effective_model_name = self._resolve_model_name(definition, block)
+                effective_config = block.config.model_copy(update={"model_name": effective_model_name})
+                provider_summary[block.config.provider.value] += 1
+                execution_order.append(block.id)
+                
+                logger.info(
+                    "Block start id=%s type=%s provider=%s model=%s temp=%s inherited_model=%s",
+                    block.id,
+                    block.type,
+                    effective_config.provider,
+                    effective_config.model_name,
+                    effective_config.temperature,
+                    block.config.use_pipeline_default_model,
                 )
-                contents = contents.replace(f"{{{{{input_id}}}}}", serialized)
-                replaced_inputs += 1
-            logger.debug(
-                "Block prompt prepared id=%s replaced_inputs=%s prompt_chars=%s",
-                block.id,
-                replaced_inputs,
-                len(contents),
-            )
 
-            trace = BlockTrace(
-                block_id=block.id,
-                block_name=block.name,
-                block_type=block.type,
-                provider=effective_config.provider,
-                model_name=effective_config.model_name or "",
-                response_schema_name=effective_config.response_schema_name,
-                temperature=effective_config.temperature,
-                input_blocks=list(block.input_blocks),
-                resolved_prompt=contents,
-            )
-            traces[block.id] = trace
+                contents = block.config.prompt_template
+                replaced_inputs = 0
+                resolved_inputs = {}
+                for input_id in block.input_blocks:
+                    if input_id not in outputs:
+                        logger.warning("Block id=%s missing_input=%s (placeholder left unresolved)", block.id, input_id)
+                        continue
+                    input_value = outputs[input_id]
+                    resolved_inputs[input_id] = _serialize_output(input_value)
+                    serialized = (
+                        input_value.model_dump_json(indent=2)
+                        if isinstance(input_value, BaseModel)
+                        else json.dumps(input_value, indent=2)
+                        if isinstance(input_value, (dict, list))
+                        else str(input_value)
+                    )
+                    contents = contents.replace(f"{{{{{input_id}}}}}", serialized)
+                    replaced_inputs += 1
+                
+                logger.debug(
+                    "Block prompt prepared id=%s replaced_inputs=%s prompt_chars=%s",
+                    block.id,
+                    replaced_inputs,
+                    len(contents),
+                )
 
-            provider = get_provider(effective_config.provider, self._api_keys())
-            if effective_config.response_schema_name:
-                schema = SCHEMA_MAP.get(effective_config.response_schema_name)
-                if schema is None:
-                    logger.error("Block id=%s schema_missing=%s", block.id, effective_config.response_schema_name)
-                    raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
-                output = provider.generate_structured_output(effective_config, contents, schema)
-            else:
-                output = provider.generate_content(effective_config, contents)
+                trace = BlockTrace(
+                    block_id=block.id,
+                    block_name=block.name,
+                    block_type=block.type,
+                    provider=effective_config.provider,
+                    model_name=effective_config.model_name or "",
+                    status=BlockExecutionStatus.RUNNING,
+                    response_schema_name=effective_config.response_schema_name,
+                    temperature=effective_config.temperature,
+                    input_blocks=list(block.input_blocks),
+                    resolved_prompt=contents,
+                    resolved_inputs=resolved_inputs,
+                    started_at=datetime.now(timezone.utc).isoformat(),
+                )
+                traces[block.id] = trace
+                progress.block_traces[block.id] = trace
+                _persist_progress()
 
-            outputs[block.id] = output
-            _write_block_artifact(run_dir, block.id, output)
-            _write_block_artifact(run_dir, f"{block.id}.prompt", contents)
-            elapsed_ms = (time.time() - block_started) * 1000
-            logger.info("Block done id=%s elapsed_ms=%.2f", block.id, elapsed_ms)
+                provider = get_provider(effective_config.provider, self._api_keys())
+                if effective_config.response_schema_name:
+                    schema = SCHEMA_MAP.get(effective_config.response_schema_name)
+                    if schema is None:
+                        logger.error("Block id=%s schema_missing=%s", block.id, effective_config.response_schema_name)
+                        raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
+                    output = provider.generate_structured_output(effective_config, contents, schema)
+                else:
+                    output = provider.generate_content(effective_config, contents)
 
+                outputs[block.id] = output
+                _write_block_artifact(run_dir, block.id, output)
+                _write_block_artifact(run_dir, f"{block.id}.prompt", contents)
+                
+                elapsed_ms = (time.time() - block_started) * 1000
+                logger.info("Block done id=%s elapsed_ms=%.2f", block.id, elapsed_ms)
+                
+                trace.status = BlockExecutionStatus.SUCCEEDED
+                trace.output = _serialize_output(output)
+                trace.completed_at = datetime.now(timezone.utc).isoformat()
+                trace.elapsed_ms = elapsed_ms
+                _persist_progress()
+
+            progress.status = RunStatus.SUCCEEDED
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+        except Exception as exc:
+            import traceback
+            error_msg = str(exc)
+            logger.exception("Run failed run_id=%s", run_id)
+            progress.status = RunStatus.FAILED
+            progress.error_message = error_msg
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+            
+            if progress.current_block_id and progress.current_block_id in traces:
+                traces[progress.current_block_id].status = BlockExecutionStatus.FAILED
+                traces[progress.current_block_id].error_message = error_msg
+                traces[progress.current_block_id].error_traceback = traceback.format_exc()
+            
+            _persist_progress()
+
+            # We still want to return a RunResult even for failed runs if possible
+            # But we might just re-raise here and let the API handle it if we want 500
+            # The implementation plan says "ensure failed runs persist partial execution data"
+            # which we just did with _persist_progress().
+            # I'll create the result object here so it can be saved.
+        
         final_block_id = execution_order[-1] if execution_order else None
         final_output = _serialize_output(outputs.get(final_block_id)) if final_block_id else None
         final_metrics = _story_metrics(final_output if isinstance(final_output, dict) else None)
+        
+        if progress.status == RunStatus.SUCCEEDED:
+            progress.final_title = (final_output or {}).get("story_title") if isinstance(final_output, dict) else None
+            progress.final_metrics = final_metrics
+
+        progress.stats = calculate_run_stats(traces, final_output)
+        progress.timeline = derive_story_timeline(final_output)
 
         result = RunResult(
             run_id=run_id,
             timestamp=started_at.isoformat(),
             pipeline_name=definition.name,
-            final_title=(final_output or {}).get("story_title") if isinstance(final_output, dict) else None,
+            status=progress.status,
+            error_message=progress.error_message,
+            final_title=progress.final_title,
             block_count=len(execution_order),
             provider_summary=dict(provider_summary),
             artifact_counts={
@@ -345,16 +504,25 @@ class PipelineRunner:
             final_output=final_output,
             block_sequence=execution_order,
             block_traces=traces,
+            timeline=progress.timeline,
+            stats=progress.stats,
         )
 
         save_run_result(result, definition)
         logger.info(
-            "Run complete run_id=%s blocks=%s final_title=%s quality_score=%s",
+            "Run complete status=%s run_id=%s blocks=%s final_title=%s quality_score=%s",
+            progress.status,
             run_id,
             result.block_count,
             result.final_title,
             result.final_metrics.get("quality_proxy_score"),
         )
+        _persist_progress() # One last sync
+        
+        if progress.status == RunStatus.FAILED:
+            # Re-raise to let API know it failed, but we settled the disk state first
+            raise RuntimeError(progress.error_message)
+
         return result
 
 
