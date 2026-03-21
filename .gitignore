@@ -59,3 +59,4 @@ python_director/admin_ui_v3/dist/
 #Firebase
 google-services.json
 android/app/google-services.json
+python_director/serviceAccountKey.json
