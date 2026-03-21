@@ -17,12 +17,14 @@ export default function RunDetail() {
   const activeRunProgress = useStore((s) => s.activeRunProgress)
   const activeRunId = useStore((s) => s.activeRunId)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
+  const retryBlock = useStore((s) => s.retryBlock)
   const deleteRun = useStore((s) => s.deleteRun)
 
   const [runData, setRunData] = useState<RunProgress | null>(null)
   const [loading, setLoading] = useState(true)
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [retryTarget, setRetryTarget] = useState<{ id: string; name: string } | null>(null)
 
   useEffect(() => {
     if (!runId) return
@@ -112,6 +114,16 @@ export default function RunDetail() {
     navigate('/runs')
   }
 
+  const handleRetryBlock = (blockId: string, blockName: string) => {
+    setRetryTarget({ id: blockId, name: blockName })
+  }
+
+  const handleRetryConfirm = () => {
+    if (!retryTarget || !runId) return
+    setRetryTarget(null)
+    retryBlock(runId, retryTarget.id)
+  }
+
   // Seed/tags from the stored run progress (present if set when run was created)
   const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
   const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
@@ -181,7 +193,13 @@ export default function RunDetail() {
           <Routes>
             <Route
               path="blocks"
-              element={<BlockAccordion blockSequence={runData.block_sequence} blockTraces={runData.block_traces} />}
+              element={
+                <BlockAccordion
+                  blockSequence={runData.block_sequence}
+                  blockTraces={runData.block_traces}
+                  onRetryBlock={!isActive ? handleRetryBlock : undefined}
+                />
+              }
             />
             <Route path="timeline" element={<TimelineView timeline={runData.timeline} />} />
             <Route path="experience" element={<ExperiencePreview timeline={runData.timeline} />} />
@@ -210,6 +228,17 @@ export default function RunDetail() {
         confirmVariant="danger"
         onConfirm={handleDelete}
         onCancel={() => setDeleteDialogOpen(false)}
+      />
+
+      {/* Retry block confirmation dialog */}
+      <ConfirmDialog
+        open={retryTarget !== null}
+        title="Retry from this block?"
+        description={`"${retryTarget?.name}" and all downstream blocks that failed or didn't run will be re-executed. Already-succeeded blocks will be skipped.`}
+        confirmLabel="Retry"
+        confirmVariant="primary"
+        onConfirm={handleRetryConfirm}
+        onCancel={() => setRetryTarget(null)}
       />
     </>
   )

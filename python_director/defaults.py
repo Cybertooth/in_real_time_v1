@@ -133,6 +133,16 @@ PLANNER_PROMPT = """
 Convert the provided creative outline into a production-ready StoryPlan.
 Preserve ambition, but prioritize coherence and payoff.
 
+You MUST populate ALL of the following fields in your JSON response:
+- title: the story title
+- characters: list of characters (each with name, background, arc_summary)
+- core_conflict: the central dramatic conflict driving the story
+- background_lore: world-building and backstory that pressures current events
+- the_twist: the major reveal or turn — must be foreshadowed from the start
+- act_1_summary: setup, introduction of characters and conflict (first third)
+- act_2_summary: escalation, complications, mid-point turn (middle third)
+- act_3_summary: climax, resolution, aftermath (final third)
+
 Non-negotiables:
 - Character actions must match motivation and prior knowledge.
 - Core conflict must escalate through the 3 acts.
@@ -256,17 +266,17 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "claude-sonnet-4-5",
     ],
     ProviderType.OPENROUTER.value: [
-        "meta-llama/llama-3.3-70b-instruct",
-        "meta-llama/llama-3.1-405b-instruct",
-        "qwen/qwen-2.5-72b-instruct",
+        "moonshotai/kimi-k2.5",
+        "minimax/minimax-m2.5",
+        "qwen/qwen3.5-122b-a10b",
         "qwen/qwen3-235b-a22b",
         "deepseek/deepseek-chat-v3-0324",
         "deepseek/deepseek-r1",
         "mistralai/mistral-large",
         "mistralai/mistral-nemo",
-        "google/gemma-3-27b-it",
-        "microsoft/phi-4",
-        "nousresearch/hermes-3-llama-3.1-70b",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "x-ai/grok-4.1-fast",
+        "z-ai/glm-4.5-air:free",
     ],
 }
 
@@ -293,7 +303,7 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 use_pipeline_default_model=True,
                 temperature=1.0,
                 system_instruction=CREATIVE_OUTLINER_PROMPT,
-                prompt_template="Brainstorm the initial massive story outline. Avoid sci-fi themes and try to come up with a police thriller. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
+                prompt_template="Brainstorm the initial massive story outline. Avoid sci-fi and extra-terrestrial themes. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
             ),
         ),
         BlockType.COUNCIL_MEMBER: BlockTemplate(

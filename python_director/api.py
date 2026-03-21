@@ -432,6 +432,44 @@ async def rerun_run(
     return initial_progress
 
 
+def _bg_retry_block(run_id: str, block_id: str, settings: AppSettings):
+    runner = PipelineRunner(settings)
+
+    def _progress_callback(p: RunProgress):
+        active_runs[run_id] = p
+
+    try:
+        runner.retry_block(run_id, block_id, _progress_callback)
+    except Exception:
+        pass
+    finally:
+        def _cleanup():
+            import time
+            time.sleep(60)
+            active_runs.pop(run_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
+
+
+@router.post("/runs/{run_id}/retry-block/{block_id}")
+async def retry_block_endpoint(run_id: str, block_id: str, background_tasks: BackgroundTasks):
+    logger.info("Retry block requested run_id=%s block_id=%s", run_id, block_id)
+
+    # Guard: run must exist
+    progress_path = RUNS_DIR / run_id / "run_progress.json"
+    if not progress_path.exists():
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+
+    # Guard: run must not already be active
+    if run_id in active_runs and active_runs[run_id].status == RunStatus.RUNNING:
+        raise HTTPException(status_code=409, detail="Run is already active. Wait for it to finish.")
+
+    current = RunProgress.model_validate_json(progress_path.read_text(encoding="utf-8"))
+    settings = load_settings()
+    active_runs[run_id] = current
+    background_tasks.add_task(_bg_retry_block, run_id, block_id, settings)
+    return current
+
+
 @router.delete("/runs/{run_id}")
 async def delete_run_endpoint(run_id: str):
     logger.info("Delete run requested run_id=%s", run_id)

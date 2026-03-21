@@ -30,7 +30,14 @@ if __package__:
         SCHEMA_MAP,
     )
     from .providers import get_provider
-    from .storage import RUNS_DIR, save_run_result
+    from .storage import (
+        PIPELINE_SNAPSHOT_FILENAME,
+        RUNS_DIR,
+        load_run_progress,
+        load_run_result,
+        save_run_progress,
+        save_run_result,
+    )
 else:
     from log_utils import get_logger
     from models import (
@@ -50,7 +57,14 @@ else:
         SCHEMA_MAP,
     )
     from providers import get_provider
-    from storage import RUNS_DIR, save_run_result
+    from storage import (
+        PIPELINE_SNAPSHOT_FILENAME,
+        RUNS_DIR,
+        load_run_progress,
+        load_run_result,
+        save_run_progress,
+        save_run_result,
+    )
 
 logger = get_logger("python_director.logic")
 
@@ -794,6 +808,224 @@ class PipelineRunner:
             raise RuntimeError(progress.error_message)
 
         return result
+
+    def retry_block(
+        self,
+        run_id: str,
+        block_id: str,
+        progress_callback: Any | None = None,
+    ) -> RunProgress:
+        """Re-execute a specific failed block and all downstream blocks that failed or never ran."""
+        run_dir = RUNS_DIR / run_id
+
+        # Load existing progress and pipeline snapshot
+        progress = load_run_progress(run_id)
+        snapshot_path = run_dir / PIPELINE_SNAPSHOT_FILENAME
+        if not snapshot_path.exists():
+            raise FileNotFoundError(f"Pipeline snapshot not found for run '{run_id}'")
+        definition = PipelineDefinition.model_validate_json(
+            snapshot_path.read_text(encoding="utf-8")
+        )
+
+        block_map = {b.id: b for b in definition.blocks if b.enabled}
+        if block_id not in block_map:
+            raise ValueError(f"Block '{block_id}' not found in pipeline for run '{run_id}'")
+
+        # Restore outputs from artifacts for all succeeded blocks
+        outputs: dict[str, Any] = {}
+        for bid, trace in progress.block_traces.items():
+            if trace.status == BlockExecutionStatus.SUCCEEDED:
+                json_path = run_dir / f"{bid}.json"
+                txt_path = run_dir / f"{bid}.txt"
+                if json_path.exists():
+                    outputs[bid] = json.loads(json_path.read_text(encoding="utf-8"))
+                elif txt_path.exists():
+                    outputs[bid] = txt_path.read_text(encoding="utf-8")
+
+        # Build reverse dependency graph to find downstream blocks
+        dependents: dict[str, set[str]] = {bid: set() for bid in block_map}
+        for bid, block in block_map.items():
+            for dep in block.input_blocks:
+                if dep in dependents:
+                    dependents[dep].add(bid)
+
+        # BFS: retry the target block + all downstream that are failed or never ran
+        retry_set: set[str] = set()
+        queue = [block_id]
+        while queue:
+            current = queue.pop()
+            if current not in block_map or current in retry_set:
+                continue
+            trace = progress.block_traces.get(current)
+            if current == block_id or trace is None or trace.status != BlockExecutionStatus.SUCCEEDED:
+                retry_set.add(current)
+                queue.extend(dependents.get(current, set()))
+
+        logger.info(
+            "Retry start run_id=%s target_block=%s retry_set=%s",
+            run_id, block_id, sorted(retry_set),
+        )
+
+        # Reset retry blocks to pending in progress
+        for bid in retry_set:
+            if bid in progress.block_traces:
+                t = progress.block_traces[bid]
+                t.status = BlockExecutionStatus.PENDING
+                t.output = None
+                t.error_message = None
+                t.error_traceback = None
+                t.started_at = None
+                t.completed_at = None
+                t.elapsed_ms = None
+            else:
+                block = block_map[bid]
+                progress.block_traces[bid] = BlockTrace(
+                    block_id=bid,
+                    block_name=block.name,
+                    block_type=block.type,
+                    provider=block.config.provider,
+                    model_name=block.config.model_name or "",
+                    status=BlockExecutionStatus.PENDING,
+                    response_schema_name=block.config.response_schema_name,
+                    temperature=block.config.temperature,
+                    input_blocks=list(block.input_blocks),
+                )
+
+        progress.status = RunStatus.RUNNING
+        progress.error_message = None
+        progress.completed_at = None
+
+        # traces dict mirrors progress.block_traces so _run_one_block updates both
+        traces: dict[str, BlockTrace] = dict(progress.block_traces)
+
+        def _persist_progress():
+            save_run_progress(progress)
+            if progress_callback:
+                progress_callback(progress)
+
+        _persist_progress()
+
+        # Build execution waves for retry_set only, using succeeded outputs as satisfied deps
+        completed_deps: set[str] = set(outputs.keys())
+        waves: list[list[PipelineBlock]] = []
+        remaining = set(retry_set)
+        while remaining:
+            wave = [
+                block_map[bid]
+                for bid in sorted(remaining)
+                if all(
+                    dep in completed_deps or dep not in block_map
+                    for dep in block_map[bid].input_blocks
+                )
+            ]
+            if not wave:
+                raise ValueError("Retry set has unresolvable dependencies — possible cycle.")
+            for b in wave:
+                completed_deps.add(b.id)
+                remaining.discard(b.id)
+            waves.append(wave)
+
+        provider_summary: Counter[str] = Counter()
+        execution_order: list[str] = []
+        lock = threading.Lock()
+
+        try:
+            for wave in waves:
+                if len(wave) == 1:
+                    self._run_one_block(
+                        wave[0], definition, outputs, run_dir, lock,
+                        traces, progress, _persist_progress, provider_summary, execution_order,
+                    )
+                else:
+                    errors: list[tuple[str, BaseException]] = []
+                    with ThreadPoolExecutor(max_workers=len(wave)) as executor:
+                        future_map = {
+                            executor.submit(
+                                self._run_one_block,
+                                block, definition, outputs, run_dir, lock,
+                                traces, progress, _persist_progress, provider_summary, execution_order,
+                            ): block
+                            for block in wave
+                        }
+                        for future in as_completed(future_map):
+                            blk = future_map[future]
+                            try:
+                                future.result()
+                            except Exception as exc:
+                                errors.append((blk.id, exc))
+                    if errors:
+                        bid_err, exc = errors[0]
+                        raise RuntimeError(f"Block '{bid_err}' failed: {exc}") from exc
+
+            progress.status = RunStatus.SUCCEEDED
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+        except Exception as exc:
+            error_msg = str(exc)
+            logger.exception("Retry failed run_id=%s", run_id)
+            progress.status = RunStatus.FAILED
+            progress.error_message = error_msg
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+            _persist_progress()
+
+        # Recompute final output and metrics using the full pipeline wave order
+        all_waves = self._execution_waves(definition)
+        final_block_id_val = all_waves[-1][-1].id if all_waves else None
+        final_output = _serialize_output(outputs.get(final_block_id_val)) if final_block_id_val else None
+        final_metrics = _story_metrics(final_output if isinstance(final_output, dict) else None)
+
+        if progress.status == RunStatus.SUCCEEDED:
+            progress.final_title = (
+                final_output.get("story_title") if isinstance(final_output, dict) else None
+            )
+            progress.final_metrics = final_metrics
+            progress.timeline = derive_story_timeline(final_output)
+
+        progress.stats = calculate_run_stats(traces, final_output)
+        _persist_progress()
+
+        # Persist updated RunResult if the run is now fully succeeded
+        if progress.status == RunStatus.SUCCEEDED:
+            try:
+                old_result = load_run_result(run_id)
+                seed = old_result.seed_prompt
+                run_tags = old_result.tags
+                ts = old_result.timestamp
+            except Exception:
+                seed = None
+                run_tags = []
+                ts = datetime.now(timezone.utc).isoformat()
+
+            result = RunResult(
+                run_id=run_id,
+                timestamp=ts,
+                pipeline_name=definition.name,
+                status=RunStatus.SUCCEEDED,
+                final_title=progress.final_title,
+                block_count=len([t for t in traces.values() if t.status == BlockExecutionStatus.SUCCEEDED]),
+                provider_summary=dict(provider_summary),
+                artifact_counts={"blocks": len(execution_order), "files": len(list(run_dir.iterdir()))},
+                final_metrics=final_metrics,
+                mode="dry_run",
+                seed_prompt=seed,
+                tags=run_tags,
+                outputs={bid: _serialize_output(v) for bid, v in outputs.items()},
+                final_output=final_output,
+                block_sequence=list(progress.block_sequence),
+                block_traces=traces,
+                timeline=progress.timeline,
+                stats=progress.stats,
+            )
+            save_run_result(result, definition)
+
+        logger.info(
+            "Retry complete run_id=%s status=%s retried_blocks=%s",
+            run_id, progress.status, sorted(retry_set),
+        )
+
+        if progress.status == RunStatus.FAILED:
+            raise RuntimeError(progress.error_message)
+
+        return progress
 
 
 def upload_to_firestore(story_data: dict, firebase_service_account_path: str):

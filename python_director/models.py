@@ -273,43 +273,43 @@ class CharacterInfo(BaseModel):
 
 class StoryPlan(BaseModel):
     title: str
-    characters: list[CharacterInfo]
-    core_conflict: str
-    background_lore: str
-    the_twist: str
-    act_1_summary: str
-    act_2_summary: str
-    act_3_summary: str
+    characters: list[CharacterInfo] = Field(default_factory=list)
+    core_conflict: str = ""
+    background_lore: str = ""
+    the_twist: str = ""
+    act_1_summary: str = ""
+    act_2_summary: str = ""
+    act_3_summary: str = ""
 
 
 class StoryCritique(BaseModel):
-    strengths: list[str]
-    weaknesses: list[str]
-    pacing_issues: str
-    character_consistency_issues: str
-    twist_impact_analysis: str
-    actionable_improvements: list[str]
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    pacing_issues: str = ""
+    character_consistency_issues: str = ""
+    twist_impact_analysis: str = ""
+    actionable_improvements: list[str] = Field(default_factory=list)
 
 
 class SceneBlock(BaseModel):
     scene_id: str
-    start_time_minutes: int
-    end_time_minutes: int
-    description: str
-    expected_artifacts: list[str]
+    start_time_minutes: int = 0
+    end_time_minutes: int = 0
+    description: str = ""
+    expected_artifacts: list[str] = Field(default_factory=list)
 
 
 class SceneList(BaseModel):
-    scenes: list[SceneBlock]
+    scenes: list[SceneBlock] = Field(default_factory=list)
 
 
 class BrainstormCritique(BaseModel):
-    strengths: list[str]
-    missed_opportunities: list[str]
-    realism_risks: list[str]
-    twist_opportunities: list[str]
-    artifact_opportunities: list[str]
-    actionable_rewrites: list[str]
+    strengths: list[str] = Field(default_factory=list)
+    missed_opportunities: list[str] = Field(default_factory=list)
+    realism_risks: list[str] = Field(default_factory=list)
+    twist_opportunities: list[str] = Field(default_factory=list)
+    artifact_opportunities: list[str] = Field(default_factory=list)
+    actionable_rewrites: list[str] = Field(default_factory=list)
 
 
 class ContinuityIssue(BaseModel):
@@ -321,12 +321,12 @@ class ContinuityIssue(BaseModel):
 
 
 class ContinuityAudit(BaseModel):
-    continuity_score: int
-    contradictions: list[ContinuityIssue]
-    unresolved_clues: list[str]
-    motivation_breaks: list[str]
-    high_risk_notes: list[str]
-    release_recommendation: str
+    continuity_score: int = 0
+    contradictions: list[ContinuityIssue] = Field(default_factory=list)
+    unresolved_clues: list[str] = Field(default_factory=list)
+    motivation_breaks: list[str] = Field(default_factory=list)
+    high_risk_notes: list[str] = Field(default_factory=list)
+    release_recommendation: str = ""
 
 
 class QuietWindow(BaseModel):
@@ -345,9 +345,9 @@ class DropEvent(BaseModel):
 
 
 class DropPlan(BaseModel):
-    events: list[DropEvent]
-    quiet_windows: list[QuietWindow]
-    cliffhanger_targets: list[str]
+    events: list[DropEvent] = Field(default_factory=list)
+    quiet_windows: list[QuietWindow] = Field(default_factory=list)
+    cliffhanger_targets: list[str] = Field(default_factory=list)
 
 
 class JournalEntry(BaseModel):
@@ -402,8 +402,8 @@ class PhoneCall(BaseModel):
     caller: str
     receiver: str
     duration_seconds: int = 0
-    lines: list[PhoneCallLine]
-    time_offset_minutes: int
+    lines: list[PhoneCallLine] = Field(default_factory=list)
+    time_offset_minutes: int = 0
 
 
 class GroupChatMessage(BaseModel):
@@ -415,18 +415,18 @@ class GroupChatMessage(BaseModel):
 class GroupChatThread(BaseModel):
     platform: str  # "whatsapp", "telegram", "imessage"
     group_name: str
-    members: list[str]
-    messages: list[GroupChatMessage]
-    time_offset_minutes: int  # time of first message
+    members: list[str] = Field(default_factory=list)
+    messages: list[GroupChatMessage] = Field(default_factory=list)
+    time_offset_minutes: int = 0  # time of first message
 
 
 class StoryGenerated(BaseModel):
     story_title: str
-    journals: list[JournalEntry]
-    chats: list[ChatMessage]
-    emails: list[EmailMessage]
-    receipts: list[ReceiptItem]
-    voice_notes: list[VoiceNote]
+    journals: list[JournalEntry] = Field(default_factory=list)
+    chats: list[ChatMessage] = Field(default_factory=list)
+    emails: list[EmailMessage] = Field(default_factory=list)
+    receipts: list[ReceiptItem] = Field(default_factory=list)
+    voice_notes: list[VoiceNote] = Field(default_factory=list)
     social_posts: list[SocialPost] = Field(default_factory=list)
     phone_calls: list[PhoneCall] = Field(default_factory=list)
     group_chats: list[GroupChatThread] = Field(default_factory=list)

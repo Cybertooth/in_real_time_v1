@@ -152,3 +152,10 @@ export function deleteRun(runId: string): Promise<{ status: string; run_id: stri
     { method: 'DELETE' },
   )
 }
+
+export function retryBlock(runId: string, blockId: string): Promise<RunProgress> {
+  return request<RunProgress>(
+    `/api/runs/${encodeURIComponent(runId)}/retry-block/${encodeURIComponent(blockId)}`,
+    { method: 'POST' },
+  )
+}

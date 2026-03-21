@@ -7,11 +7,13 @@ import ContentRenderer from '../formatting/ContentRenderer'
 interface BlockAccordionProps {
   blockSequence: string[]
   blockTraces: Record<string, BlockTrace>
+  onRetryBlock?: (blockId: string, blockName: string) => void
 }
 
 export default function BlockAccordion({
   blockSequence,
   blockTraces,
+  onRetryBlock,
 }: BlockAccordionProps) {
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(new Set())
 
@@ -155,15 +157,24 @@ export default function BlockAccordion({
                 )}
 
                 {/* Error */}
-                {trace.status === 'failed' && trace.error_message && (
+                {trace.status === 'failed' && (
                   <div>
                     <div className="bg-danger-soft border border-danger/30 rounded-lg p-3">
-                      <span className="text-danger font-semibold text-sm block mb-1">
-                        Error
-                      </span>
-                      <p className="text-danger text-sm">
-                        {trace.error_message}
-                      </p>
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <span className="text-danger font-semibold text-sm">Error</span>
+                        {onRetryBlock && (
+                          <button
+                            type="button"
+                            onClick={() => onRetryBlock(blockId, trace.block_name)}
+                            className="px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-surface border border-border text-text hover:border-mint hover:text-mint transition-colors flex-shrink-0"
+                          >
+                            ↺ Retry from here
+                          </button>
+                        )}
+                      </div>
+                      {trace.error_message && (
+                        <p className="text-danger text-sm">{trace.error_message}</p>
+                      )}
                       {trace.error_traceback && (
                         <ErrorTraceback traceback={trace.error_traceback} />
                       )}
