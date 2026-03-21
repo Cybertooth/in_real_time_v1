@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/story_item.dart';
+import '../models/story_summary.dart';
 
 // ---------------------------------------------------------------------------
 // Platform helpers
@@ -29,9 +31,47 @@ final firestoreProvider = Provider<FirebaseFirestore?>((ref) {
 });
 
 // ---------------------------------------------------------------------------
-// Active story ID — in v1 we use a single placeholder.
+// Dynamic Active Story ID Provider
 // ---------------------------------------------------------------------------
-const String activeStoryId = 'story_latest';
+final activeStoryIdProvider = StateNotifierProvider<ActiveStoryIdNotifier, String>((ref) {
+  return ActiveStoryIdNotifier();
+});
+
+class ActiveStoryIdNotifier extends StateNotifier<String> {
+  ActiveStoryIdNotifier() : super('story_latest') {
+    _load();
+  }
+
+  static const _key = 'active_story_id';
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getString(_key);
+    if (saved != null && saved.isNotEmpty) {
+      state = saved;
+    }
+  }
+
+  Future<void> setStoryId(String id) async {
+    state = id;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, id);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Provider to list all available stories
+// ---------------------------------------------------------------------------
+final allStoriesProvider = StreamProvider<List<StorySummary>>((ref) {
+  final db = ref.watch(firestoreProvider);
+  if (db == null) return Stream.value(<StorySummary>[]);
+
+  return db
+      .collection('stories')
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map((snap) => snap.docs.map(StorySummary.fromFirestore).toList());
+});
 
 // ---------------------------------------------------------------------------
 // Generic helper to create a Firestore stream provider for a collection
@@ -44,12 +84,14 @@ StreamProvider<List<T>> _collectionProvider<T extends StoryItem>(
   return StreamProvider<List<T>>((ref) {
     ref.watch(clockProvider);
     final db = ref.watch(firestoreProvider);
+    final activeId = ref.watch(activeStoryIdProvider);
+    
     if (db == null) return Stream.value(<T>[]);
 
     final now = DateTime.now();
     return db
         .collection('stories')
-        .doc(activeStoryId)
+        .doc(activeId)
         .collection(collectionName)
         .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
         .orderBy('unlockTimestamp', descending: !ascending)
@@ -140,12 +182,14 @@ final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
 // ---------------------------------------------------------------------------
 final upcomingItemsProvider = StreamProvider<bool>((ref) {
   final db = ref.watch(firestoreProvider);
+  final activeId = ref.watch(activeStoryIdProvider);
+  
   if (db == null) return Stream.value(false);
 
   final now = DateTime.now();
   return db
       .collection('stories')
-      .doc(activeStoryId)
+      .doc(activeId)
       .collection('journals')
       .where('unlockTimestamp', isGreaterThan: Timestamp.fromDate(now))
       .snapshots()

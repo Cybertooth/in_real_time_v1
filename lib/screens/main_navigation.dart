@@ -5,6 +5,8 @@ import 'journal_screen.dart';
 import 'chat_screen.dart';
 import 'email_screen.dart';
 import 'files_screen.dart';
+import 'story_gallery_screen.dart';
+import 'settings_screen.dart';
 import '../theme.dart';
 
 class MainNavigation extends ConsumerStatefulWidget {
@@ -23,6 +25,8 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
     ChatScreen(),
     EmailScreen(),
     FilesScreen(),
+    StoryGalleryScreen(),
+    SettingsScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -45,6 +49,9 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,
           onTap: _onItemTapped,
+          type: BottomNavigationBarType.fixed,
+          selectedFontSize: 10,
+          unselectedFontSize: 10,
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.timeline_outlined),
@@ -70,6 +77,16 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
               icon: Icon(Icons.folder_outlined),
               activeIcon: Icon(Icons.folder, color: AppTheme.accentNeon),
               label: 'Files',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.history_edu_outlined),
+              activeIcon: Icon(Icons.history_edu, color: AppTheme.accentNeon),
+              label: 'Gallery',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.settings_outlined),
+              activeIcon: Icon(Icons.settings, color: AppTheme.accentNeon),
+              label: 'Settings',
             ),
           ],
         ),

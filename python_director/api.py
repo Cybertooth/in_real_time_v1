@@ -553,5 +553,8 @@ async def spa_fallback(full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
+    import os
 
-    uvicorn.run("api:app", host="0.0.0.0", port=8042, reload=False)
+    # Cloud Run provides the PORT environment variable.
+    port = int(os.environ.get("PORT", 8042))
+    uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
