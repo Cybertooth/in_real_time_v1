@@ -100,7 +100,10 @@ export default function RunList() {
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-text-dim">{formatTime(run.timestamp)}</span>
-                <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+                <div className="flex gap-1">
+                  {run.story_id && <Badge variant="success">LIVE</Badge>}
+                  <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+                </div>
               </div>
               <div className="text-sm font-medium text-text mb-1 truncate pr-16">
                 {run.final_title || run.pipeline_name}

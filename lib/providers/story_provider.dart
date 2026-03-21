@@ -178,6 +178,69 @@ final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
 });
 
 // ---------------------------------------------------------------------------
+// Unified Conversations — groups chats by sender/group
+// ---------------------------------------------------------------------------
+class ConversationThread {
+  final String id;
+  final String title;
+  final String lastMessage;
+  final DateTime lastTimestamp;
+  final bool isGroup;
+
+  ConversationThread({
+    required this.id,
+    required this.title,
+    required this.lastMessage,
+    required this.lastTimestamp,
+    this.isGroup = false,
+  });
+}
+
+final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((ref) {
+  final chats = ref.watch(chatProvider);
+  final groups = ref.watch(groupChatProvider);
+
+  if (chats is AsyncLoading || groups is AsyncLoading) return const AsyncValue.loading();
+  if (chats is AsyncError) return AsyncValue.error((chats as AsyncError).error, (chats as AsyncError).stackTrace);
+  if (groups is AsyncError) return AsyncValue.error((groups as AsyncError).error, (groups as AsyncError).stackTrace);
+
+  final allChatItems = chats.value ?? [];
+  final allGroupItems = groups.value ?? [];
+
+  final Map<String, ConversationThread> threads = {};
+
+  // Group 1-on-1 chats by senderId
+  for (final chat in allChatItems) {
+    final existing = threads[chat.senderId];
+    if (existing == null || chat.unlockTimestamp.isAfter(existing.lastTimestamp)) {
+      threads[chat.senderId] = ConversationThread(
+        id: chat.senderId,
+        title: chat.senderId,
+        lastMessage: chat.text,
+        lastTimestamp: chat.unlockTimestamp,
+        isGroup: false,
+      );
+    }
+  }
+
+  // Treat each GroupChatThread as its own conversation
+  for (final group in allGroupItems) {
+    threads[group.id] = ConversationThread(
+      id: group.id,
+      title: group.groupName,
+      lastMessage: group.messages.isNotEmpty ? group.messages.last.text : 'Group created',
+      lastTimestamp: group.unlockTimestamp,
+      isGroup: true,
+    );
+  }
+
+  final sorted = threads.values.toList()
+    ..sort((a, b) => b.lastTimestamp.compareTo(a.lastTimestamp));
+
+  return AsyncValue.data(sorted);
+});
+
+// ---------------------------------------------------------------------------
 // Upcoming items heuristic (are there locked items pending?)
 // ---------------------------------------------------------------------------
 final upcomingItemsProvider = StreamProvider<bool>((ref) {

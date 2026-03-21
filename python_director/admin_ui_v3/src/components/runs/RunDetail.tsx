@@ -94,6 +94,7 @@ export default function RunDetail() {
     try {
       const result = await api.uploadRun(runId)
       showToast(`Uploaded! Story ID: ${result.story_id}`)
+      setRunData((prev) => (prev ? { ...prev, story_id: result.story_id } : null))
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       showToast(msg, true)
@@ -138,6 +139,12 @@ export default function RunDetail() {
   return (
     <>
       <div className="flex flex-col h-full">
+        {runData.story_id && (
+          <div className="bg-mint/10 text-mint text-center py-1.5 text-xs font-bold uppercase tracking-widest border-b border-mint/20 flex items-center justify-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-mint animate-pulse" />
+            Live on Production (Story ID: {runData.story_id})
+          </div>
+        )}
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">

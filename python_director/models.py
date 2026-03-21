@@ -162,6 +162,7 @@ class RunSummary(BaseModel):
     error_message: Optional[str] = None
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    story_id: Optional[str] = None
 
 
 class RunResult(RunSummary):
@@ -192,6 +193,7 @@ class RunProgress(BaseModel):
     block_traces: dict[str, BlockTrace] = Field(default_factory=dict)
     timeline: list[RunTimelineEntry] = Field(default_factory=list)
     stats: RunStats = Field(default_factory=RunStats)
+    story_id: Optional[str] = None
 
 
 class RunPipelineRequest(BaseModel):

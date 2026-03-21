@@ -9,6 +9,8 @@ import 'story_gallery_screen.dart';
 import 'settings_screen.dart';
 import '../theme.dart';
 
+import 'hub_screen.dart';
+
 class MainNavigation extends ConsumerStatefulWidget {
   const MainNavigation({super.key});
 
@@ -21,10 +23,7 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
 
   static const List<Widget> _pages = [
     TimelineScreen(),
-    JournalScreen(),
-    ChatScreen(),
-    EmailScreen(),
-    FilesScreen(),
+    HubScreen(),
     StoryGalleryScreen(),
     SettingsScreen(),
   ];
@@ -59,24 +58,9 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
               label: 'Timeline',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.auto_stories_outlined),
-              activeIcon: Icon(Icons.auto_stories, color: AppTheme.accentNeon),
-              label: 'Journal',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.chat_bubble_outline),
-              activeIcon: Icon(Icons.chat_bubble, color: AppTheme.accentNeon),
-              label: 'Chats',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.email_outlined),
-              activeIcon: Icon(Icons.email, color: AppTheme.accentNeon),
-              label: 'Inbox',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.folder_outlined),
-              activeIcon: Icon(Icons.folder, color: AppTheme.accentNeon),
-              label: 'Files',
+              icon: Icon(Icons.terminal_outlined),
+              activeIcon: Icon(Icons.terminal, color: AppTheme.accentNeon),
+              label: 'Terminal',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.history_edu_outlined),

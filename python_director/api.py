@@ -39,8 +39,10 @@ if __package__:
         load_settings,
         save_named_pipeline,
         save_pipeline,
+        save_run_result,
         save_settings,
         snapshot_pipeline,
+        PIPELINE_SNAPSHOT_FILENAME,
     )
 else:
     from defaults import get_default_pipeline
@@ -516,6 +518,13 @@ async def upload_run(run_id: str):
     try:
         story_id = upload_to_firestore(run_result.final_output, cred_path)
         logger.info("Upload completed run_id=%s story_id=%s", run_id, story_id)
+
+        # Update the run_result on disk to persist the story_id
+        run_result.story_id = story_id
+        snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+        if snapshot_path.exists():
+            pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+            save_run_result(run_result, pipeline)
     except Exception as exc:
         logger.exception("Upload failed run_id=%s", run_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc

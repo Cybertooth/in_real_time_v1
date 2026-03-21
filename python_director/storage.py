@@ -339,6 +339,7 @@ def run_progress_from_result(run_result: RunResult) -> RunProgress:
         block_traces=run_result.block_traces,
         timeline=run_result.timeline,
         stats=run_result.stats,
+        story_id=run_result.story_id,
     )
 
 
@@ -358,6 +359,7 @@ def _summary_from_run_progress(run_progress: RunProgress) -> RunSummary:
         final_metrics=run_progress.final_metrics,
         mode=run_progress.mode,
         error_message=run_progress.error_message,
+        story_id=run_progress.story_id,
     )
 
 
@@ -404,6 +406,7 @@ def list_run_summaries() -> list[RunSummary]:
                     error_message=run_result.error_message,
                     seed_prompt=run_result.seed_prompt,
                     tags=run_result.tags,
+                    story_id=run_result.story_id,
                 )
             )
             continue

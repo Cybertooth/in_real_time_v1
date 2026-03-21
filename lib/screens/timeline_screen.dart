@@ -4,6 +4,8 @@ import '../models/story_item.dart';
 import '../providers/story_provider.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
+import 'story_item_detail_screen.dart';
+import 'chat_thread_screen.dart';
 
 /// The home screen — a unified chronological feed of all intercepted content.
 class TimelineScreen extends ConsumerWidget {
@@ -55,7 +57,7 @@ class TimelineScreen extends ConsumerWidget {
   }
 
   Widget _buildCard(BuildContext context, StoryItem item) {
-    return switch (item) {
+    final card = switch (item) {
       Journal j => _JournalCard(item: j),
       Chat c => _ChatCard(item: c),
       Email e => _EmailCard(item: e),
@@ -66,6 +68,40 @@ class TimelineScreen extends ConsumerWidget {
       GroupChatThread g => _GroupChatCard(item: g),
       _ => const SizedBox.shrink(),
     };
+
+    return InkWell(
+      onTap: () {
+        if (item is Chat) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatThreadScreen(
+                conversationId: item.senderId,
+                title: item.senderId,
+                isGroup: false,
+              ),
+            ),
+          );
+        } else if (item is GroupChatThread) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatThreadScreen(
+                conversationId: item.id,
+                title: item.groupName,
+                isGroup: true,
+              ),
+            ),
+          );
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => StoryItemDetailScreen(item: item)),
+          );
+        }
+      },
+      child: card,
+    );
   }
 }
 

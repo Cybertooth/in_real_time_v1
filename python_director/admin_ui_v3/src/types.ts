@@ -117,6 +117,7 @@ export interface RunSummary {
   error_message: string | null
   seed_prompt: string | null
   tags: string[]
+  story_id: string | null
 }
 
 export interface RunProgress {
@@ -136,6 +137,7 @@ export interface RunProgress {
   block_traces: Record<string, BlockTrace>
   timeline: RunTimelineEntry[]
   stats: RunStats
+  story_id: string | null
 }
 
 export interface RunResult extends RunSummary {
