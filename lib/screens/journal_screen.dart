@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../providers/story_provider.dart';
 import '../theme.dart';
 import '../models/story_item.dart';
+import '../widgets/shared_widgets.dart';
 
 class JournalScreen extends ConsumerWidget {
   const JournalScreen({super.key});
@@ -18,7 +18,11 @@ class JournalScreen extends ConsumerWidget {
       body: journalsAsync.when(
         data: (journals) {
           if (journals.isEmpty && !hasUpcoming) {
-            return const Center(child: Text('No journal entries found.'));
+            return const EmptyState(
+              icon: Icons.auto_stories,
+              title: 'NO ENTRIES',
+              subtitle: 'Journal entries will appear here as they are intercepted.',
+            );
           }
 
           return ListView.builder(
@@ -26,79 +30,74 @@ class JournalScreen extends ConsumerWidget {
             itemCount: journals.length + (hasUpcoming ? 1 : 0),
             itemBuilder: (context, index) {
               if (index == 0 && hasUpcoming) {
-                return _buildLockedEntry();
+                return _buildLockedEntry(context);
               }
               final journal = journals[hasUpcoming ? index - 1 : index];
-              return _buildJournalCard(journal);
+              return _buildJournalCard(context, journal);
             },
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.accentNeon)),
         error: (err, stack) => Center(child: Text('Error: $err')),
       ),
     );
   }
 
-  Widget _buildLockedEntry() {
+  Widget _buildLockedEntry(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        border: Border.all(color: AppTheme.textDim, width: 0.5),
-        borderRadius: BorderRadius.circular(8),
-      ),
+      padding: const EdgeInsets.all(24),
+      decoration: AppTheme.glassDecoration(),
       child: Column(
         children: [
-          const Icon(Icons.lock_outline, color: AppTheme.textDim, size: 32),
+          const Icon(Icons.lock_outline, color: AppTheme.textMuted, size: 28),
           const SizedBox(height: 12),
           Text(
             'ENCRYPTED_FILE_LOCKED',
             style: TextStyle(
-              color: AppTheme.textDim,
-              fontFamily: 'Courier',
+              color: AppTheme.textMuted,
+              fontFamily: 'monospace',
+              fontSize: 12,
               letterSpacing: 2,
             ),
           ),
           const SizedBox(height: 8),
-          const Text(
-            'Waiting for next synchronization event...',
-            style: TextStyle(color: AppTheme.textDim, fontSize: 12),
+          Text(
+            'Waiting for next synchronization event…',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildJournalCard(Journal journal) {
+  Widget _buildJournalCard(BuildContext context, Journal journal) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        border: Border.all(color: AppTheme.accentNeon, width: 0.3),
-        borderRadius: BorderRadius.circular(8),
-      ),
+      decoration: AppTheme.cardDecoration(accentBorder: AppTheme.journalColor),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Row(
+            children: [
+              const TypeBadge(label: 'Journal', color: AppTheme.journalColor, icon: Icons.auto_stories),
+              const Spacer(),
+              TimestampLabel(time: journal.unlockTimestamp),
+            ],
+          ),
+          const SizedBox(height: 12),
           Text(
             journal.title.toUpperCase(),
-            style: const TextStyle(
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
               color: AppTheme.accentNeon,
-              fontWeight: FontWeight.bold,
-              fontSize: 18,
+              letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            DateFormat('yyyy-MM-dd HH:mm').format(journal.unlockTimestamp),
-            style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
-          ),
-          const Divider(color: AppTheme.accentNeon, thickness: 0.3, height: 24),
+          const SizedBox(height: 12),
           Text(
             journal.body,
-            style: const TextStyle(height: 1.5),
+            style: Theme.of(context).textTheme.bodyLarge,
           ),
         ],
       ),

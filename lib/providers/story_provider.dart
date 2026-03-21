@@ -1,83 +1,153 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/story_item.dart';
 
-// A clock that ticks every minute to trigger UI updates for time-gated content
+// ---------------------------------------------------------------------------
+// Platform helpers
+// ---------------------------------------------------------------------------
+bool get _isDesktop =>
+    !kIsWeb &&
+    (defaultTargetPlatform == TargetPlatform.windows ||
+     defaultTargetPlatform == TargetPlatform.linux ||
+     defaultTargetPlatform == TargetPlatform.macOS);
+
+// ---------------------------------------------------------------------------
+// Clock — ticks every minute to re-evaluate time gates
+// ---------------------------------------------------------------------------
 final clockProvider = StreamProvider<DateTime>((ref) {
   return Stream.periodic(const Duration(minutes: 1), (_) => DateTime.now());
 });
 
-final firestoreProvider = Provider((ref) => FirebaseFirestore.instance);
+// ---------------------------------------------------------------------------
+// Firestore instance (null on desktop when Firebase is unavailable)
+// ---------------------------------------------------------------------------
+final firestoreProvider = Provider<FirebaseFirestore?>((ref) {
+  if (_isDesktop) return null; // Firebase not initialised on desktop
+  return FirebaseFirestore.instance;
+});
 
-// For simplicity, we assume there's only one "active" story.
-// In a real app, you might fetch the latest story ID first.
-const String activeStoryId = "story_latest"; // Placeholder
+// ---------------------------------------------------------------------------
+// Active story ID — in v1 we use a single placeholder.
+// ---------------------------------------------------------------------------
+const String activeStoryId = 'story_latest';
 
-final journalProvider = StreamProvider<List<Journal>>((ref) {
-  ref.watch(clockProvider); // Re-run query when clock ticks
+// ---------------------------------------------------------------------------
+// Generic helper to create a Firestore stream provider for a collection
+// ---------------------------------------------------------------------------
+StreamProvider<List<T>> _collectionProvider<T extends StoryItem>(
+  T Function(DocumentSnapshot) fromFirestore,
+  String collectionName, {
+  bool ascending = false,
+}) {
+  return StreamProvider<List<T>>((ref) {
+    ref.watch(clockProvider);
+    final db = ref.watch(firestoreProvider);
+    if (db == null) return Stream.value(<T>[]);
+
+    final now = DateTime.now();
+    return db
+        .collection('stories')
+        .doc(activeStoryId)
+        .collection(collectionName)
+        .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
+        .orderBy('unlockTimestamp', descending: !ascending)
+        .snapshots()
+        .map((snap) => snap.docs.map(fromFirestore).toList());
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Per‑type providers
+// ---------------------------------------------------------------------------
+final journalProvider =
+    _collectionProvider<Journal>(Journal.fromFirestore, 'journals');
+
+final chatProvider =
+    _collectionProvider<Chat>(Chat.fromFirestore, 'chats', ascending: true);
+
+final emailProvider =
+    _collectionProvider<Email>(Email.fromFirestore, 'emails');
+
+final receiptProvider =
+    _collectionProvider<Receipt>(Receipt.fromFirestore, 'receipts');
+
+final voiceNoteProvider =
+    _collectionProvider<VoiceNote>(VoiceNote.fromFirestore, 'voice_notes');
+
+final socialPostProvider =
+    _collectionProvider<SocialPost>(SocialPost.fromFirestore, 'social_posts');
+
+final phoneCallProvider =
+    _collectionProvider<PhoneCall>(PhoneCall.fromFirestore, 'phone_calls');
+
+final groupChatProvider =
+    _collectionProvider<GroupChatThread>(GroupChatThread.fromFirestore, 'group_chats');
+
+// ---------------------------------------------------------------------------
+// Unified timeline — merges all content types into one sorted list
+// ---------------------------------------------------------------------------
+final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
+  final journals = ref.watch(journalProvider);
+  final chats = ref.watch(chatProvider);
+  final emails = ref.watch(emailProvider);
+  final receipts = ref.watch(receiptProvider);
+  final voiceNotes = ref.watch(voiceNoteProvider);
+  final socialPosts = ref.watch(socialPostProvider);
+  final phoneCalls = ref.watch(phoneCallProvider);
+  final groupChats = ref.watch(groupChatProvider);
+
+  // If any stream is still loading, show loading
+  if (journals is AsyncLoading ||
+      chats is AsyncLoading ||
+      emails is AsyncLoading ||
+      receipts is AsyncLoading ||
+      voiceNotes is AsyncLoading ||
+      socialPosts is AsyncLoading ||
+      phoneCalls is AsyncLoading ||
+      groupChats is AsyncLoading) {
+    return const AsyncValue.loading();
+  }
+
+  // If any stream errored, propagate the first error
+  for (final stream in [journals, chats, emails, receipts, voiceNotes, socialPosts, phoneCalls, groupChats]) {
+    if (stream is AsyncError) {
+      return AsyncValue.error(
+        (stream as AsyncError).error,
+        (stream as AsyncError).stackTrace,
+      );
+    }
+  }
+
+  final merged = <StoryItem>[
+    ...journals.value ?? [],
+    ...chats.value ?? [],
+    ...emails.value ?? [],
+    ...receipts.value ?? [],
+    ...voiceNotes.value ?? [],
+    ...socialPosts.value ?? [],
+    ...phoneCalls.value ?? [],
+    ...groupChats.value ?? [],
+  ];
+
+  merged.sort((a, b) => b.unlockTimestamp.compareTo(a.unlockTimestamp));
+  return AsyncValue.data(merged);
+});
+
+// ---------------------------------------------------------------------------
+// Upcoming items heuristic (are there locked items pending?)
+// ---------------------------------------------------------------------------
+final upcomingItemsProvider = StreamProvider<bool>((ref) {
+  final db = ref.watch(firestoreProvider);
+  if (db == null) return Stream.value(false);
+
   final now = DateTime.now();
-  
-  return ref.watch(firestoreProvider)
+  return db
       .collection('stories')
       .doc(activeStoryId)
       .collection('journals')
-      .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-      .orderBy('unlockTimestamp', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map(Journal.fromFirestore).toList());
-});
-
-final chatProvider = StreamProvider<List<Chat>>((ref) {
-  ref.watch(clockProvider);
-  final now = DateTime.now();
-  
-  return ref.watch(firestoreProvider)
-      .collection('stories')
-      .doc(activeStoryId)
-      .collection('chats')
-      .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-      .orderBy('unlockTimestamp', descending: false) // Chats usually chronological
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map(Chat.fromFirestore).toList());
-});
-
-final emailProvider = StreamProvider<List<Email>>((ref) {
-  ref.watch(clockProvider);
-  final now = DateTime.now();
-  
-  return ref.watch(firestoreProvider)
-      .collection('stories')
-      .doc(activeStoryId)
-      .collection('emails')
-      .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-      .orderBy('unlockTimestamp', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map(Email.fromFirestore).toList());
-});
-
-final receiptProvider = StreamProvider<List<Receipt>>((ref) {
-  ref.watch(clockProvider);
-  final now = DateTime.now();
-  
-  return ref.watch(firestoreProvider)
-      .collection('stories')
-      .doc(activeStoryId)
-      .collection('receipts')
-      .where('unlockTimestamp', isLessThanOrEqualTo: Timestamp.fromDate(now))
-      .orderBy('unlockTimestamp', descending: true)
-      .snapshots()
-      .map((snapshot) => snapshot.docs.map(Receipt.fromFirestore).toList());
-});
-
-// Provider to check for ANY upcoming items (for showing 'Locked' state in UI)
-final upcomingItemsProvider = StreamProvider<bool>((ref) {
-  final now = DateTime.now();
-  return ref.watch(firestoreProvider)
-      .collection('stories')
-      .doc(activeStoryId)
-      .collection('journals') // Just check journals for now as a heuristic
       .where('unlockTimestamp', isGreaterThan: Timestamp.fromDate(now))
       .snapshots()
-      .map((snapshot) => snapshot.docs.isNotEmpty);
+      .map((snap) => snap.docs.isNotEmpty);
 });

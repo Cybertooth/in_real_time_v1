@@ -55,3 +55,7 @@ python_director/pipelines/
 # React admin UI build artifacts
 python_director/admin_ui_v3/node_modules/
 python_director/admin_ui_v3/dist/
+
+#Firebase
+google-services.json
+android/app/google-services.json

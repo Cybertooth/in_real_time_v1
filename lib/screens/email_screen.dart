@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../providers/story_provider.dart';
 import '../theme.dart';
 import '../models/story_item.dart';
+import '../widgets/shared_widgets.dart';
 
 class EmailScreen extends ConsumerWidget {
   const EmailScreen({super.key});
@@ -17,66 +17,68 @@ class EmailScreen extends ConsumerWidget {
       body: emailsAsync.when(
         data: (emails) {
           if (emails.isEmpty) {
-            return const Center(child: Text('Empty inbox.'));
+            return const EmptyState(
+              icon: Icons.inbox,
+              title: 'EMPTY INBOX',
+              subtitle: 'Intercepted emails will appear here.',
+            );
           }
 
-          return ListView.separated(
+          return ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 8),
             itemCount: emails.length,
-            separatorBuilder: (context, index) => const Divider(
-              color: AppTheme.textDim,
-              height: 1,
-              thickness: 0.2,
-            ),
-            itemBuilder: (context, index) {
-              final email = emails[index];
-              return _buildEmailTile(context, email);
-            },
+            itemBuilder: (context, index) => _buildEmailTile(context, emails[index]),
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
+        loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.accentNeon)),
         error: (err, stack) => Center(child: Text('Error: $err')),
       ),
     );
   }
 
   Widget _buildEmailTile(BuildContext context, Email email) {
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      title: Text(
-        email.sender,
-        style: const TextStyle(
-          color: AppTheme.accentNeon,
-          fontWeight: FontWeight.bold,
-          fontSize: 14,
+    return InkWell(
+      onTap: () => _showEmailDetail(context, email),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: Colors.white.withOpacity(0.03))),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Sender avatar
+            CircleAvatar(
+              radius: 16,
+              backgroundColor: AppTheme.emailColor.withOpacity(0.1),
+              child: Text(
+                email.sender.isNotEmpty ? email.sender[0].toUpperCase() : '?',
+                style: TextStyle(color: AppTheme.emailColor, fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(email.sender, style: TextStyle(color: AppTheme.emailColor, fontWeight: FontWeight.w600, fontSize: 13)),
+                  const SizedBox(height: 2),
+                  Text(
+                    email.subject,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontSize: 14),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(email.body, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            TimestampLabel(time: email.unlockTimestamp, showDate: false),
+          ],
         ),
       ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 4),
-          Text(
-            email.subject,
-            style: const TextStyle(
-              color: AppTheme.textBody,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            email.body,
-            style: const TextStyle(color: AppTheme.textDim, fontSize: 12),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
-      trailing: Text(
-        DateFormat('HH:mm').format(email.unlockTimestamp),
-        style: const TextStyle(color: AppTheme.textDim, fontSize: 10),
-      ),
-      onTap: () => _showEmailDetail(context, email),
     );
   }
 
@@ -84,9 +86,9 @@ class EmailScreen extends ConsumerWidget {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: AppTheme.surface,
+      backgroundColor: AppTheme.surfaceLow,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
       ),
       builder: (context) => DraggableScrollableSheet(
         initialChildSize: 0.9,
@@ -96,13 +98,29 @@ class EmailScreen extends ConsumerWidget {
           child: ListView(
             controller: scrollController,
             children: [
-              Text(email.subject, style: Theme.of(context).textTheme.headlineSmall),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(email.subject, style: Theme.of(context).textTheme.headlineMedium),
+                  ),
+                  const InterceptedLabel(),
+                ],
+              ),
               const SizedBox(height: 16),
-              Text('From: ${email.sender}', style: const TextStyle(color: AppTheme.accentNeon)),
-              Text('Date: ${DateFormat('yyyy-MM-dd HH:mm').format(email.unlockTimestamp)}',
-                  style: const TextStyle(color: AppTheme.textDim, fontSize: 12)),
-              const Divider(color: AppTheme.accentNeon, height: 32),
-              Text(email.body, style: const TextStyle(height: 1.6)),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: AppTheme.glassDecoration(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('From: ${email.sender}', style: TextStyle(color: AppTheme.emailColor, fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    TimestampLabel(time: email.unlockTimestamp),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(email.body, style: Theme.of(context).textTheme.bodyLarge),
             ],
           ),
         ),

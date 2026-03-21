@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'timeline_screen.dart';
 import 'journal_screen.dart';
 import 'chat_screen.dart';
 import 'email_screen.dart';
-import 'wallet_screen.dart';
+import 'files_screen.dart';
 import '../theme.dart';
 
 class MainNavigation extends ConsumerStatefulWidget {
@@ -17,10 +18,11 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
   int _selectedIndex = 0;
 
   static const List<Widget> _pages = [
+    TimelineScreen(),
     JournalScreen(),
     ChatScreen(),
     EmailScreen(),
-    WalletScreen(),
+    FilesScreen(),
   ];
 
   void _onItemTapped(int index) {
@@ -36,31 +38,41 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
         index: _selectedIndex,
         children: _pages,
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _selectedIndex,
-        onTap: _onItemTapped,
-        items: const [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.description_outlined),
-            activeIcon: Icon(Icons.description, color: AppTheme.accentNeon),
-            label: 'Journal',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.chat_bubble_outline),
-            activeIcon: Icon(Icons.chat_bubble, color: AppTheme.accentNeon),
-            label: 'Chats',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.email_outlined),
-            activeIcon: Icon(Icons.email, color: AppTheme.accentNeon),
-            label: 'Inbox',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.account_balance_wallet_outlined),
-            activeIcon: Icon(Icons.account_balance_wallet, color: AppTheme.accentNeon),
-            label: 'Wallet',
-          ),
-        ],
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.04))),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _selectedIndex,
+          onTap: _onItemTapped,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.timeline_outlined),
+              activeIcon: Icon(Icons.timeline, color: AppTheme.accentNeon),
+              label: 'Timeline',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.auto_stories_outlined),
+              activeIcon: Icon(Icons.auto_stories, color: AppTheme.accentNeon),
+              label: 'Journal',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.chat_bubble_outline),
+              activeIcon: Icon(Icons.chat_bubble, color: AppTheme.accentNeon),
+              label: 'Chats',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.email_outlined),
+              activeIcon: Icon(Icons.email, color: AppTheme.accentNeon),
+              label: 'Inbox',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.folder_outlined),
+              activeIcon: Icon(Icons.folder, color: AppTheme.accentNeon),
+              label: 'Files',
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1069,6 +1069,9 @@ def upload_to_firestore(story_data: dict, firebase_service_account_path: str):
     upload_collection("emails", story_data.get("emails", []))
     upload_collection("receipts", story_data.get("receipts", []))
     upload_collection("voice_notes", story_data.get("voice_notes", []))
+    upload_collection("social_posts", story_data.get("social_posts", []))
+    upload_collection("phone_calls", story_data.get("phone_calls", []))
+    upload_collection("group_chats", story_data.get("group_chats", []))
 
     logger.info("Upload complete story_id=%s", story_id)
     return story_id
