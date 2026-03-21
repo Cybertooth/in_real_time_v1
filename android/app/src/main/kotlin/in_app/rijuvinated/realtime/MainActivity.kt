@@ -1,4 +1,4 @@
-package com.antigravity.inrealtime.in_real_time_v1
+package in_app.rijuvinated.realtime
 
 import io.flutter.embedding.android.FlutterActivity
 
