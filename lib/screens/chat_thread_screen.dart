@@ -27,6 +27,7 @@ class ChatThreadScreen extends ConsumerWidget {
         text: m.text,
         isProtagonist: false, // In group chats, we treat others as external for simplicity
         timestamp: group.unlockTimestamp,
+        imageUrl: m == group.messages.last ? group.imageUrl : null,
       )).toList());
     } else {
       final chats = ref.watch(chatProvider).value ?? [];
@@ -36,6 +37,7 @@ class ChatThreadScreen extends ConsumerWidget {
         text: c.text,
         isProtagonist: c.isProtagonist,
         timestamp: c.unlockTimestamp,
+        imageUrl: c.imageUrl,
       )).toList());
     }
   }
@@ -60,7 +62,7 @@ class ChatThreadScreen extends ConsumerWidget {
               itemCount: messages.length,
               itemBuilder: (context, index) {
                 final msg = messages[index];
-                return _ChatBubble(data: msg);
+                return _TypingAwareBubble(data: msg);
               },
             ),
           ),
@@ -109,13 +111,86 @@ class _MessageData {
   final String text;
   final bool isProtagonist;
   final DateTime timestamp;
+  final String? imageUrl;
 
   _MessageData({
     required this.sender,
     required this.text,
     required this.isProtagonist,
     required this.timestamp,
+    this.imageUrl,
   });
+}
+
+class _TypingAwareBubble extends StatefulWidget {
+  final _MessageData data;
+  const _TypingAwareBubble({required this.data});
+
+  @override
+  State<_TypingAwareBubble> createState() => _TypingAwareBubbleState();
+}
+
+class _TypingAwareBubbleState extends State<_TypingAwareBubble> {
+  bool _isTyping = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkTyping();
+  }
+
+  @override
+  void didUpdateWidget(covariant _TypingAwareBubble oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.data.timestamp != widget.data.timestamp) {
+      _checkTyping();
+    }
+  }
+
+  void _checkTyping() {
+    if (widget.data.isProtagonist) {
+      _isTyping = false;
+      return;
+    }
+    
+    final diff = DateTime.now().difference(widget.data.timestamp);
+    if (diff.inSeconds < 3 && diff.inSeconds >= 0) {
+      setState(() => _isTyping = true);
+      Future.delayed(Duration(seconds: 3 - diff.inSeconds), () {
+        if (mounted) setState(() => _isTyping = false);
+      });
+    } else {
+      _isTyping = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isTyping) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(left: 4, bottom: 4),
+              child: Text(widget.data.sender, style: const TextStyle(color: AppTheme.chatColor, fontSize: 11, fontWeight: FontWeight.bold)),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: AppTheme.surface,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white.withOpacity(0.05)),
+              ),
+              child: const Text('...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.accentNeon, letterSpacing: 2)),
+            ),
+          ],
+        ),
+      );
+    }
+    return _ChatBubble(data: widget.data);
+  }
 }
 
 class _ChatBubble extends StatelessWidget {
@@ -143,7 +218,23 @@ class _ChatBubble extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
               border: Border.all(color: isMe ? AppTheme.accentNeon.withOpacity(0.2) : Colors.white.withOpacity(0.05)),
             ),
-            child: Text(data.text, style: const TextStyle(fontSize: 14, height: 1.4)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (data.imageUrl != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        data.imageUrl!,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                Text(data.text, style: const TextStyle(fontSize: 14, height: 1.4)),
+              ],
+            ),
           ),
           const SizedBox(height: 4),
           TimestampLabel(time: data.timestamp, showDate: false),

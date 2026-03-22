@@ -28,6 +28,10 @@ class AIProvider(ABC):
     ) -> BaseModel:
         raise NotImplementedError
 
+    @abstractmethod
+    def generate_image(self, prompt: str, model_name: str) -> bytes:
+        raise NotImplementedError
+
 
 class GeminiProvider(AIProvider):
     def __init__(self, api_key: str):
@@ -76,6 +80,21 @@ class GeminiProvider(AIProvider):
             ),
         )
         return response_schema.model_validate_json(response.text or "{}")
+
+    def generate_image(self, prompt: str, model_name: str) -> bytes:
+        logger.debug("Gemini generate_image model=%s prompt_len=%s", model_name, len(prompt))
+        result = self.client.models.generate_images(
+            model=model_name,
+            prompt=prompt,
+            config=self._genai.types.GenerateImagesConfig(
+                number_of_images=1,
+                output_mime_type="image/jpeg",
+                aspect_ratio="1:1"
+            )
+        )
+        if not result.generated_images:
+            raise ValueError("Gemini failed to generate an image.")
+        return result.generated_images[0].image.image_bytes
 
 
 class OpenAIProvider(AIProvider):
@@ -130,6 +149,23 @@ class OpenAIProvider(AIProvider):
         if response.output_parsed is None:
             raise ValueError(response.output_text or "OpenAI response did not return a parsed payload.")
         return response.output_parsed
+
+    def generate_image(self, prompt: str, model_name: str) -> bytes:
+        logger.debug("OpenAI generate_image model=%s prompt_len=%s", model_name, len(prompt))
+        import requests
+        response = self.client.images.generate(
+            model=model_name,
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        url = response.data[0].url
+        if not url:
+            raise ValueError("OpenAI failed to return an image URL.")
+        res = requests.get(url, timeout=30)
+        res.raise_for_status()
+        return res.content
 
 
 class OpenRouterProvider(AIProvider):
@@ -201,6 +237,28 @@ class OpenRouterProvider(AIProvider):
         raw = msg.content or ""
         return response_schema.model_validate_json(raw)
 
+    def generate_image(self, prompt: str, model_name: str) -> bytes:
+        logger.debug("OpenRouter generate_image model=%s prompt_len=%s", model_name, len(prompt))
+        import requests
+        # OpenRouter supports images.generate for supported models
+        response = self.client.images.generate(
+            model=model_name,
+            prompt=prompt,
+            n=1
+        )
+        
+        b64 = response.data[0].b64_json
+        if b64:
+            import base64
+            return base64.b64decode(b64)
+            
+        url = response.data[0].url
+        if not url:
+            raise ValueError("OpenRouter failed to return an image URL or b64.")
+        res = requests.get(url, timeout=30)
+        res.raise_for_status()
+        return res.content
+
 
 class AnthropicProvider(AIProvider):
     def __init__(self, api_key: str):
@@ -253,6 +311,9 @@ class AnthropicProvider(AIProvider):
             if block.type == "tool_use":
                 return response_schema.model_validate(block.input)  # type: ignore[union-attr]
         raise ValueError("Anthropic did not return a tool_use block in the response.")
+
+    def generate_image(self, prompt: str, model_name: str) -> bytes:
+        raise NotImplementedError("Anthropic does not support image generation.")
 
 
 def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -> AIProvider:

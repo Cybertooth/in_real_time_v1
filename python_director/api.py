@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 if __package__:
     from .defaults import get_default_pipeline
-    from .logic import PipelineRunner, compare_final_outputs, upload_to_firestore
+    from .logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
     from .log_utils import get_logger
     from .models import (
         AppSettings,
@@ -24,6 +24,7 @@ if __package__:
         RunPipelineRequest,
         RunProgress,
         RunStatus,
+        RegenerateImageRequest,
     )
     from .storage import (
         BASE_DIR,
@@ -46,7 +47,7 @@ if __package__:
     )
 else:
     from defaults import get_default_pipeline
-    from logic import PipelineRunner, compare_final_outputs, upload_to_firestore
+    from logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
     from log_utils import get_logger
     from models import (
         AppSettings,
@@ -59,6 +60,7 @@ else:
         RunPipelineRequest,
         RunProgress,
         RunStatus,
+        RegenerateImageRequest,
     )
     from storage import (
         BASE_DIR,
@@ -71,6 +73,7 @@ else:
         load_named_pipeline,
         load_pipeline,
         load_run_result,
+        save_run_result,
         load_settings,
         save_named_pipeline,
         save_pipeline,
@@ -516,7 +519,8 @@ async def upload_run(run_id: str):
         )
 
     try:
-        story_id = upload_to_firestore(run_result.final_output, cred_path)
+        pipeline = load_pipeline()
+        story_id = upload_to_firestore(run_result, cred_path, settings, pipeline)
         logger.info("Upload completed run_id=%s story_id=%s", run_id, story_id)
 
         # Update the run_result on disk to persist the story_id
@@ -530,6 +534,106 @@ async def upload_run(run_id: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "ok", "story_id": story_id}
+
+@router.post("/runs/{run_id}/regenerate-image")
+async def regenerate_image(run_id: str, req: RegenerateImageRequest):
+    try:
+        run_result = load_run_result(run_id)
+        
+        # Load the frozen pipeline from snapshot if it exists
+        snapshot_path = RUNS_DIR / run_id / "pipeline_snapshot.json"
+        if snapshot_path.exists():
+            pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+        else:
+            pipeline = load_pipeline()
+            
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    settings = load_settings()
+
+    from providers import get_provider, ProviderType
+    image_provider_key = getattr(pipeline, "image_provider", ProviderType.GEMINI)
+    image_model_name = getattr(pipeline, "default_image_models", {}).get(image_provider_key.value, "")
+    
+    if not image_model_name:
+        raise HTTPException(status_code=400, detail="No image model configured.")
+
+    api_keys = {
+        "GEMINI_API_KEY": settings.gemini_api_key,
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "OPENROUTER_API_KEY": settings.openrouter_api_key,
+        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+    }
+    img_provider = get_provider(image_provider_key, api_keys)
+
+    images_dir = RUNS_DIR / run_id / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Update property locally
+    target_item = None
+    filename = ""
+    event_type = req.event_type
+    final_out = run_result.final_output
+
+    if not isinstance(final_out, dict):
+        raise HTTPException(status_code=400, detail="Final output is not a dictionary.")
+
+    if event_type == "headline":
+        run_result.headline_image_prompt = req.new_prompt
+        filename = "headline.jpg"
+    else:
+        # map `event_type` to plural if needed
+        collection_map = {
+            "journal": "journals", "chat": "chats", "email": "emails", "receipt": "receipts", 
+            "voice_note": "voice_notes", "social_post": "social_posts"
+        }
+        collection_name = collection_map.get(event_type, event_type)
+        if collection_name not in final_out:
+            raise HTTPException(status_code=404, detail=f"Collection {collection_name} not found.")
+        
+        items = final_out[collection_name]
+        if req.index < 0 or req.index >= len(items):
+            raise HTTPException(status_code=404, detail="Index out of bounds.")
+        
+        target_item = items[req.index]
+        target_item["image_prompt"] = req.new_prompt
+        filename = f"{collection_name}_{req.index}.jpg"
+
+    # Invoke AI
+    try:
+        img_bytes = img_provider.generate_image(req.new_prompt, image_model_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # Save to disk
+    path = images_dir / filename
+    path.write_bytes(img_bytes)
+
+    # Attach local_image_path explicitly with cache buster
+    import time
+    cache_busted_path = f"images/{filename}?t={int(time.time())}"
+    if event_type == "headline":
+        run_result.headline_image_path = cache_busted_path
+    elif target_item is not None:
+        target_item["local_image_path"] = cache_busted_path
+        run_result.timeline = derive_story_timeline(final_out)
+
+    # Save updated RunResult
+    # Important: Since we modified the original, we re-save using the snapshot pipeline
+    save_run_result(run_result, pipeline)
+    return {"status": "ok", "local_image_path": cache_busted_path}
+
+
+@router.get("/runs/{run_id}/images/{filename:path}")
+async def get_run_image(run_id: str, filename: str):
+    # Drop query params (t=123) if present
+    base_file = filename.split("?")[0]
+    path = RUNS_DIR / run_id / "images" / base_file
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(path)
+
 
 
 # ---------------------------------------------------------------------------

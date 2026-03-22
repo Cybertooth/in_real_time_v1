@@ -41,10 +41,11 @@ def main() -> None:
         print(f"DEBUG: cred_path={cred_path}")
         result = load_run_result(args.run_id)
         
+        pipeline = load_pipeline()
         if not isinstance(result.final_output, dict):
             raise ValueError(f"Run '{args.run_id}' does not have a structured final story output.")
             
-        story_id = upload_to_firestore(result.final_output, cred_path)
+        story_id = upload_to_firestore(result, cred_path, settings, pipeline)
         logger.info("Manual upload complete story_id=%s", story_id)
         print(f"Manual upload complete. Story ID: {story_id}")
         return
@@ -69,7 +70,7 @@ def main() -> None:
     if not Path(cred_path).is_absolute():
         cred_path = str(Path(__file__).resolve().parent / cred_path)
 
-    story_id = upload_to_firestore(result.final_output, cred_path)
+    story_id = upload_to_firestore(result, cred_path, settings, pipeline)
     logger.info("Upload complete story_id=%s", story_id)
     print(f"Upload complete. Story ID: {story_id}")
 

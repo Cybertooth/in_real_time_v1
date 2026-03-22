@@ -1,4 +1,4 @@
-import type { RunTimelineEntry } from '../../types'
+import type { RunTimelineEntry, RunProgress } from '../../types'
 import JournalCard from '../formatting/JournalCard'
 import ChatBubble from '../formatting/ChatBubble'
 import EmailCard from '../formatting/EmailCard'
@@ -7,9 +7,13 @@ import VoiceNoteCard from '../formatting/VoiceNoteCard'
 import SocialPostCard from '../formatting/SocialPostCard'
 import PhoneCallCard from '../formatting/PhoneCallCard'
 import GroupChatCard from '../formatting/GroupChatCard'
+import InlineImageEditor from '../formatting/InlineImageEditor'
 
 interface ExperiencePreviewProps {
-  timeline: RunTimelineEntry[]
+  runData?: RunProgress
+  timeline?: RunTimelineEntry[]
+  runId?: string
+  finalOutput?: any
 }
 
 interface TimeGroup {
@@ -62,21 +66,38 @@ function renderNotificationBanner(entry: RunTimelineEntry) {
   )
 }
 
-function renderArtifactCard(entry: RunTimelineEntry) {
+function renderArtifactCard(entry: RunTimelineEntry, runId: string) {
   const data = (entry.content || {}) as Record<string, unknown>
+  const parts = entry.block_id.split('_')
+  const index = parseInt(parts[parts.length - 1], 10) || 0
+
+  const Editor = () => (
+    <InlineImageEditor
+      runId={runId}
+      eventType={entry.event_type}
+      index={index}
+      initialPrompt={data.image_prompt as string}
+      initialImageUrl={data.local_image_path as string}
+      onImageUpdated={(newPath, newPrompt) => {
+        data.local_image_path = newPath
+        data.image_prompt = newPrompt
+      }}
+    />
+  )
+
   switch (entry.event_type) {
     case 'journal':
-      return <JournalCard data={data} />
+      return <><JournalCard data={data} /><Editor /></>
     case 'chat':
-      return <ChatBubble data={data} />
+      return <><ChatBubble data={data} /><Editor /></>
     case 'email':
-      return <EmailCard data={data} />
+      return <><EmailCard data={data} /><Editor /></>
     case 'receipt':
-      return <ReceiptCard data={data} />
+      return <><ReceiptCard data={data} /><Editor /></>
     case 'voice_note':
       return <VoiceNoteCard data={data} />
     case 'social_post':
-      return <SocialPostCard data={data} />
+      return <><SocialPostCard data={data} /><Editor /></>
     case 'phone_call':
       return <PhoneCallCard data={data} />
     case 'group_chat':
@@ -90,7 +111,16 @@ function renderArtifactCard(entry: RunTimelineEntry) {
   }
 }
 
-export default function ExperiencePreview({ timeline }: ExperiencePreviewProps) {
+export default function ExperiencePreview({
+  runData,
+  timeline: directTimeline,
+  runId: directRunId,
+  finalOutput: directFinalOutput,
+}: ExperiencePreviewProps) {
+  const timeline = directTimeline || runData?.timeline
+  const runId = directRunId || runData?.run_id
+  const finalOutput = directFinalOutput || (runData as any)?.final_output || {}
+
   if (!timeline || timeline.length === 0) {
     return (
       <div className="p-6 text-text-dim text-sm">No experience data.</div>
@@ -100,8 +130,28 @@ export default function ExperiencePreview({ timeline }: ExperiencePreviewProps) 
   const groups = groupByDayAndTime(timeline)
   let lastDay = -1
 
+  // Extract headline data from final_output if available
+  const headlinePrompt = finalOutput.headline_image_prompt
+  const headlineImageUrl = finalOutput.headline_image_path
+
   return (
     <div className="p-6 max-w-2xl mx-auto flex flex-col gap-4">
+      {/* Global Headline Image Editor */}
+      {headlinePrompt && (
+        <div className="glass-panel p-4 mb-8 border border-mint/20 shadow-xl">
+          <div className="flex items-center gap-2 mb-2 pb-2 border-b border-border">
+            <span className="text-mint font-bold uppercase tracking-wider text-xs">Story Headline Image</span>
+          </div>
+          <InlineImageEditor
+            runId={runId || ''}
+            eventType="headline"
+            index={0}
+            initialPrompt={headlinePrompt}
+            initialImageUrl={headlineImageUrl}
+          />
+        </div>
+      )}
+
       {groups.map((group, gi) => {
         const showDaySeparator = group.storyDay !== lastDay
         lastDay = group.storyDay
@@ -126,9 +176,11 @@ export default function ExperiencePreview({ timeline }: ExperiencePreviewProps) 
 
             <div className="flex flex-col gap-3">
               {group.entries.map((entry, ei) => (
-                <div key={ei}>
+                <div key={ei} className="relative z-0">
                   {renderNotificationBanner(entry)}
-                  {renderArtifactCard(entry)}
+                  <div className="glass-panel p-4">
+                    {renderArtifactCard(entry, runId || '')}
+                  </div>
                 </div>
               ))}
             </div>

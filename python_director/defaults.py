@@ -233,6 +233,12 @@ ENGAGEMENT DENSITY RULES (critical):
 - IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.
 - Group chats must have real multi-person dynamics, not monologues.
 
+IMAGE GENERATION RULES:
+- Include an `image_prompt` for at least 30% of social media posts, describing the exact photograph.
+- Add an `image_prompt` for key journals or emails where a visual clue or attached document is mentioned.
+- You MUST provide a `headline_image_prompt` attribute at the root of your response describing the overarching atmospheric header image for the story.
+- The `image_prompt` and `headline_image_prompt` must strictly be visual high-quality literal descriptions of the image content.
+
 ANTI-GENERIC RULES:
 - No repetitive phrasing across artifacts.
 - No summary-narrator tone inside artifacts. Stay in character voice.
@@ -248,6 +254,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gemini-3.1-pro-preview",
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-image-preview",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
@@ -257,6 +264,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gpt-5.4-mini",
         "gpt-5.4-pro",
         "gpt-5.4-nano",
+        "gpt-image-1.5-2025-12-16",
     ],
     ProviderType.ANTHROPIC.value: [
         "claude-opus-4-6",
@@ -277,6 +285,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "nvidia/nemotron-3-super-120b-a12b:free",
         "x-ai/grok-4.1-fast",
         "z-ai/glm-4.5-air:free",
+        "bytedance-seed/seedream-4.5",
     ],
 }
 
@@ -299,8 +308,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Produces the unconstrained story outline that seeds the rest of the pipeline.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
-                use_pipeline_default_model=True,
+                model_name="gemini-3.1-pro-preview",
+                use_pipeline_default_model=False,
                 temperature=1.0,
                 system_instruction=CREATIVE_OUTLINER_PROMPT,
                 prompt_template="Brainstorm the initial massive story outline. Avoid sci-fi and extra-terrestrial themes. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
@@ -411,8 +420,8 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
             description="Generates the journals, chats, emails, receipts, and voice notes for the experience.",
             config=BlockConfig(
                 provider=ProviderType.GEMINI,
-                model_name="gemini-2.5-pro",
-                use_pipeline_default_model=False,
+                model_name=PIPELINE_DEFAULT_MODELS[ProviderType.GEMINI.value],
+                use_pipeline_default_model=True,
                 temperature=0.7,
                 system_instruction=ARTIFACT_GENERATION_PROMPT,
                 prompt_template=(
@@ -424,6 +433,19 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 ),
                 response_mime_type="application/json",
                 response_schema_name="StoryGenerated",
+            ),
+        ),
+        BlockType.IMAGE_GENERATOR: BlockTemplate(
+            type=BlockType.IMAGE_GENERATOR,
+            name="Artifact Image Renderer",
+            description="Locally generates realistic artifact images using the AI Image models.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name="gemini-3.1-flash-image-preview",
+                use_pipeline_default_model=False,
+                temperature=0.7,
+                system_instruction="N/A",
+                prompt_template="[Handled dynamically by node payload]",
             ),
         ),
     }
@@ -726,6 +748,14 @@ def get_default_pipeline() -> PipelineDefinition:
                         "Generate StoryGenerated artifacts."
                     ),
                 },
+            ),
+            # ── Stage 11: Image rendering ─────────────────────────────────────────
+            build_block_from_template(
+                BlockType.IMAGE_GENERATOR,
+                block_id="image_generation",
+                input_blocks=[
+                    "final_artifact_generation",
+                ],
             ),
         ],
     )

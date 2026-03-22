@@ -21,6 +21,8 @@ if __package__:
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
+        BlockType,
+        ProviderType,
         RunComparison,
         RunProgress,
         RunResult,
@@ -31,6 +33,7 @@ if __package__:
     )
     from .providers import get_provider
     from .storage import (
+        BASE_DIR,
         PIPELINE_SNAPSHOT_FILENAME,
         RUNS_DIR,
         load_run_progress,
@@ -48,6 +51,7 @@ else:
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
+        ProviderType,
         RunComparison,
         RunProgress,
         RunResult,
@@ -58,6 +62,7 @@ else:
     )
     from providers import get_provider
     from storage import (
+        BASE_DIR,
         PIPELINE_SNAPSHOT_FILENAME,
         RUNS_DIR,
         load_run_progress,
@@ -606,14 +611,31 @@ class PipelineRunner:
             persist_fn()
 
         try:
-            provider = get_provider(effective_config.provider, self._api_keys())
-            if effective_config.response_schema_name:
-                schema = SCHEMA_MAP.get(effective_config.response_schema_name)
-                if schema is None:
-                    raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
-                output = provider.generate_structured_output(effective_config, contents, schema)
+            if block.type == BlockType.IMAGE_GENERATOR:
+                # Find the upstream dependent payload
+                if not block.input_blocks:
+                    raise ValueError("Image Generator requires an input block.")
+                input_id = block.input_blocks[0]
+                if input_id not in outputs:
+                    raise ValueError(f"Image Generator dependent block {input_id} output not found.")
+                
+                # We do a deep copy to preserve the original output's state, and mutate the new one
+                import copy
+                source_payload = copy.deepcopy(outputs[input_id])
+                if hasattr(source_payload, "model_dump"):
+                    source_payload = source_payload.model_dump()
+                    
+                output = generate_block_images(progress.run_id, source_payload, definition, self.settings)
+                
             else:
-                output = provider.generate_content(effective_config, contents)
+                provider = get_provider(effective_config.provider, self._api_keys())
+                if effective_config.response_schema_name:
+                    schema = SCHEMA_MAP.get(effective_config.response_schema_name)
+                    if schema is None:
+                        raise ValueError(f"Schema '{effective_config.response_schema_name}' is not defined.")
+                    output = provider.generate_structured_output(effective_config, contents, schema)
+                else:
+                    output = provider.generate_content(effective_config, contents)
         except Exception as exc:
             elapsed_ms = (time.time() - block_started) * 1000
             with lock:
@@ -767,6 +789,21 @@ class PipelineRunner:
         progress.stats = calculate_run_stats(traces, final_output)
         progress.timeline = derive_story_timeline(final_output)
 
+        setup_val = ""
+        characters_val = []
+        for val in outputs.values():
+            if isinstance(val, dict):
+                if not characters_val and isinstance(val.get("characters"), list):
+                    characters_val = val["characters"]
+                if not setup_val and "core_conflict" in val:
+                    setup_val = val["core_conflict"]
+            elif hasattr(val, "model_dump"):
+                dump = val.model_dump()
+                if not characters_val and isinstance(dump.get("characters"), list):
+                    characters_val = dump["characters"]
+                if not setup_val and "core_conflict" in dump:
+                    setup_val = dump["core_conflict"]
+
         result = RunResult(
             run_id=run_id,
             timestamp=started_at.isoformat(),
@@ -784,6 +821,8 @@ class PipelineRunner:
             mode="dry_run",
             seed_prompt=seed_prompt or None,
             tags=list(tags or []),
+            setup=setup_val,
+            characters=characters_val,
             outputs={block_id: _serialize_output(value) for block_id, value in outputs.items()},
             final_output=final_output,
             block_sequence=block_sequence,
@@ -791,6 +830,8 @@ class PipelineRunner:
             timeline=progress.timeline,
             stats=progress.stats,
         )
+
+        # Image generation is now handled natively via the Pipeline blocks!
 
         # Save the ORIGINAL pipeline (without seed prefix baked in) so re-runs work cleanly
         save_run_result(result, original_definition)
@@ -995,6 +1036,21 @@ class PipelineRunner:
                 run_tags = []
                 ts = datetime.now(timezone.utc).isoformat()
 
+            setup_val = ""
+            characters_val = []
+            for val in outputs.values():
+                if isinstance(val, dict):
+                    if not characters_val and isinstance(val.get("characters"), list):
+                        characters_val = val["characters"]
+                    if not setup_val and "core_conflict" in val:
+                        setup_val = val["core_conflict"]
+                elif hasattr(val, "model_dump"):
+                    dump = val.model_dump()
+                    if not characters_val and isinstance(dump.get("characters"), list):
+                        characters_val = dump["characters"]
+                    if not setup_val and "core_conflict" in dump:
+                        setup_val = dump["core_conflict"]
+
             result = RunResult(
                 run_id=run_id,
                 timestamp=ts,
@@ -1008,6 +1064,8 @@ class PipelineRunner:
                 mode="dry_run",
                 seed_prompt=seed,
                 tags=run_tags,
+                setup=setup_val,
+                characters=characters_val,
                 outputs={bid: _serialize_output(v) for bid, v in outputs.items()},
                 final_output=final_output,
                 block_sequence=list(progress.block_sequence),
@@ -1015,6 +1073,9 @@ class PipelineRunner:
                 timeline=progress.timeline,
                 stats=progress.stats,
             )
+            
+            # Re-generate local block images (if IMAGE_GENERATOR was retried) is handled naturally inside the wave runner now!
+            
             save_run_result(result, definition)
 
         logger.info(
@@ -1027,25 +1088,119 @@ class PipelineRunner:
 
         return progress
 
+def generate_block_images(run_id: str, story_payload: dict[str, Any], pipeline: PipelineDefinition, settings: AppSettings) -> dict[str, Any]:
+    image_provider_key = getattr(pipeline, "image_provider", ProviderType.GEMINI)
+    provider_val = image_provider_key.value if hasattr(image_provider_key, "value") else image_provider_key
+    image_model_name = getattr(pipeline, "default_image_models", {}).get(provider_val, "")
+    
+    if not image_model_name:
+        return story_payload
 
-def upload_to_firestore(story_data: dict, firebase_service_account_path: str):
+    api_keys = {
+        "GEMINI_API_KEY": settings.gemini_api_key,
+        "OPENAI_API_KEY": settings.openai_api_key,
+        "OPENROUTER_API_KEY": settings.openrouter_api_key,
+        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+    }
+    
+    try:
+        img_provider = get_provider(image_provider_key, api_keys)
+    except Exception as e:
+        logger.warning(f"Could not initialize image provider: {e}")
+        return story_payload
+
+    images_dir = RUNS_DIR / run_id / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    def _gen_and_save(prompt: str, filename: str) -> str | None:
+        try:
+            logger.info("Generating image locally: %s", filename)
+            img_bytes = img_provider.generate_image(prompt, image_model_name)
+            path = images_dir / filename
+            path.write_bytes(img_bytes)
+            return f"images/{filename}"
+        except Exception as e:
+            logger.error("Local image generation failed for %s: %s", filename, e)
+            return None
+
+    if story_payload.get("headline_image_prompt") and not story_payload.get("headline_image_path"):
+        path = _gen_and_save(story_payload["headline_image_prompt"], "headline.jpg")
+        if path:
+            story_payload["headline_image_path"] = path
+
+    for collection_name in ["journals", "chats", "emails", "receipts", "voice_notes", "social_posts"]:
+        items = story_payload.get(collection_name, [])
+        for i, item in enumerate(items):
+            prompt = item.get("image_prompt")
+            if prompt and not item.get("local_image_path"):
+                path = _gen_and_save(prompt, f"{collection_name}_{i}.jpg")
+                if path:
+                    item["local_image_path"] = path
+
+    return story_payload
+
+
+def upload_to_firestore(result: RunResult, firebase_service_account_path: str, settings: AppSettings, pipeline: PipelineDefinition):
+    story_data = result.final_output
+    if not isinstance(story_data, dict):
+        raise ValueError("final_output must be a dict")
+        
     logger.info("Upload start story_title=%s", story_data.get("story_title"))
     import firebase_admin
-    from firebase_admin import credentials, firestore
+    from firebase_admin import credentials, firestore, storage
+    import time
+    from datetime import datetime, timezone, timedelta
 
-    cred = credentials.Certificate(firebase_service_account_path)
+    # Ensure path is absolute relative to BASE_DIR if it's a simple filename
+    path = Path(firebase_service_account_path)
+    if not path.is_absolute():
+        path = (BASE_DIR / path).resolve()
+    
+    if not path.exists():
+        raise FileNotFoundError(f"Firebase service account key not found at: {path}")
+    
+    resolved_path = str(path)
+
+    cred = credentials.Certificate(resolved_path)
     try:
-        firebase_admin.get_app()
+        app = firebase_admin.get_app()
     except ValueError:
-        firebase_admin.initialize_app(cred)
+        import json
+        with open(resolved_path, "r", encoding="utf-8") as f:
+            sa = json.load(f)
+            project_id = sa.get("project_id")
+        app = firebase_admin.initialize_app(cred, {"storageBucket": f"{project_id}.appspot.com"})
+        
     db = firestore.client()
+    try:
+        bucket = storage.bucket()
+    except Exception as e:
+        logger.warning(f"Could not initialize storage bucket, images will be skipped. {e}")
+        bucket = None
 
-    start_time = datetime.now()
+    start_time = datetime.now(timezone.utc)
     story_id = f"story_{int(time.time())}"
     story_ref = db.collection("stories").document(story_id)
+    
+    headline_url = None
+    if getattr(result, "headline_image_path", None) and bucket:
+        try:
+            full_local_path = RUNS_DIR / result.run_id / result.headline_image_path
+            if full_local_path.exists():
+                blob = bucket.blob(f"stories/{story_id}/headline_{int(time.time())}.jpg")
+                blob.upload_from_filename(str(full_local_path), content_type="image/jpeg")
+                blob.make_public()
+                headline_url = blob.public_url
+        except Exception as e:
+            logger.error("Headline image upload failed: %s", e)
+
     story_ref.set(
         {
             "title": story_data.get("story_title", "Untitled"),
+            "setup": result.setup,
+            "tags": result.tags,
+            "characters": [_serialize_output(c) for c in result.characters],
+            "headlineImageUrl": headline_url,
             "createdAt": start_time,
         }
     )
@@ -1055,12 +1210,25 @@ def upload_to_firestore(story_data: dict, firebase_service_account_path: str):
             return
 
         batch = db.batch()
-        for item in items:
+        for i, item in enumerate(items):
             doc_ref = story_ref.collection(collection_name).document()
-            unlock_time = start_time + timedelta(minutes=item["time_offset_minutes"])
+            unlock_time = start_time + timedelta(minutes=item.get("time_offset_minutes", 0))
             doc_data = item.copy()
             doc_data.pop("time_offset_minutes", None)
             doc_data["unlockTimestamp"] = unlock_time
+            
+            local_path = doc_data.pop("local_image_path", None)
+            if local_path and bucket:
+                try:
+                    full_local_path = RUNS_DIR / result.run_id / local_path
+                    if full_local_path.exists():
+                        blob = bucket.blob(f"stories/{story_id}/{collection_name}_{i}_{int(time.time())}.jpg")
+                        blob.upload_from_filename(str(full_local_path), content_type="image/jpeg")
+                        blob.make_public()
+                        doc_data["imageUrl"] = blob.public_url
+                except Exception as e:
+                    logger.error("Image upload failed: %s", e)
+
             batch.set(doc_ref, doc_data)
         batch.commit()
 

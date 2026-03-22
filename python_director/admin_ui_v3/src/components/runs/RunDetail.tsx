@@ -209,7 +209,7 @@ export default function RunDetail() {
               }
             />
             <Route path="timeline" element={<TimelineView timeline={runData.timeline} />} />
-            <Route path="experience" element={<ExperiencePreview timeline={runData.timeline} />} />
+            <Route path="experience" element={<ExperiencePreview runData={runData} />} />
             <Route path="*" element={<Navigate to="blocks" replace />} />
           </Routes>
         </div>

@@ -80,7 +80,7 @@ export default function SideBySide({
           <span className="text-sm font-semibold text-text">{baselineTitle}</span>
         </div>
         <div className="border border-t-0 border-border rounded-b-xl overflow-hidden">
-          <ExperiencePreview timeline={baselineTimeline} />
+          <ExperiencePreview timeline={baselineTimeline} finalOutput={baselineOutput} />
         </div>
       </div>
 
@@ -89,7 +89,7 @@ export default function SideBySide({
           <span className="text-sm font-semibold text-mint">{candidateTitle}</span>
         </div>
         <div className="border border-t-0 border-border rounded-b-xl overflow-hidden">
-          <ExperiencePreview timeline={candidateTimeline} />
+          <ExperiencePreview timeline={candidateTimeline} finalOutput={candidateOutput} />
         </div>
       </div>
     </div>

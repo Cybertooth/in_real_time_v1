@@ -99,6 +99,14 @@ class _PostCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           // Content
+          if (post.imageUrl != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(post.imageUrl!, fit: BoxFit.cover, width: double.infinity),
+              ),
+            ),
           Text(post.content, style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.6)),
           const SizedBox(height: 12),
           // Engagement

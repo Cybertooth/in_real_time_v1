@@ -1,11 +1,18 @@
 {
-  "name": "Gemini - Pro Creative v3",
+  "name": "Found Phone Director",
   "description": "Low-code story generation pipeline for found-phone narratives.",
-  "updated_at": "2026-03-20T15:15:36.002881+00:00",
+  "updated_at": "2026-03-22T08:11:05.914248+00:00",
   "default_models": {
     "GEMINI": "gemini-3-flash-preview",
     "OPENAI": "gpt-5.4-mini",
     "ANTHROPIC": "claude-sonnet-4-6"
+  },
+  "image_provider": "GEMINI",
+  "default_image_models": {
+    "GEMINI": "gemini-3.1-flash-image-preview",
+    "OPENAI": "gpt-image-1.5-2025-12-16",
+    "OPENROUTER": "bytedance-seed/seedream-4.5",
+    "ANTHROPIC": ""
   },
   "blocks": [
     {
@@ -74,8 +81,8 @@
       "enabled": true,
       "config": {
         "provider": "OPENAI",
-        "model_name": "gpt-5.4",
-        "use_pipeline_default_model": false,
+        "model_name": "gpt-5.4-mini",
+        "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
         "prompt_template": "Review this brainstorm:\n\n{{creative_brainstorm}}",
@@ -94,7 +101,7 @@
       "enabled": true,
       "config": {
         "provider": "ANTHROPIC",
-        "model_name": "claude-opus-4-6",
+        "model_name": "claude-sonnet-4-6",
         "use_pipeline_default_model": false,
         "temperature": 0.6,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
@@ -113,8 +120,8 @@
       "type": "council_judge",
       "enabled": true,
       "config": {
-        "provider": "GEMINI",
-        "model_name": "gemini-3.1-pro-preview",
+        "provider": "OPENAI",
+        "model_name": "gpt-5.4",
         "use_pipeline_default_model": false,
         "temperature": 0.8,
         "system_instruction": "You are the Chief Creative Arbitrator. You have received independent critiques of a brainstorm\nfrom multiple AI council members, each with a different training perspective.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus, highlight unique insights, flag contradictions.\n2. Produce a substantially upgraded brainstorm integrating the highest-impact recommendations.\n3. Where council members disagree, apply your own creative judgment.\n4. Preserve what is strong. Fix what is weak. Cut what is redundant.\n\nOutput plain text sections:\n- Revised Premise\n- Revised Hidden Truth\n- Revised Character Web\n- Revised 48h Beat Timeline\n- Revised Clue Ladder\n- Revised Spike Events\n- Council synthesis notes (consensus that emerged, unique insights surfaced)",
@@ -198,8 +205,8 @@
       "enabled": true,
       "config": {
         "provider": "OPENAI",
-        "model_name": "gpt-5.4",
-        "use_pipeline_default_model": false,
+        "model_name": "gpt-5.4-mini",
+        "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
         "prompt_template": "Review this StoryPlan:\n\n{{structural_plan}}",
@@ -218,7 +225,7 @@
       "enabled": true,
       "config": {
         "provider": "ANTHROPIC",
-        "model_name": "claude-opus-4-6",
+        "model_name": "claude-sonnet-4-6",
         "use_pipeline_default_model": false,
         "temperature": 0.5,
         "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
@@ -324,10 +331,10 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-2.5-pro",
-        "use_pipeline_default_model": false,
+        "model_name": "gemini-3-flash-preview",
+        "use_pipeline_default_model": true,
         "temperature": 0.7,
-        "system_instruction": "Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\nTarget: ~5,000 words of story content spread across ALL artifact types.\n\nMANDATORY QUANTITY TARGETS (minimum, more is better):\n- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)\n- chats: 3+ conversations of 10-15 back-and-forth messages each\n- emails: 6+ emails with 3+ substantial paragraphs each\n- receipts: 4+ receipts (reveal character movement, spending, or secret activities)\n- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)\n- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters\n  (contrast public facade with private reality)\n- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)\n  (use calls for confrontations, urgent revelations, or key plot turns)\n- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each\n  from multiple participants (show group dynamics, rumors, panic, coordination)\n\nQUALITY RULES:\n- Each character must have distinct voice and language patterns.\n- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.\n- Emails match sender role (formal cop = formal email; teenager = casual/brief).\n- Journals show psychological progression \u2014 fear, suspicion, grief, denial, resolve.\n- Voice notes capture spoken hesitation, self-correction, emotional rawness.\n- Social posts reveal the public facade characters maintain while private reality unravels.\n- Phone calls expose raw confrontations that characters wouldn't commit to text.\n- Group chats show social pressure, gossip, collective panic or denial.\n- All artifact content must align with chronology and character knowledge at that point in time.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY RULES (critical):\n- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section \u2014 hook users in session 1.\n- No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 3 \"flurry\" windows where 4+ artifacts land within 30 minutes.\n- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.\n- Group chats must have real multi-person dynamics, not monologues.\n\nANTI-GENERIC RULES:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts. Stay in character voice.\n- No contradictory knowledge leaks (character can't know something they haven't learned yet).\n- Avoid clich\u00e9s: \"I can't believe this is happening\", \"Everything changed that day\", etc.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries across the 48-hour arc.",
+        "system_instruction": "Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\nTarget: ~5,000 words of story content spread across ALL artifact types.\n\nMANDATORY QUANTITY TARGETS (minimum, more is better):\n- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)\n- chats: 3+ conversations of 10-15 back-and-forth messages each\n- emails: 6+ emails with 3+ substantial paragraphs each\n- receipts: 4+ receipts (reveal character movement, spending, or secret activities)\n- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)\n- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters\n  (contrast public facade with private reality)\n- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)\n  (use calls for confrontations, urgent revelations, or key plot turns)\n- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each\n  from multiple participants (show group dynamics, rumors, panic, coordination)\n\nQUALITY RULES:\n- Each character must have distinct voice and language patterns.\n- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.\n- Emails match sender role (formal cop = formal email; teenager = casual/brief).\n- Journals show psychological progression \u2014 fear, suspicion, grief, denial, resolve.\n- Voice notes capture spoken hesitation, self-correction, emotional rawness.\n- Social posts reveal the public facade characters maintain while private reality unravels.\n- Phone calls expose raw confrontations that characters wouldn't commit to text.\n- Group chats show social pressure, gossip, collective panic or denial.\n- All artifact content must align with chronology and character knowledge at that point in time.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY RULES (critical):\n- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section \u2014 hook users in session 1.\n- No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 3 \"flurry\" windows where 4+ artifacts land within 30 minutes.\n- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.\n- Group chats must have real multi-person dynamics, not monologues.\n\nIMAGE GENERATION RULES:\n- Include an `image_prompt` for at least 30% of social media posts, describing the exact photograph.\n- Add an `image_prompt` for key journals or emails where a visual clue or attached document is mentioned.\n- You MUST provide a `headline_image_prompt` attribute at the root of your response describing the overarching atmospheric header image for the story.\n- The `image_prompt` and `headline_image_prompt` must strictly be visual high-quality literal descriptions of the image content.\n\nANTI-GENERIC RULES:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts. Stay in character voice.\n- No contradictory knowledge leaks (character can't know something they haven't learned yet).\n- Avoid clich\u00e9s: \"I can't believe this is happening\", \"Everything changed that day\", etc.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries across the 48-hour arc.",
         "prompt_template": "Final Plan:\n{{council_plan_judge}}\n\nContinuity Audit:\n{{continuity_audit}}\n\nScenes:\n{{scene_decomposition}}\n\nDrop Plan:\n{{drop_director}}\n\nGenerate StoryGenerated artifacts.",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryGenerated"
@@ -337,6 +344,26 @@
         "continuity_audit",
         "scene_decomposition",
         "drop_director"
+      ]
+    },
+    {
+      "id": "image_generation",
+      "name": "Artifact Image Renderer",
+      "description": "Locally generates realistic artifact images using the AI Image models.",
+      "type": "image_generator",
+      "enabled": true,
+      "config": {
+        "provider": "GEMINI",
+        "model_name": "gemini-3.1-flash-image-preview",
+        "use_pipeline_default_model": false,
+        "temperature": 0.7,
+        "system_instruction": "N/A",
+        "prompt_template": "[Handled dynamically by node payload]",
+        "response_mime_type": null,
+        "response_schema_name": null
+      },
+      "input_blocks": [
+        "final_artifact_generation"
       ]
     }
   ]

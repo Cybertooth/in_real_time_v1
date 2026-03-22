@@ -30,13 +30,18 @@ class BlockExecutionStatus(str, Enum):
 
 class BlockType(str, Enum):
     CREATIVE_OUTLINER = "creative_outliner"
+    BRAINSTORM_CRITIC = "brainstorm_critic"
+    BRAINSTORM_REWRITER = "brainstorm_rewriter"
     PLANNER = "planner"
+    CRITIC = "critic"
+    REVISER = "reviser"
     CONTINUITY_AUDITOR = "continuity_auditor"
     DECOMPOSER = "decomposer"
     DROP_DIRECTOR = "drop_director"
     GENERATOR = "generator"
     COUNCIL_MEMBER = "council_member"
     COUNCIL_JUDGE = "council_judge"
+    IMAGE_GENERATOR = "image_generator"
 
 
 class BlockConfig(BaseModel):
@@ -68,6 +73,15 @@ class PipelineDefinition(BaseModel):
         default_factory=lambda: {
             ProviderType.GEMINI.value: "gemini-2.5-flash",
             ProviderType.OPENAI.value: "gpt-5.4-mini",
+        }
+    )
+    image_provider: ProviderType = ProviderType.GEMINI
+    default_image_models: dict[str, str] = Field(
+        default_factory=lambda: {
+            ProviderType.GEMINI.value: "gemini-3.1-flash-image-preview",
+            ProviderType.OPENAI.value: "gpt-image-1.5-2025-12-16",
+            ProviderType.OPENROUTER.value: "bytedance-seed/seedream-4.5",
+            ProviderType.ANTHROPIC.value: "",
         }
     )
     blocks: list[PipelineBlock] = Field(default_factory=list)
@@ -136,6 +150,7 @@ class RunTimelineEntry(BaseModel):
     story_time: str = "09:00 AM"
     title: str = ""
     content: Optional[dict[str, Any]] = None
+    local_image_path: Optional[str] = None
 
 
 class RunStats(BaseModel):
@@ -162,6 +177,10 @@ class RunSummary(BaseModel):
     error_message: Optional[str] = None
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    setup: str = ""
+    characters: list[CharacterInfo] = Field(default_factory=list)
+    headline_image_prompt: Optional[str] = None
+    headline_image_path: Optional[str] = None
     story_id: Optional[str] = None
 
 
@@ -236,6 +255,12 @@ class MetricDelta(BaseModel):
     baseline: float | int
     candidate: float | int
     delta: float | int
+
+
+class RegenerateImageRequest(BaseModel):
+    event_type: str
+    index: int = 0
+    new_prompt: str
 
 
 class RunComparison(BaseModel):
@@ -356,6 +381,10 @@ class JournalEntry(BaseModel):
     title: str
     body: str
     time_offset_minutes: int
+    is_locked: bool = False
+    unlock_password: Optional[str] = None
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -363,6 +392,8 @@ class ChatMessage(BaseModel):
     text: str
     isProtagonist: bool
     time_offset_minutes: int
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
 
 
 class EmailMessage(BaseModel):
@@ -370,6 +401,10 @@ class EmailMessage(BaseModel):
     subject: str
     body: str
     time_offset_minutes: int
+    is_locked: bool = False
+    unlock_password: Optional[str] = None
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
 
 
 class ReceiptItem(BaseModel):
@@ -393,6 +428,8 @@ class SocialPost(BaseModel):
     likes: int = 0
     comments: int = 0
     time_offset_minutes: int
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
 
 
 class PhoneCallLine(BaseModel):
@@ -424,6 +461,8 @@ class GroupChatThread(BaseModel):
 
 class StoryGenerated(BaseModel):
     story_title: str
+    headline_image_prompt: Optional[str] = None
+    headline_image_path: Optional[str] = None
     journals: list[JournalEntry] = Field(default_factory=list)
     chats: list[ChatMessage] = Field(default_factory=list)
     emails: list[EmailMessage] = Field(default_factory=list)

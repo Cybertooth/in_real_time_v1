@@ -32,6 +32,8 @@ export interface PipelineDefinition {
   description: string
   updated_at: string | null
   default_models: Record<string, string>
+  image_provider: ProviderType
+  default_image_models: Record<string, string>
   blocks: PipelineBlock[]
 }
 

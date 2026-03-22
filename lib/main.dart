@@ -59,7 +59,7 @@ class InRealTimeApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'In Real-time',
+      title: 'In Real Time',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const MainNavigation(),

@@ -95,6 +95,14 @@ class JournalScreen extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
+          if (journal.imageUrl != null)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.network(journal.imageUrl!, fit: BoxFit.cover, width: double.infinity),
+              ),
+            ),
           Text(
             journal.body,
             style: Theme.of(context).textTheme.bodyLarge,

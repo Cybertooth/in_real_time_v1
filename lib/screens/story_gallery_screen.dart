@@ -62,7 +62,6 @@ class StoryGalleryScreen extends ConsumerWidget {
                   },
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
-                    padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
                       color: isActive ? AppTheme.accentNeon.withOpacity(0.1) : Colors.white.withOpacity(0.05),
                       borderRadius: BorderRadius.circular(16),
@@ -71,8 +70,24 @@ class StoryGalleryScreen extends ConsumerWidget {
                         width: isActive ? 2 : 1,
                       ),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        if (story.headlineImageUrl != null)
+                          ClipRRect(
+                            borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                            child: Image.network(
+                              story.headlineImageUrl!,
+                              height: 140,
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  const SizedBox(height: 140, child: Center(child: Icon(Icons.broken_image, color: Colors.white24))),
+                            ),
+                          ),
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Row(
+                            children: [
                         Container(
                           width: 48,
                           height: 48,
@@ -98,7 +113,42 @@ class StoryGalleryScreen extends ConsumerWidget {
                                   color: isActive ? AppTheme.accentNeon : Colors.white,
                                 ),
                               ),
-                              const SizedBox(height: 4),
+                              if (story.tags.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 6,
+                                  children: story.tags.map((tag) => Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.accentNeon.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      '#$tag',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: AppTheme.accentNeon,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  )).toList(),
+                                ),
+                              ],
+                              if (story.setup.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  story.setup,
+                                  maxLines: isActive ? null : 3,
+                                  overflow: isActive ? TextOverflow.visible : TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.white70,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
                               Text(
                                 '${DateFormat('MMM d, yyyy').format(story.createdAt)} at ${DateFormat('jm').format(story.createdAt)}',
                                 style: const TextStyle(
@@ -125,7 +175,10 @@ class StoryGalleryScreen extends ConsumerWidget {
                       ],
                     ),
                   ),
-                ),
+                ],
+              ),
+            ),
+          ),
               );
             },
           );

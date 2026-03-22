@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/story_item.dart';
 import '../providers/story_provider.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
 import 'story_item_detail_screen.dart';
+import 'chat_thread_screen.dart';
 import 'chat_thread_screen.dart';
 
 /// The home screen — a unified chronological feed of all intercepted content.
@@ -15,6 +17,7 @@ class TimelineScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final feedAsync = ref.watch(timelineFeedProvider);
     final hasUpcoming = ref.watch(upcomingItemsProvider).value ?? false;
+    final unlockedLocally = ref.watch(unlockedItemsProvider).value ?? {};
 
     return Scaffold(
       appBar: AppBar(
@@ -43,9 +46,12 @@ class TimelineScreen extends ConsumerWidget {
                 return _LockedCard();
               }
               final item = items[hasUpcoming ? index - 1 : index];
+              final isUnlockedLocally = unlockedLocally.contains(item.id);
+              final isLocked = item.isPasswordLocked && !isUnlockedLocally;
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: _buildCard(context, item),
+                child: _buildCard(context, ref, item, isLocked),
               );
             },
           );
@@ -56,7 +62,7 @@ class TimelineScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildCard(BuildContext context, StoryItem item) {
+  Widget _buildCard(BuildContext context, WidgetRef ref, StoryItem item, bool isLocked) {
     final card = switch (item) {
       Journal j => _JournalCard(item: j),
       Chat c => _ChatCard(item: c),
@@ -69,39 +75,108 @@ class TimelineScreen extends ConsumerWidget {
       _ => const SizedBox.shrink(),
     };
 
+    Widget displayCard = card;
+    if (isLocked) {
+      displayCard = Stack(
+        children: [
+          Opacity(opacity: 0.5, child: IgnorePointer(child: card)),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Center(
+                child: Icon(Icons.lock, color: AppTheme.accentNeon, size: 36),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
     return InkWell(
-      onTap: () {
+      onTap: () async {
+        if (isLocked) {
+          final success = await _promptPassword(context, item);
+          if (success != true) return;
+          // Trigger a refresh of the unlocked items provider
+          ref.invalidate(unlockedItemsProvider);
+        }
+
+        if (!context.mounted) return;
+        
         if (item is Chat) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatThreadScreen(
-                conversationId: item.senderId,
-                title: item.senderId,
-                isGroup: false,
-              ),
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: item.senderId, title: item.senderId, isGroup: false)));
         } else if (item is GroupChatThread) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatThreadScreen(
-                conversationId: item.id,
-                title: item.groupName,
-                isGroup: true,
-              ),
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: item.id, title: item.groupName, isGroup: true)));
         } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => StoryItemDetailScreen(item: item)),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (_) => StoryItemDetailScreen(item: item)));
         }
       },
-      child: card,
+      child: displayCard,
     );
+  }
+
+  Future<bool> _promptPassword(BuildContext context, StoryItem item) async {
+    final controller = TextEditingController();
+    bool error = false;
+    
+    return await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return AlertDialog(
+            backgroundColor: AppTheme.surfaceLow,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppTheme.accentNeon)),
+            title: const Row(
+              children: [
+                 Icon(Icons.lock, color: AppTheme.accentNeon),
+                 SizedBox(width: 8),
+                 Text('ENCRYPTED', style: TextStyle(color: AppTheme.accentNeon, letterSpacing: 2, fontSize: 16)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('Enter password or PIN to decrypt this file.'),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: controller,
+                  obscureText: true,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white, fontFamily: 'monospace', letterSpacing: 8, fontSize: 24),
+                  textAlign: TextAlign.center,
+                  decoration: InputDecoration(
+                    filled: true,
+                    fillColor: AppTheme.surface,
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.accentNeon)),
+                    errorText: error ? 'INCORRECT PASSWORD' : null,
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL', style: TextStyle(color: AppTheme.textMuted))),
+              TextButton(
+                onPressed: () async {
+                  if (controller.text.trim() == item.unlockPassword) {
+                    final prefs = await SharedPreferences.getInstance();
+                    await prefs.setBool('unlocked_${item.id}', true);
+                    if (ctx.mounted) Navigator.pop(ctx, true);
+                  } else {
+                    setState(() => error = true);
+                  }
+                },
+                child: const Text('DECRYPT', style: TextStyle(color: AppTheme.accentNeon, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          );
+        });
+      }
+    ) ?? false;
   }
 }
 

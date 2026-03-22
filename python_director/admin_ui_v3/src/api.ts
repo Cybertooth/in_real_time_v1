@@ -159,3 +159,18 @@ export function retryBlock(runId: string, blockId: string): Promise<RunProgress>
     { method: 'POST' },
   )
 }
+
+export function regenerateImage(
+  runId: string,
+  eventType: string,
+  index: number,
+  newPrompt: string,
+): Promise<{ status: string; local_image_path: string }> {
+  return request<{ status: string; local_image_path: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/regenerate-image`,
+    {
+      method: 'POST',
+      ...json({ event_type: eventType, index, new_prompt: newPrompt }),
+    },
+  )
+}

@@ -4,8 +4,17 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 abstract class StoryItem {
   final String id;
   final DateTime unlockTimestamp;
+  final String? imageUrl;
+  final bool isPasswordLocked;
+  final String? unlockPassword;
 
-  StoryItem({required this.id, required this.unlockTimestamp});
+  StoryItem({
+    required this.id, 
+    required this.unlockTimestamp,
+    this.imageUrl,
+    this.isPasswordLocked = false,
+    this.unlockPassword,
+  });
 
   bool get isLocked => DateTime.now().isBefore(unlockTimestamp);
 
@@ -25,6 +34,9 @@ class Journal extends StoryItem {
     required this.body,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -37,6 +49,9 @@ class Journal extends StoryItem {
       title: data['title'] ?? '',
       body: data['body'] ?? '',
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -55,6 +70,9 @@ class Chat extends StoryItem {
     required this.isProtagonist,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -68,6 +86,9 @@ class Chat extends StoryItem {
       text: data['text'] ?? '',
       isProtagonist: data['isProtagonist'] ?? false,
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -86,6 +107,9 @@ class Email extends StoryItem {
     required this.body,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -99,6 +123,9 @@ class Email extends StoryItem {
       subject: data['subject'] ?? '',
       body: data['body'] ?? '',
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -117,6 +144,9 @@ class Receipt extends StoryItem {
     required this.description,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -130,6 +160,9 @@ class Receipt extends StoryItem {
       amount: (data['amount'] as num).toDouble(),
       description: data['description'] ?? '',
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -146,6 +179,9 @@ class VoiceNote extends StoryItem {
     required this.transcript,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -158,6 +194,9 @@ class VoiceNote extends StoryItem {
       speaker: data['speaker'] ?? '',
       transcript: data['transcript'] ?? '',
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -182,6 +221,9 @@ class SocialPost extends StoryItem {
     required this.comments,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -198,6 +240,9 @@ class SocialPost extends StoryItem {
       likes: (data['likes'] as num?)?.toInt() ?? 0,
       comments: (data['comments'] as num?)?.toInt() ?? 0,
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -232,6 +277,9 @@ class PhoneCall extends StoryItem {
     required this.lines,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -249,6 +297,9 @@ class PhoneCall extends StoryItem {
           .map((l) => PhoneCallLine.fromMap(Map<String, dynamic>.from(l)))
           .toList(),
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
@@ -283,6 +334,9 @@ class GroupChatThread extends StoryItem {
     required this.messages,
     required super.unlockTimestamp,
     super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
   });
 
   @override
@@ -301,6 +355,9 @@ class GroupChatThread extends StoryItem {
           .map((m) => GroupChatMessage.fromMap(Map<String, dynamic>.from(m)))
           .toList(),
       unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'],
+      isPasswordLocked: data['is_locked'] ?? false,
+      unlockPassword: data['unlock_password'],
     );
   }
 }
