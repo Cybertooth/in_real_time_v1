@@ -9,6 +9,7 @@ import ConfirmDialog from '../shared/ConfirmDialog'
 
 export default function RunList() {
   const runSummaries = useStore((s) => s.runSummaries)
+  const activeRunId = useStore((s) => s.activeRunId)
   const activeRunProgress = useStore((s) => s.activeRunProgress)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
   const deleteRun = useStore((s) => s.deleteRun)
