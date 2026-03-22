@@ -7,6 +7,7 @@ interface RunDialogProps {
   onStart: (seedPrompt: string, tags: string[]) => void
   initialSeedPrompt?: string
   initialTags?: string[]
+  initialMode?: 'same' | 'new'
   title?: string
   submitLabel?: string
 }
@@ -17,21 +18,30 @@ export default function RunDialog({
   onStart,
   initialSeedPrompt = '',
   initialTags = [],
+  initialMode,
   title = 'Start Dry Run',
   submitLabel = 'Start Run',
 }: RunDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [seedPrompt, setSeedPrompt] = useState(initialSeedPrompt)
   const [tags, setTags] = useState<string[]>(initialTags)
   const [tagInput, setTagInput] = useState('')
+  const [mode, setMode] = useState<'same' | 'new'>(initialMode ?? 'same')
+  const isRetry = Boolean(initialSeedPrompt)
 
   // Sync initial values when the dialog opens (e.g. re-run pre-populates)
   useEffect(() => {
     if (open) {
-      setSeedPrompt(initialSeedPrompt)
+      const openMode = initialMode ?? 'same'
+      setMode(openMode)
+      setSeedPrompt(openMode === 'new' ? '' : initialSeedPrompt)
       setTags(initialTags)
       setTagInput('')
       dialogRef.current?.showModal()
+      if (openMode === 'new') {
+        setTimeout(() => textareaRef.current?.focus(), 50)
+      }
     } else {
       dialogRef.current?.close()
     }
@@ -75,11 +85,34 @@ export default function RunDialog({
           </p>
         </div>
 
+        {isRetry && (
+          <div className="flex gap-1 p-1 bg-surface rounded-xl border border-border w-fit">
+            {(['same', 'new'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => {
+                  setMode(m)
+                  setSeedPrompt(m === 'new' ? '' : initialSeedPrompt)
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                  mode === m
+                    ? 'bg-mint text-black'
+                    : 'text-text-dim hover:text-text'
+                }`}
+              >
+                {m === 'same' ? 'Same Seed' : 'New Seed'}
+              </button>
+            ))}
+          </div>
+        )}
+
         <label className="flex flex-col gap-1.5">
           <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
             Seed Prompt
           </span>
           <textarea
+            ref={textareaRef}
             value={seedPrompt}
             onChange={(e) => setSeedPrompt(e.target.value)}
             placeholder="e.g. A missing detective whose own cold case resurfaces the night before her retirement…"
