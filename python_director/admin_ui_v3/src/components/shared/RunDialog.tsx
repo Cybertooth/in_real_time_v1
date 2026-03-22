@@ -28,6 +28,7 @@ export default function RunDialog({
   const [tags, setTags] = useState<string[]>(initialTags)
   const [tagInput, setTagInput] = useState('')
   const [mode, setMode] = useState<'same' | 'new'>(initialMode ?? 'same')
+  // Show mode toggle only for retries (when a previous seed prompt exists)
   const isRetry = Boolean(initialSeedPrompt)
 
   // Sync initial values when the dialog opens (e.g. re-run pre-populates)
@@ -45,7 +46,7 @@ export default function RunDialog({
     } else {
       dialogRef.current?.close()
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps — deps intentionally omitted; effect should only run on open/close, not mid-session prop changes
 
   const addTag = () => {
     const trimmed = tagInput.trim()
