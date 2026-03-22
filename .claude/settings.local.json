@@ -6,7 +6,8 @@
       "Bash(npm run:*)",
       "Bash(.venv/Scripts/python.exe -c \"from python_director.api import app; print\\(''API imports OK''\\)\")",
       "Bash(.venv/Scripts/python.exe -m pytest python_director/test_director.py -v)",
-      "Bash(.venv/Scripts/python.exe -m pytest python_director/test_director.py -q)"
+      "Bash(.venv/Scripts/python.exe -m pytest python_director/test_director.py -q)",
+      "Bash(git:*)"
     ]
   }
 }

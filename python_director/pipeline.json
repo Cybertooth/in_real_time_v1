@@ -1,7 +1,7 @@
 {
   "name": "Found Phone Director",
   "description": "Low-code story generation pipeline for found-phone narratives.",
-  "updated_at": "2026-03-22T08:11:05.914248+00:00",
+  "updated_at": "2026-03-22T11:13:13.568205+00:00",
   "default_models": {
     "GEMINI": "gemini-3-flash-preview",
     "OPENAI": "gpt-5.4-mini",
@@ -303,6 +303,27 @@
       ]
     },
     {
+      "id": "visual_bible",
+      "name": "Visual Bible",
+      "description": "Produces the canonical visual canon (character appearances, aesthetic style, shot list) that governs all image generation.",
+      "type": "visual_bible",
+      "enabled": true,
+      "config": {
+        "provider": "GEMINI",
+        "model_name": "gemini-3-flash-preview",
+        "use_pipeline_default_model": true,
+        "temperature": 0.5,
+        "system_instruction": "You are the Visual Director for a found-phone thriller. Given the final StoryPlan and SceneList,\nproduce a lightweight but precise visual canon that will govern all image generation for this story.\n\nYour output must be strict VisualBible schema.\n\nGuidelines:\n- `aesthetic_style`: one sentence \u2014 overall cinematic tone (e.g. \"gritty iPhone v\u00e9rit\u00e9, underexposed, muted greens\").\n- `color_palette`: dominant mood colors and lighting quality (2-3 sentences max).\n- `era_and_setting`: time period, geography, and environment (1-2 sentences).\n- `characters`: for each main character, write ONE dense paragraph covering age, build, hair color/style,\n  typical clothing style, and 1-2 signature physical details. Be specific and visual \u2014 no vague adjectives.\n- `key_locations`: for each significant location, describe its lighting, texture, and mood in 2-3 sentences.\n- `shot_list`: plan 15-25 images that tell the visual story. For each shot:\n  - `shot_id`: short slug (e.g. \"headline_dusk\", \"alex_cafe_photo\", \"evidence_note\")\n  - `tier`: \"atmospheric\" (cinematic mood), \"diegetic\" (character took this photo), or \"document\"\n  - `subject`: what/who is the main subject\n  - `narrative_purpose`: why this image exists in the story\n  - `artifact_hint`: which artifact type this belongs to (\"social_post\", \"journal\", \"email\", \"chat\",\n    \"receipt\", \"voice_note\") or \"gallery\" for standalone camera-roll / atmospheric images\n  - `artifact_narrative_moment`: a precise prose description of the story moment this image captures \u2014\n    specific enough that the artifact generator can match it to the right artifact instance\n  - `suggested_prompt`: a visual description suitable for an image generation model \u2014 describe the scene\n    literally, never use character names, only physical descriptions\n\nEnsure a mix of tiers. Include at least one \"atmospheric\" headline shot, 5+ \"diegetic\" photos\n(things characters would post on Instagram or share in chat), and 2+ \"document\" shots.",
+        "prompt_template": "StoryPlan:\n{{council_plan_judge}}\n\nSceneList:\n{{scene_decomposition}}\n\nProduce the VisualBible.",
+        "response_mime_type": "application/json",
+        "response_schema_name": "VisualBible"
+      },
+      "input_blocks": [
+        "council_plan_judge",
+        "scene_decomposition"
+      ]
+    },
+    {
       "id": "drop_director",
       "name": "Drop Director",
       "description": "Designs notification-worthy drop cadence and quiet windows.",
@@ -314,13 +335,14 @@
         "use_pipeline_default_model": true,
         "temperature": 0.4,
         "system_instruction": "Create a real-time delivery DropPlan from StoryPlan and SceneList.\n\nRules:\n- Plan timed events that feel notification-worthy.\n- Balance interruption spikes with quiet windows to preserve anticipation.\n- Ensure cliffhanger targets are spread across the 48-hour arc.\n- Keep event summaries concise and operational for CMS scheduling.\n\nOutput strict DropPlan schema.",
-        "prompt_template": "StoryPlan:\n{{council_plan_judge}}\n\nSceneList:\n{{scene_decomposition}}\n\nCreate DropPlan.",
+        "prompt_template": "StoryPlan:\n{{council_plan_judge}}\n\nSceneList:\n{{scene_decomposition}}\n\nVisual Bible:\n{{visual_bible}}\n\nCreate DropPlan.",
         "response_mime_type": "application/json",
         "response_schema_name": "DropPlan"
       },
       "input_blocks": [
         "council_plan_judge",
-        "scene_decomposition"
+        "scene_decomposition",
+        "visual_bible"
       ]
     },
     {
@@ -334,8 +356,8 @@
         "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.7,
-        "system_instruction": "Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\nTarget: ~5,000 words of story content spread across ALL artifact types.\n\nMANDATORY QUANTITY TARGETS (minimum, more is better):\n- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)\n- chats: 3+ conversations of 10-15 back-and-forth messages each\n- emails: 6+ emails with 3+ substantial paragraphs each\n- receipts: 4+ receipts (reveal character movement, spending, or secret activities)\n- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)\n- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters\n  (contrast public facade with private reality)\n- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)\n  (use calls for confrontations, urgent revelations, or key plot turns)\n- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each\n  from multiple participants (show group dynamics, rumors, panic, coordination)\n\nQUALITY RULES:\n- Each character must have distinct voice and language patterns.\n- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.\n- Emails match sender role (formal cop = formal email; teenager = casual/brief).\n- Journals show psychological progression \u2014 fear, suspicion, grief, denial, resolve.\n- Voice notes capture spoken hesitation, self-correction, emotional rawness.\n- Social posts reveal the public facade characters maintain while private reality unravels.\n- Phone calls expose raw confrontations that characters wouldn't commit to text.\n- Group chats show social pressure, gossip, collective panic or denial.\n- All artifact content must align with chronology and character knowledge at that point in time.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY RULES (critical):\n- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section \u2014 hook users in session 1.\n- No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 3 \"flurry\" windows where 4+ artifacts land within 30 minutes.\n- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.\n- Group chats must have real multi-person dynamics, not monologues.\n\nIMAGE GENERATION RULES:\n- Include an `image_prompt` for at least 30% of social media posts, describing the exact photograph.\n- Add an `image_prompt` for key journals or emails where a visual clue or attached document is mentioned.\n- You MUST provide a `headline_image_prompt` attribute at the root of your response describing the overarching atmospheric header image for the story.\n- The `image_prompt` and `headline_image_prompt` must strictly be visual high-quality literal descriptions of the image content.\n\nANTI-GENERIC RULES:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts. Stay in character voice.\n- No contradictory knowledge leaks (character can't know something they haven't learned yet).\n- Avoid clich\u00e9s: \"I can't believe this is happening\", \"Everything changed that day\", etc.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries across the 48-hour arc.",
-        "prompt_template": "Final Plan:\n{{council_plan_judge}}\n\nContinuity Audit:\n{{continuity_audit}}\n\nScenes:\n{{scene_decomposition}}\n\nDrop Plan:\n{{drop_director}}\n\nGenerate StoryGenerated artifacts.",
+        "system_instruction": "Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\nTarget: ~5,000 words of story content spread across ALL artifact types.\n\nMANDATORY QUANTITY TARGETS (minimum, more is better):\n- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)\n- chats: 3+ conversations of 10-15 back-and-forth messages each\n- emails: 6+ emails with 3+ substantial paragraphs each\n- receipts: 4+ receipts (reveal character movement, spending, or secret activities)\n- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)\n- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters\n  (contrast public facade with private reality)\n- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)\n  (use calls for confrontations, urgent revelations, or key plot turns)\n- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each\n  from multiple participants (show group dynamics, rumors, panic, coordination)\n\nQUALITY RULES:\n- Each character must have distinct voice and language patterns.\n- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.\n- Emails match sender role (formal cop = formal email; teenager = casual/brief).\n- Journals show psychological progression \u2014 fear, suspicion, grief, denial, resolve.\n- Voice notes capture spoken hesitation, self-correction, emotional rawness.\n- Social posts reveal the public facade characters maintain while private reality unravels.\n- Phone calls expose raw confrontations that characters wouldn't commit to text.\n- Group chats show social pressure, gossip, collective panic or denial.\n- All artifact content must align with chronology and character knowledge at that point in time.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY RULES (critical):\n- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section \u2014 hook users in session 1.\n- No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 3 \"flurry\" windows where 4+ artifacts land within 30 minutes.\n- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.\n- Group chats must have real multi-person dynamics, not monologues.\n\nIMAGE GENERATION RULES:\n- Include an `image_prompt` for at least 30% of social media posts, describing the exact photograph.\n- Add an `image_prompt` for key journals or emails where a visual clue or attached document is mentioned.\n- You MUST provide a `headline_image_prompt` attribute at the root of your response describing the overarching atmospheric header image for the story.\n- The `image_prompt` and `headline_image_prompt` must strictly be visual high-quality literal descriptions of the image content.\n\nANTI-GENERIC RULES:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts. Stay in character voice.\n- No contradictory knowledge leaks (character can't know something they haven't learned yet).\n- Avoid clich\u00e9s: \"I can't believe this is happening\", \"Everything changed that day\", etc.\n\nVISUAL BIBLE (authoritative source for all image_prompt fields):\n{{visual_bible}}\n\nIMAGE PROMPT RULES (applies when writing any image_prompt field):\n- Describe the scene visually and literally \u2014 never include character names, only their physical\n  descriptions from the Visual Bible above.\n- Enforce the aesthetic_style, color_palette, and era_and_setting from the Visual Bible.\n- For each entry in the Visual Bible shot_list where artifact_hint matches the current artifact type,\n  use the artifact_narrative_moment to identify the correct artifact and fulfill that shot.\n- Do NOT create photo_gallery entries \u2014 leave standalone shots (artifact_hint = \"gallery\") for the\n  Image Prompt Director block that runs after you.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries across the 48-hour arc.",
+        "prompt_template": "Final Plan:\n{{council_plan_judge}}\n\nContinuity Audit:\n{{continuity_audit}}\n\nScenes:\n{{scene_decomposition}}\n\nDrop Plan:\n{{drop_director}}\n\nVisual Bible (use for all image_prompt fields):\n{{visual_bible}}\n\nGenerate StoryGenerated artifacts.",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryGenerated"
       },
@@ -343,7 +365,29 @@
         "council_plan_judge",
         "continuity_audit",
         "scene_decomposition",
-        "drop_director"
+        "drop_director",
+        "visual_bible"
+      ]
+    },
+    {
+      "id": "image_prompt_director",
+      "name": "Image Prompt Director",
+      "description": "Refines all image prompts for character consistency, applies the Visual Bible, and adds standalone gallery shots.",
+      "type": "image_prompt_director",
+      "enabled": true,
+      "config": {
+        "provider": "GEMINI",
+        "model_name": "gemini-3-flash-preview",
+        "use_pipeline_default_model": true,
+        "temperature": 0.4,
+        "system_instruction": "You are the Image Prompt Director. You receive a fully-generated StoryGenerated payload (as JSON)\nand the VisualBible for this story. Your job is a focused visual consistency pass.\n\nOutput must strictly match StoryGeneratedImagePatch schema.\n\nYour tasks:\n1. Review EVERY artifact that has an `image_prompt` field (journals, chats, emails, social_posts,\n   receipts, voice_notes). For each one:\n   - Replace any character name references with their canonical appearance from the VisualBible.\n   - Enforce the aesthetic_style, color_palette, and era_and_setting from the VisualBible.\n   - Make prompts literal and visual \u2014 no abstract concepts, no story spoilers, just what the camera sees.\n   - Add these as `artifact_patches` entries in your output.\n\n2. Review the VisualBible shot_list for any shots with `artifact_hint = \"gallery\"` that are NOT already\n   covered by existing artifact image_prompts. Add each as a `photo_gallery` entry with:\n   - `photo_id`: the shot's `shot_id`\n   - `tier`: from the PlannedShot\n   - `subject`: from the PlannedShot\n   - `caption`: a brief character-voice caption if diegetic (e.g. what the character might write on Instagram),\n     null for atmospheric/document\n   - `time_offset_minutes`: estimate based on the narrative_purpose and story arc (0-2880 minutes)\n   - `image_prompt`: an improved version of `suggested_prompt` refined against the VisualBible\n\n3. Set `headline_image_prompt` to a refined version of the story's headline image prompt if the\n   VisualBible or existing StoryGenerated has one, applying Visual Bible style rules.\n\nCRITICAL: Do NOT reproduce the story content. Only output the patch fields described above.",
+        "prompt_template": "Visual Bible:\n{{visual_bible}}\n\nStoryGenerated (full JSON):\n{{final_artifact_generation}}\n\nProduce the StoryGeneratedImagePatch.",
+        "response_mime_type": "application/json",
+        "response_schema_name": "StoryGeneratedImagePatch"
+      },
+      "input_blocks": [
+        "final_artifact_generation",
+        "visual_bible"
       ]
     },
     {
@@ -363,7 +407,7 @@
         "response_schema_name": null
       },
       "input_blocks": [
-        "final_artifact_generation"
+        "image_prompt_director"
       ]
     }
   ]
