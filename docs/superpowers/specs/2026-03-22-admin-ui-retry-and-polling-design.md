@@ -22,7 +22,7 @@ The current retry flow has a single button that opens `RunDialog` pre-populated 
 
 ### Design
 
-Add a mode toggle to the top of `RunDialog`: two pill-style buttons — **"Same Seed"** and **"New Seed"**. Controlled by `useState<'same' | 'new'>('same')` inside the dialog. The mode is set automatically based on context (retry always opens in "same" mode; new run opens in "new" mode).
+Add a mode toggle to the top of `RunDialog`: two pill-style buttons — **"Same Seed"** and **"New Seed"**. Controlled by `useState<'same' | 'new'>` inside the dialog, initialised from the `initialMode` prop.
 
 **Same Seed mode:**
 - Seed prompt and tags pre-populated from the source run
@@ -32,10 +32,19 @@ Add a mode toggle to the top of `RunDialog`: two pill-style buttons — **"Same 
 - Seed prompt field cleared and auto-focused
 - Tags optionally retained (user can clear manually)
 
+The mode toggle is only shown when `initialSeedPrompt` is provided (i.e. this is a retry, not a fresh run). Fresh-start dialogs open without the toggle.
+
 ### Scope
 
-- `RunDialog.tsx`: add `initialMode?: 'same' | 'new'` prop (defaults to `'same'`); render mode toggle; conditionally pre-populate seed field
-- `RunList.tsx`: pass `initialMode="same"` when opening retry dialog (explicit, no behaviour change)
+- `RunDialog.tsx`:
+  - Add `initialMode?: 'same' | 'new'` prop. Defaults to `'same'` when `initialSeedPrompt` is provided, otherwise irrelevant (toggle hidden).
+  - Render mode toggle only when `initialSeedPrompt` is non-empty
+  - In "New Seed" mode, clear the seed prompt field and auto-focus it on mount
+
+- `RunList.tsx`: pass `initialMode="same"` when opening the retry dialog (explicit, no behaviour change)
+
+- `RunDetail.tsx`: also has a "Re-run" button (line ~232) that opens `RunDialog` pre-populated with `storedSeed`/`storedTags` — pass `initialMode="same"` here as well. User-triggered `navigate('/runs')` after re-run submission is **not** changed.
+
 - No changes to `store.ts` — `rerunFromRun` already accepts whatever seed/tags come from the form
 
 ---
@@ -44,7 +53,7 @@ Add a mode toggle to the top of `RunDialog`: two pill-style buttons — **"Same 
 
 ### Problem
 
-The poll loop runs every 1500ms and writes `activeRunProgress` to the Zustand store. `RunDetail` subscribes to this value directly, causing the entire component tree to re-render 40+ times per minute — even when the user is viewing a *different* run's artifacts. Additionally, on run completion `loadStudio()` is called, which reloads all run summaries and can trigger automatic navigation, yanking the user away from what they were reading.
+Three separate poll loops (`startRun`, `rerunFromRun`, `retryBlock`) each run every 1500ms and write to `activeRunProgress`. `RunDetail` subscribes to this value directly, causing the entire component tree to re-render 40+ times per minute — even when the user is viewing a *different* run's artifacts. On run completion, each loop calls `loadStudio()` which reloads all run summaries and can trigger automatic navigation, yanking the user away from what they were reading. A `loadRunProgress` action also writes `activeRunId` and `activeRunProgress` directly and must be migrated.
 
 ### Design
 
@@ -52,48 +61,54 @@ The poll loop runs every 1500ms and writes `activeRunProgress` to the Zustand st
 
 ```ts
 liveRun: {
-  id: string | null
+  id: string
   status: string
-  progress: number          // 0–1
+  progress: number          // 0–1, derived from completed block count
   blockStatuses: Record<string, BlockStatus>
 } | null
 ```
 
-The poll loop writes *only* to `liveRun`. It never mutates `runSummaries` mid-run.
+All three poll loops (`startRun`, `rerunFromRun`, `retryBlock`) and the `loadRunProgress` action write *only* to `liveRun`. They never mutate `runSummaries` mid-run.
+
+**`activeRunProgress` field is removed** from the store. All consumers are migrated to `liveRun`.
 
 **`RunDetail` subscription change:**
 
 `RunDetail` reads from `runSummaries` filtered by its own `runId`. This value changes only once — when the run completes and its summary is patched. It no longer subscribes to `activeRunProgress` at all.
 
-For the "blocks" view when the user *is* viewing the active run: it reads from `liveRun.blockStatuses` only when `liveRun?.id === runId`. This gives live block progress without polluting unrelated views.
+For the blocks-progress view when the user *is* viewing the active run: reads from `liveRun.blockStatuses` only when `liveRun?.id === runId`. This gives live block progress without polluting unrelated views.
 
-**Completion handling:**
+**`RunList` subscription change:**
 
-When the poll loop detects run completion:
+`RunList` currently reads `activeRunProgress` to render the active-run card's progress bar (bar width derived from `block_traces`). This migrates to `liveRun`: the progress bar uses `liveRun.progress` (0–1) and per-block status from `liveRun.blockStatuses`. The running badge/indicator uses `liveRun?.id` comparison.
+
+**Completion handling (all three poll loops + `loadRunProgress`):**
+
+When any poll loop detects run completion:
 1. Fetch the final run data for that `runId`
 2. Patch only that entry in `runSummaries` (replace by ID)
-3. Clear `liveRun` (set to null)
+3. Clear `liveRun` (set to `null`)
 4. **Do not call `loadStudio()`**
-5. **Do not call `navigate()`** — user stays on whatever route they are on
-
-**Sidebar active-run indicator:**
-
-A small badge/dot on the active run's entry in `RunList` reads from `liveRun.id` to show running state. This is a lightweight subscription with no layout impact.
+5. **Do not call `navigate()`** — this applies only to polling-completion-triggered navigation; user-action-triggered navigation (e.g. `navigate('/runs')` after form submit) is unchanged
 
 ### Scope
 
 - `store.ts`:
-  - Add `liveRun` slice and setter `setLiveRun()`
-  - Poll loop writes to `liveRun` instead of `activeRunProgress`
-  - On completion: patch `runSummaries`, clear `liveRun`, no `loadStudio()`, no `navigate()`
-  - Remove or deprecate `activeRunProgress` field
+  - Add `liveRun` slice and `setLiveRun()` setter
+  - Migrate all three poll loops (`startRun`, `rerunFromRun`, `retryBlock`) to write to `liveRun`
+  - Migrate `loadRunProgress` action to write to `liveRun`
+  - On completion in all three loops: patch `runSummaries`, clear `liveRun`, remove `loadStudio()` call, remove polling-driven `navigate()` call
+  - Remove `activeRunProgress` field entirely
+
 - `RunDetail.tsx`:
   - Remove subscription to `activeRunProgress`
   - Subscribe to `runSummaries` by `runId` for stable run data
   - Subscribe to `liveRun` only for the blocks-progress view, guarded by `liveRun?.id === runId`
+
 - `RunList.tsx`:
-  - Show running badge using `liveRun.id` comparison
-  - Remove any `navigate()` side-effects triggered by polling
+  - Migrate progress bar rendering from `activeRunProgress.block_traces` to `liveRun.progress` and `liveRun.blockStatuses`
+  - Show running badge using `liveRun?.id` comparison
+  - Remove polling-completion-triggered `navigate()` calls
 
 ---
 
