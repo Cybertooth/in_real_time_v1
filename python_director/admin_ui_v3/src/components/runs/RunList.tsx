@@ -9,8 +9,7 @@ import ConfirmDialog from '../shared/ConfirmDialog'
 
 export default function RunList() {
   const runSummaries = useStore((s) => s.runSummaries)
-  const activeRunId = useStore((s) => s.activeRunId)
-  const activeRunProgress = useStore((s) => s.liveRun)
+  const liveRun = useStore((s) => s.liveRun)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
   const deleteRun = useStore((s) => s.deleteRun)
   const navigate = useNavigate()
@@ -53,10 +52,10 @@ export default function RunList() {
         </span>
 
         {/* Active run */}
-        {activeRunId && activeRunProgress && (
+        {liveRun && (
           <button
             type="button"
-            onClick={() => navigate(`/runs/${activeRunId}/blocks`)}
+            onClick={() => navigate(`/runs/${liveRun.run_id}/blocks`)}
             className="w-full text-left p-3 rounded-xl bg-mint-soft border border-mint/30 cursor-pointer transition-colors hover:brightness-110"
           >
             <div className="flex items-center gap-2 mb-2">
@@ -64,18 +63,18 @@ export default function RunList() {
               <span className="text-sm font-medium text-mint">Active Run</span>
             </div>
             <div className="text-xs text-text-dim mb-1">
-              {activeRunProgress.pipeline_name}
+              {liveRun.pipeline_name}
             </div>
             <div className="w-full h-1.5 bg-surface rounded-full overflow-hidden">
               <div
                 className="h-full bg-mint rounded-full transition-all duration-500"
                 style={{
                   width: `${
-                    activeRunProgress.block_count > 0
-                      ? (Object.values(activeRunProgress.block_traces).filter(
+                    liveRun.block_count > 0
+                      ? (Object.values(liveRun.block_traces).filter(
                           (t) => t.status === 'succeeded' || t.status === 'failed',
                         ).length /
-                          activeRunProgress.block_count) *
+                          liveRun.block_count) *
                         100
                       : 0
                   }%`,
@@ -85,7 +84,7 @@ export default function RunList() {
           </button>
         )}
 
-        {runSummaries.length === 0 && !activeRunId && (
+        {runSummaries.length === 0 && !liveRun && (
           <p className="text-text-dim text-sm p-2">
             No runs yet. Start a dry run from the Pipeline Editor.
           </p>

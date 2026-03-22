@@ -5,7 +5,7 @@ export default function BlockList() {
   const pipeline = useStore((s) => s.pipeline)
   const selectedBlockId = useStore((s) => s.selectedBlockId)
   const selectBlock = useStore((s) => s.selectBlock)
-  const activeRunProgress = useStore((s) => s.liveRun)
+  const liveRun = useStore((s) => s.liveRun)
 
   if (!pipeline) return null
 
@@ -30,7 +30,7 @@ export default function BlockList() {
       <div className="flex flex-col">
         {blocks.map((block, idx) => {
           const isActive = selectedBlockId === block.id
-          const trace = activeRunProgress?.block_traces?.[block.id]
+          const trace = liveRun?.block_traces?.[block.id]
           const status = trace
             ? trace.status
             : block.enabled

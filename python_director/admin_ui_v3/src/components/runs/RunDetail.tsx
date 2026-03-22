@@ -15,8 +15,9 @@ export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
   const showToast = useStore((s) => s.showToast)
-  const activeRunProgress = useStore((s) => s.liveRun)
-  const activeRunId = useStore((s) => s.activeRunId)
+  // Selective selector — returns liveRun only when it's for THIS run.
+  // Null for all other runs, so non-active RunDetail instances never re-render mid-poll.
+  const liveRun = useStore((s) => s.liveRun?.run_id === runId ? s.liveRun : null)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
   const retryBlock = useStore((s) => s.retryBlock)
   const deleteRun = useStore((s) => s.deleteRun)
@@ -27,15 +28,14 @@ export default function RunDetail() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [retryTarget, setRetryTarget] = useState<{ id: string; name: string } | null>(null)
 
+  // Load run data on mount / when navigating to a different run
   useEffect(() => {
     if (!runId) return
-
-    if (runId === activeRunId && activeRunProgress) {
-      setRunData(activeRunProgress)
+    if (liveRun) {
+      setRunData(liveRun)
       setLoading(false)
       return
     }
-
     setLoading(true)
     api
       .getRunStatus(runId)
@@ -48,13 +48,15 @@ export default function RunDetail() {
         showToast(msg, true)
         setLoading(false)
       })
-  }, [runId, activeRunId, activeRunProgress, showToast])
+  }, [runId]) // eslint-disable-line react-hooks/exhaustive-deps — re-fetch only on navigation, not on every poll tick
 
+  // Sync live progress when this is the active run
   useEffect(() => {
-    if (runId === activeRunId && activeRunProgress) {
-      setRunData(activeRunProgress)
+    if (liveRun) {
+      setRunData(liveRun)
+      setLoading(false)
     }
-  }, [runId, activeRunId, activeRunProgress])
+  }, [liveRun])
 
   if (loading) {
     return (
@@ -72,7 +74,7 @@ export default function RunDetail() {
     )
   }
 
-  const isActive = runId === activeRunId
+  const isActive = liveRun !== null
   const isFinished = runData.status === 'succeeded' || runData.status === 'failed'
 
   const statusVariant = () => {
