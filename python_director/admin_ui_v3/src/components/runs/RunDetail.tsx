@@ -74,7 +74,7 @@ export default function RunDetail() {
     )
   }
 
-  const isActive = liveRun !== null
+  const isActive = runData.status === 'running' || runData.status === 'queued'
   const isFinished = runData.status === 'succeeded' || runData.status === 'failed'
 
   const statusVariant = () => {
