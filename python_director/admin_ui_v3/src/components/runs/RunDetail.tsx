@@ -235,6 +235,7 @@ export default function RunDetail() {
         onStart={handleRerun}
         initialSeedPrompt={storedSeed ?? ''}
         initialTags={storedTags ?? []}
+        initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"
       />

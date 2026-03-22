@@ -9,7 +9,6 @@ import ConfirmDialog from '../shared/ConfirmDialog'
 
 export default function RunList() {
   const runSummaries = useStore((s) => s.runSummaries)
-  const activeRunId = useStore((s) => s.activeRunId)
   const activeRunProgress = useStore((s) => s.activeRunProgress)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
   const deleteRun = useStore((s) => s.deleteRun)
@@ -35,7 +34,7 @@ export default function RunList() {
     if (!rerunTarget) return
     setRerunTarget(null)
     rerunFromRun(rerunTarget.run_id, seedPrompt || null, tags)
-    navigate(`/runs/${activeRunId ?? ''}`)
+    // No navigate — active run card appears in sidebar automatically
   }
 
   const handleDelete = async () => {
@@ -162,6 +161,7 @@ export default function RunList() {
         onStart={handleRerun}
         initialSeedPrompt={rerunTarget?.seed_prompt ?? ''}
         initialTags={rerunTarget?.tags ?? []}
+        initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"
       />
