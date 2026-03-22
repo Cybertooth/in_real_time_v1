@@ -7,7 +7,6 @@ import '../theme.dart';
 import '../widgets/shared_widgets.dart';
 import 'story_item_detail_screen.dart';
 import 'chat_thread_screen.dart';
-import 'chat_thread_screen.dart';
 
 /// The home screen — a unified chronological feed of all intercepted content.
 class TimelineScreen extends ConsumerWidget {

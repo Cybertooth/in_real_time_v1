@@ -41,8 +41,11 @@ export function savePipeline(pipeline: PipelineDefinition): Promise<PipelineDefi
   return request<PipelineDefinition>('/api/pipeline', { method: 'PUT', ...json(pipeline) })
 }
 
-export function resetPipeline(): Promise<PipelineDefinition> {
-  return request<PipelineDefinition>('/api/pipeline/reset', { method: 'POST' })
+export function resetPipeline(templateKey: string): Promise<PipelineDefinition> {
+  return request<PipelineDefinition>('/api/pipeline/reset', {
+    method: 'POST',
+    ...json({ template_key: templateKey }),
+  })
 }
 
 export function snapshotPipeline(
@@ -125,10 +128,20 @@ export function compareRuns(
 
 export function uploadRun(
   runId: string,
+  payload: {
+    story_mode: 'live' | 'scheduled' | 'subscription'
+    scheduled_start_at?: string | null
+    tts_tier: 'premium' | 'cheap'
+  },
 ): Promise<{ status: string; story_id: string }> {
+  const body: Record<string, unknown> = {
+    story_mode: payload.story_mode,
+    tts_tier: payload.tts_tier,
+  }
+  if (payload.scheduled_start_at) body.scheduled_start_at = payload.scheduled_start_at
   return request<{ status: string; story_id: string }>(
     `/api/upload/${encodeURIComponent(runId)}`,
-    { method: 'POST' },
+    { method: 'POST', ...json(body) },
   )
 }
 

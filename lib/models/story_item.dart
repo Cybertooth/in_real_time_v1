@@ -1,9 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+DateTime _readUnlockTimestamp(Map<String, dynamic> data) {
+  final raw = data['unlockTimestamp'];
+  if (raw is Timestamp) return raw.toDate();
+  if (raw is DateTime) return raw;
+  return DateTime.now();
+}
+
+int _readTimeOffsetMinutes(Map<String, dynamic> data) {
+  final raw = data['timeOffsetMinutes'] ?? data['time_offset_minutes'];
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  return 0;
+}
+
 /// Base class for all time-gated story content.
 abstract class StoryItem {
   final String id;
   final DateTime unlockTimestamp;
+  final int timeOffsetMinutes;
   final String? imageUrl;
   final bool isPasswordLocked;
   final String? unlockPassword;
@@ -11,6 +26,7 @@ abstract class StoryItem {
   StoryItem({
     required this.id, 
     required this.unlockTimestamp,
+    this.timeOffsetMinutes = 0,
     this.imageUrl,
     this.isPasswordLocked = false,
     this.unlockPassword,
@@ -34,6 +50,7 @@ class Journal extends StoryItem {
     required this.body,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -44,11 +61,13 @@ class Journal extends StoryItem {
 
   factory Journal.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return Journal(
       id: doc.id,
       title: data['title'] ?? '',
       body: data['body'] ?? '',
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -70,6 +89,7 @@ class Chat extends StoryItem {
     required this.isProtagonist,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -80,12 +100,14 @@ class Chat extends StoryItem {
 
   factory Chat.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return Chat(
       id: doc.id,
       senderId: data['senderId'] ?? '',
       text: data['text'] ?? '',
       isProtagonist: data['isProtagonist'] ?? false,
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -107,6 +129,7 @@ class Email extends StoryItem {
     required this.body,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -117,12 +140,14 @@ class Email extends StoryItem {
 
   factory Email.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return Email(
       id: doc.id,
       sender: data['sender'] ?? '',
       subject: data['subject'] ?? '',
       body: data['body'] ?? '',
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -144,6 +169,7 @@ class Receipt extends StoryItem {
     required this.description,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -154,12 +180,14 @@ class Receipt extends StoryItem {
 
   factory Receipt.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return Receipt(
       id: doc.id,
       merchantName: data['merchantName'] ?? '',
       amount: (data['amount'] as num).toDouble(),
       description: data['description'] ?? '',
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -173,12 +201,17 @@ class Receipt extends StoryItem {
 class VoiceNote extends StoryItem {
   final String speaker;
   final String transcript;
+  final String? audioUrl;
+  final String? voiceId;
 
   VoiceNote({
     required this.speaker,
     required this.transcript,
+    this.audioUrl,
+    this.voiceId,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -189,12 +222,16 @@ class VoiceNote extends StoryItem {
 
   factory VoiceNote.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return VoiceNote(
       id: doc.id,
       speaker: data['speaker'] ?? '',
       transcript: data['transcript'] ?? '',
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
+      audioUrl: data['audioUrl'] as String? ?? data['audio_url'] as String?,
+      voiceId: data['voiceId'] as String? ?? data['voice_id'] as String?,
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
     );
@@ -221,6 +258,7 @@ class SocialPost extends StoryItem {
     required this.comments,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -231,6 +269,7 @@ class SocialPost extends StoryItem {
 
   factory SocialPost.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return SocialPost(
       id: doc.id,
       platform: data['platform'] ?? 'twitter',
@@ -239,7 +278,8 @@ class SocialPost extends StoryItem {
       content: data['content'] ?? '',
       likes: (data['likes'] as num?)?.toInt() ?? 0,
       comments: (data['comments'] as num?)?.toInt() ?? 0,
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -277,6 +317,7 @@ class PhoneCall extends StoryItem {
     required this.lines,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -288,6 +329,7 @@ class PhoneCall extends StoryItem {
   factory PhoneCall.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     final rawLines = data['lines'] as List<dynamic>? ?? [];
+    final unlockAt = _readUnlockTimestamp(data);
     return PhoneCall(
       id: doc.id,
       caller: data['caller'] ?? '',
@@ -296,7 +338,8 @@ class PhoneCall extends StoryItem {
       lines: rawLines
           .map((l) => PhoneCallLine.fromMap(Map<String, dynamic>.from(l)))
           .toList(),
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],
@@ -318,6 +361,7 @@ class GalleryPhoto extends StoryItem {
     this.caption,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -328,12 +372,14 @@ class GalleryPhoto extends StoryItem {
 
   factory GalleryPhoto.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    final unlockAt = _readUnlockTimestamp(data);
     return GalleryPhoto(
       id: doc.id,
       tier: data['tier'] ?? 'diegetic',
       subject: data['subject'] ?? '',
       caption: data['caption'] as String?,
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'] as String?,
     );
   }
@@ -369,6 +415,7 @@ class GroupChatThread extends StoryItem {
     required this.messages,
     required super.unlockTimestamp,
     super.id = '',
+    super.timeOffsetMinutes = 0,
     super.imageUrl,
     super.isPasswordLocked = false,
     super.unlockPassword,
@@ -381,6 +428,7 @@ class GroupChatThread extends StoryItem {
     final data = doc.data() as Map<String, dynamic>;
     final rawMessages = data['messages'] as List<dynamic>? ?? [];
     final rawMembers = data['members'] as List<dynamic>? ?? [];
+    final unlockAt = _readUnlockTimestamp(data);
     return GroupChatThread(
       id: doc.id,
       platform: data['platform'] ?? 'whatsapp',
@@ -389,7 +437,8 @@ class GroupChatThread extends StoryItem {
       messages: rawMessages
           .map((m) => GroupChatMessage.fromMap(Map<String, dynamic>.from(m)))
           .toList(),
-      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      unlockTimestamp: unlockAt,
+      timeOffsetMinutes: _readTimeOffsetMinutes(data),
       imageUrl: data['imageUrl'],
       isPasswordLocked: data['is_locked'] ?? false,
       unlockPassword: data['unlock_password'],

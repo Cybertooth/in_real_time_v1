@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:just_audio/just_audio.dart';
 import '../models/story_item.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
@@ -153,12 +155,79 @@ class _ReceiptDetail extends StatelessWidget {
   }
 }
 
-class _VoiceNoteDetail extends StatelessWidget {
+class _VoiceNoteDetail extends StatefulWidget {
   final VoiceNote item;
   const _VoiceNoteDetail({required this.item});
 
   @override
+  State<_VoiceNoteDetail> createState() => _VoiceNoteDetailState();
+}
+
+class _VoiceNoteDetailState extends State<_VoiceNoteDetail> {
+  late final AudioPlayer _player;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration?>? _durationSub;
+  StreamSubscription<PlayerState>? _stateSub;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  bool _isPlaying = false;
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _player = AudioPlayer();
+    _positionSub = _player.positionStream.listen((value) {
+      if (mounted) setState(() => _position = value);
+    });
+    _durationSub = _player.durationStream.listen((value) {
+      if (mounted) setState(() => _duration = value ?? Duration.zero);
+    });
+    _stateSub = _player.playerStateStream.listen((value) {
+      if (mounted) setState(() => _isPlaying = value.playing);
+    });
+  }
+
+  @override
+  void dispose() {
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+    _stateSub?.cancel();
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _toggle() async {
+    final audioUrl = widget.item.audioUrl;
+    if (audioUrl == null || audioUrl.isEmpty) return;
+    if (_isPlaying) {
+      await _player.pause();
+      return;
+    }
+    if (_player.audioSource == null) {
+      setState(() => _loading = true);
+      try {
+        await _player.setUrl(audioUrl);
+      } finally {
+        if (mounted) setState(() => _loading = false);
+      }
+    }
+    await _player.play();
+  }
+
+  String _fmt(Duration d) {
+    final mm = d.inMinutes.toString().padLeft(2, '0');
+    final ss = (d.inSeconds % 60).toString().padLeft(2, '0');
+    return '$mm:$ss';
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
+    final hasAudio = (item.audioUrl ?? '').isNotEmpty;
+    final max = _duration.inMilliseconds > 0 ? _duration.inMilliseconds.toDouble() : 1.0;
+    final value = _position.inMilliseconds.clamp(0, max.toInt()).toDouble();
+
     return Column(
       children: [
         const SizedBox(height: 40),
@@ -167,6 +236,43 @@ class _VoiceNoteDetail extends StatelessWidget {
         Text(item.speaker, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
         const SizedBox(height: 8),
         TimestampLabel(time: item.unlockTimestamp),
+        const SizedBox(height: 20),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            IconButton(
+              onPressed: hasAudio && !_loading ? _toggle : null,
+              icon: _loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.voiceNoteColor),
+                    )
+                  : Icon(_isPlaying ? Icons.pause_circle_filled : Icons.play_circle_fill),
+              color: hasAudio ? AppTheme.voiceNoteColor : Colors.white24,
+              iconSize: 42,
+            ),
+          ],
+        ),
+        Slider(
+          value: value,
+          min: 0,
+          max: max,
+          activeColor: AppTheme.voiceNoteColor,
+          onChanged: hasAudio && _duration > Duration.zero
+              ? (v) => _player.seek(Duration(milliseconds: v.toInt()))
+              : null,
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          child: Row(
+            children: [
+              Text(_fmt(_position), style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+              const Spacer(),
+              Text(hasAudio ? _fmt(_duration) : 'Audio unavailable', style: const TextStyle(fontSize: 12, color: AppTheme.textMuted)),
+            ],
+          ),
+        ),
         const SizedBox(height: 48),
         Container(
           padding: const EdgeInsets.all(20),

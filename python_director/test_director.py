@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from python_director.defaults import get_default_pipeline
-from python_director.logic import PipelineRunner, compare_final_outputs
+from python_director.defaults import get_default_pipeline, get_pipeline_reset_template, get_reset_template_catalog
+from python_director.logic import PipelineRunner, compare_final_outputs, generate_block_tts
 from python_director.models import (
     AppSettings,
     BlockConfig,
@@ -16,6 +17,9 @@ from python_director.models import (
     PipelineDefinition,
     ProviderType,
     RunResult,
+    StoryMode,
+    TTSTier,
+    UploadRunRequest,
 )
 from python_director.storage import (
     list_named_pipelines,
@@ -383,3 +387,76 @@ def test_burstiness_score_perfect_vs_irregular():
         f"Even spacing should score higher than uneven: {even_score} vs {uneven_score}"
     )
 
+
+def test_upload_request_validates_scheduled_mode():
+    with pytest.raises(ValueError, match="scheduled_start_at is required"):
+        UploadRunRequest(story_mode=StoryMode.SCHEDULED, scheduled_start_at=None)
+
+    req = UploadRunRequest(
+        story_mode=StoryMode.SCHEDULED,
+        scheduled_start_at=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+        tts_tier=TTSTier.CHEAP,
+    )
+    assert req.story_mode == StoryMode.SCHEDULED
+    assert req.tts_tier == TTSTier.CHEAP
+
+    live_req = UploadRunRequest(
+        story_mode=StoryMode.LIVE,
+        scheduled_start_at=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+    )
+    assert live_req.scheduled_start_at is None
+
+
+def test_reset_templates_catalog_and_profiles():
+    catalog = get_reset_template_catalog()
+    keys = [item.key for item in catalog]
+    assert keys == ["full_fledged", "cheap_full", "cheap_short"]
+
+    full = get_pipeline_reset_template("full_fledged")
+    cheap_full = get_pipeline_reset_template("cheap_full")
+    cheap_short = get_pipeline_reset_template("cheap_short")
+
+    assert full.name == "Found Phone Director"
+    assert cheap_full.image_provider == ProviderType.OPENROUTER
+    assert cheap_full.default_image_models[ProviderType.OPENROUTER.value] == "bytedance-seed/seedream-4.5"
+    assert any(b.id == "tts_generation" for b in full.blocks)
+    assert any(not b.enabled for b in cheap_short.blocks if b.id.startswith("council_"))
+
+    with pytest.raises(ValueError, match="Unknown reset template_key"):
+        get_pipeline_reset_template("does_not_exist")
+
+
+def test_generate_block_tts_assigns_deterministic_voice_map(tmp_path: Path, monkeypatch):
+    from python_director import logic
+
+    monkeypatch.setattr(logic, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(logic, "_generate_tts_bytes", lambda *_args, **_kwargs: b"fake-mp3")
+
+    payload = {
+        "story_title": "Voice Story",
+        "voice_notes": [
+            {"speaker": "Alex", "transcript": "First line", "time_offset_minutes": 10},
+            {"speaker": "Jordan", "transcript": "Second line", "time_offset_minutes": 20},
+        ],
+    }
+    settings = AppSettings(openai_api_key="x")
+    first = generate_block_tts(
+        run_id="run_voice",
+        story_payload=json.loads(json.dumps(payload)),
+        settings=settings,
+        tts_tier="cheap",
+        story_id_seed="story_seed",
+    )
+    second = generate_block_tts(
+        run_id="run_voice_2",
+        story_payload=json.loads(json.dumps(payload)),
+        settings=settings,
+        tts_tier="cheap",
+        story_id_seed="story_seed",
+    )
+
+    assert first["voice_map"] == second["voice_map"]
+    assert first["tts_tier"] == "cheap"
+    assert first["voice_notes"][0]["voice_id"] == first["voice_map"]["Alex"]
+    assert first["voice_notes"][1]["voice_id"] == first["voice_map"]["Jordan"]
+    assert first["voice_notes"][0]["local_audio_path"].endswith(".mp3")

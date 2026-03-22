@@ -1,11 +1,13 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/story_item.dart';
 import '../models/story_summary.dart';
 import '../services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../theme.dart';
 
 // ---------------------------------------------------------------------------
 // Platform helpers
@@ -15,6 +17,59 @@ bool get _isDesktop =>
     (defaultTargetPlatform == TargetPlatform.windows ||
      defaultTargetPlatform == TargetPlatform.linux ||
      defaultTargetPlatform == TargetPlatform.macOS);
+
+const _subscriptionStartPrefix = 'subscription_start_';
+
+Future<DateTime?> getSubscriptionStartForStory(String storyId) async {
+  final prefs = await SharedPreferences.getInstance();
+  final millis = prefs.getInt('$_subscriptionStartPrefix$storyId');
+  if (millis == null) return null;
+  return DateTime.fromMillisecondsSinceEpoch(millis);
+}
+
+Future<DateTime> ensureSubscriptionStartForStory(String storyId, {DateTime? now}) async {
+  final prefs = await SharedPreferences.getInstance();
+  final key = '$_subscriptionStartPrefix$storyId';
+  final existing = prefs.getInt(key);
+  if (existing != null) {
+    return DateTime.fromMillisecondsSinceEpoch(existing);
+  }
+  final startedAt = now ?? DateTime.now();
+  await prefs.setInt(key, startedAt.millisecondsSinceEpoch);
+  return startedAt;
+}
+
+DateTime _effectiveUnlockTimestamp(
+  StoryItem item,
+  StorySummary? story,
+  DateTime? subscriptionStart,
+) {
+  if (story?.storyMode == StoryLifecycleMode.subscription) {
+    if (subscriptionStart == null) {
+      return DateTime.fromMillisecondsSinceEpoch(253402300799000); // year 9999 fallback
+    }
+    return subscriptionStart.add(Duration(minutes: item.timeOffsetMinutes));
+  }
+  return item.unlockTimestamp;
+}
+
+bool _isLockedForStory(
+  StoryItem item,
+  StorySummary? story,
+  DateTime? subscriptionStart,
+  DateTime now,
+) {
+  final unlockAt = _effectiveUnlockTimestamp(item, story, subscriptionStart);
+  return now.isBefore(unlockAt);
+}
+
+Color _colorFromHex(String? hex) {
+  final raw = (hex ?? '').replaceAll('#', '').trim();
+  if (raw.length != 6) return AppTheme.accentNeon;
+  final value = int.tryParse(raw, radix: 16);
+  if (value == null) return AppTheme.accentNeon;
+  return Color(0xFF000000 | value);
+}
 
 // ---------------------------------------------------------------------------
 // Clock — ticks every minute to re-evaluate time gates
@@ -88,6 +143,16 @@ final activeStoryProvider = StreamProvider<StorySummary?>((ref) {
   });
 });
 
+final activeSubscriptionStartProvider = FutureProvider<DateTime?>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  return getSubscriptionStartForStory(storyId);
+});
+
+final activeStoryThemeColorProvider = Provider<Color>((ref) {
+  final story = ref.watch(activeStoryProvider).valueOrNull;
+  return _colorFromHex(story?.themeColorHex);
+});
+
 // ---------------------------------------------------------------------------
 // Generic helper to create a Firestore stream provider for a collection
 // ---------------------------------------------------------------------------
@@ -100,6 +165,8 @@ StreamProvider<List<T>> _rawCollectionProvider<T extends StoryItem>(
     final db = ref.watch(firestoreProvider);
     final activeId = ref.watch(activeStoryIdProvider);
     final notifier = ref.watch(notificationServiceProvider);
+    final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+    final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
     
     if (db == null) return Stream.value(<T>[]);
 
@@ -111,8 +178,10 @@ StreamProvider<List<T>> _rawCollectionProvider<T extends StoryItem>(
         .snapshots()
         .map((snap) {
              final items = snap.docs.map(fromFirestore).toList();
+             final now = DateTime.now();
              for (final item in items) {
-               if (item.isLocked) {
+               if (_isLockedForStory(item, activeStory, subscriptionStart, now) &&
+                   activeStory?.storyMode != StoryLifecycleMode.subscription) {
                  notifier.scheduleItemUnlock(item);
                }
              }
@@ -126,8 +195,15 @@ Provider<AsyncValue<List<T>>> _collectionProvider<T extends StoryItem>(
 ) {
   return Provider<AsyncValue<List<T>>>((ref) {
     ref.watch(clockProvider);
+    final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+    final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
     final raw = ref.watch(rawProvider);
-    return raw.whenData((items) => items.where((i) => !i.isLocked).toList());
+    return raw.whenData((items) {
+      final now = DateTime.now();
+      return items
+          .where((item) => !_isLockedForStory(item, activeStory, subscriptionStart, now))
+          .toList();
+    });
   });
 }
 
@@ -165,6 +241,8 @@ final galleryProvider = _collectionProvider<GalleryPhoto>(_rawGalleryProvider);
 // Unified timeline — merges all content types into one sorted list
 // ---------------------------------------------------------------------------
 final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
   final journals = ref.watch(journalProvider);
   final chats = ref.watch(chatProvider);
   final emails = ref.watch(emailProvider);
@@ -207,7 +285,8 @@ final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
     ...groupChats.value ?? [],
   ];
 
-  merged.sort((a, b) => b.unlockTimestamp.compareTo(a.unlockTimestamp));
+  merged.sort((a, b) => _effectiveUnlockTimestamp(b, activeStory, subscriptionStart)
+      .compareTo(_effectiveUnlockTimestamp(a, activeStory, subscriptionStart)));
   return AsyncValue.data(merged);
 });
 
@@ -234,6 +313,8 @@ class ConversationThread {
 }
 
 final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((ref) {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
   final chats = ref.watch(chatProvider);
   final groups = ref.watch(groupChatProvider);
 
@@ -248,13 +329,14 @@ final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((re
 
   // Group 1-on-1 chats by senderId
   for (final chat in allChatItems) {
+    final effectiveTs = _effectiveUnlockTimestamp(chat, activeStory, subscriptionStart);
     final existing = threads[chat.senderId];
-    if (existing == null || chat.unlockTimestamp.isAfter(existing.lastTimestamp)) {
+    if (existing == null || effectiveTs.isAfter(existing.lastTimestamp)) {
       threads[chat.senderId] = ConversationThread(
         id: chat.senderId,
         title: chat.senderId,
         lastMessage: chat.text,
-        lastTimestamp: chat.unlockTimestamp,
+        lastTimestamp: effectiveTs,
         isGroup: false,
       );
     }
@@ -262,11 +344,12 @@ final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((re
 
   // Treat each GroupChatThread as its own conversation
   for (final group in allGroupItems) {
+    final effectiveTs = _effectiveUnlockTimestamp(group, activeStory, subscriptionStart);
     threads[group.id] = ConversationThread(
       id: group.id,
       title: group.groupName,
       lastMessage: group.messages.isNotEmpty ? group.messages.last.text : 'Group created',
-      lastTimestamp: group.unlockTimestamp,
+      lastTimestamp: effectiveTs,
       isGroup: true,
     );
   }
@@ -282,13 +365,16 @@ final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((re
 // ---------------------------------------------------------------------------
 // Since we fetch everything now, we can check any of the raw providers for a locked item.
 final upcomingItemsProvider = Provider<AsyncValue<bool>>((ref) {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
   final journals = ref.watch(_rawJournalProvider);
   final chats = ref.watch(_rawChatProvider);
   
   if (journals is AsyncLoading || chats is AsyncLoading) return const AsyncValue.loading();
   
-  final jLocked = journals.value?.any((j) => j.isLocked) ?? false;
-  final cLocked = chats.value?.any((c) => c.isLocked) ?? false;
+  final now = DateTime.now();
+  final jLocked = journals.value?.any((j) => _isLockedForStory(j, activeStory, subscriptionStart, now)) ?? false;
+  final cLocked = chats.value?.any((c) => _isLockedForStory(c, activeStory, subscriptionStart, now)) ?? false;
   
   return AsyncValue.data(jLocked || cLocked);
 });
@@ -297,6 +383,8 @@ final upcomingItemsProvider = Provider<AsyncValue<bool>>((ref) {
 // Reading Progress
 // ---------------------------------------------------------------------------
 final readingProgressProvider = Provider<AsyncValue<double>>((ref) {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref.watch(activeSubscriptionStartProvider).valueOrNull;
   final journals = ref.watch(_rawJournalProvider);
   final chats = ref.watch(_rawChatProvider);
   final emails = ref.watch(_rawEmailProvider);
@@ -311,11 +399,12 @@ final readingProgressProvider = Provider<AsyncValue<double>>((ref) {
 
   int total = 0;
   int unlocked = 0;
+  final now = DateTime.now();
 
   void countItems(List<StoryItem>? items) {
     if (items == null) return;
     total += items.length;
-    unlocked += items.where((i) => !i.isLocked).length;
+    unlocked += items.where((i) => !_isLockedForStory(i, activeStory, subscriptionStart, now)).length;
   }
 
   countItems(journals.value);

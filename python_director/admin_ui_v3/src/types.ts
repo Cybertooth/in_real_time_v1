@@ -5,7 +5,7 @@ export type BlockType =
   | 'creative_outliner' | 'brainstorm_critic' | 'brainstorm_rewriter'
   | 'planner' | 'critic' | 'reviser' | 'continuity_auditor'
   | 'decomposer' | 'drop_director' | 'generator'
-  | 'council_member' | 'council_judge' | 'image_generator'
+  | 'council_member' | 'council_judge' | 'image_generator' | 'tts_generator'
   | 'visual_bible' | 'image_prompt_director'
 
 export interface BlockConfig {
@@ -191,6 +191,12 @@ export interface BlockTemplate {
   config: BlockConfig
 }
 
+export interface ResetTemplateInfo {
+  key: string
+  name: string
+  description: string
+}
+
 export interface SocialPost {
   platform: string
   author: string
@@ -236,5 +242,6 @@ export interface StudioBootstrap {
   schemas: string[]
   block_types: BlockType[]
   block_templates: BlockTemplate[]
+  reset_templates: ResetTemplateInfo[]
   provider_models: Record<string, string[]>
 }

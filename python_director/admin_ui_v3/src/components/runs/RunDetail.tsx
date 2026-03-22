@@ -11,6 +11,16 @@ import TimelineView from './TimelineView'
 import ExperiencePreview from './ExperiencePreview'
 import ImagesView from './ImagesView'
 
+const THEME_PREVIEW = ['#00FF9C', '#FF8A65', '#90CAF9', '#A5D6A7', '#FFB74D', '#4DD0E1', '#CE93D8', '#F48FB1', '#81D4FA', '#AED581']
+
+function deriveThemePreview(seed: string): string {
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  }
+  return THEME_PREVIEW[hash % THEME_PREVIEW.length]
+}
+
 export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
@@ -22,41 +32,86 @@ export default function RunDetail() {
   const retryBlock = useStore((s) => s.retryBlock)
   const deleteRun = useStore((s) => s.deleteRun)
 
-  const [runData, setRunData] = useState<RunProgress | null>(null)
+  const [runData, setRunData] = useState<(RunProgress & {
+    final_output?: unknown
+    headline_image_path?: string | null
+    headline_image_prompt?: string | null
+    seed_prompt?: string | null
+    tags?: string[]
+  }) | null>(null)
   const [loading, setLoading] = useState(true)
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [retryTarget, setRetryTarget] = useState<{ id: string; name: string } | null>(null)
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
+  const [storyMode, setStoryMode] = useState<'live' | 'scheduled' | 'subscription'>('live')
+  const [scheduledStartAt, setScheduledStartAt] = useState('')
+  const [ttsTier, setTtsTier] = useState<'premium' | 'cheap'>('premium')
+  const [uploading, setUploading] = useState(false)
 
   // Load run data on mount / when navigating to a different run
   useEffect(() => {
     if (!runId) return
-    if (liveRun) {
-      setRunData(liveRun)
-      setLoading(false)
-      return
-    }
+    let cancelled = false
     setLoading(true)
-    api
-      .getRunStatus(runId)
+    api.getRun(runId)
       .then((data) => {
-        setRunData(data)
+        if (cancelled) return
+        setRunData(data as unknown as RunProgress & {
+          final_output?: unknown
+          headline_image_path?: string | null
+          headline_image_prompt?: string | null
+          seed_prompt?: string | null
+          tags?: string[]
+        })
         setLoading(false)
       })
-      .catch((err) => {
-        const msg = err instanceof Error ? err.message : 'Failed to load run'
-        showToast(msg, true)
-        setLoading(false)
+      .catch(async () => {
+        try {
+          const status = await api.getRunStatus(runId)
+          if (cancelled) return
+          setRunData(status)
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Failed to load run'
+          if (!cancelled) showToast(msg, true)
+        } finally {
+          if (!cancelled) setLoading(false)
+        }
       })
-  }, [runId]) // eslint-disable-line react-hooks/exhaustive-deps — re-fetch only on navigation, not on every poll tick
+    return () => {
+      cancelled = true
+    }
+  }, [runId, showToast])
 
   // Sync live progress when this is the active run
   useEffect(() => {
     if (liveRun) {
-      setRunData(liveRun)
+      setRunData((prev) => ({
+        ...(prev ?? {}),
+        ...liveRun,
+      } as RunProgress & {
+        final_output?: unknown
+        headline_image_path?: string | null
+        headline_image_prompt?: string | null
+        seed_prompt?: string | null
+        tags?: string[]
+      }))
       setLoading(false)
+      if (liveRun.status === 'succeeded' && runId) {
+        api.getRun(runId).then((full) => {
+          setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunProgress & {
+            final_output?: unknown
+            headline_image_path?: string | null
+            headline_image_prompt?: string | null
+            seed_prompt?: string | null
+            tags?: string[]
+          }))
+        }).catch(() => {
+          // no-op; status fallback still works
+        })
+      }
     }
-  }, [liveRun])
+  }, [liveRun, runId])
 
   if (loading) {
     return (
@@ -91,16 +146,41 @@ export default function RunDetail() {
     try { return new Date(ts).toLocaleString() } catch { return ts }
   }
 
-  const handleUpload = async () => {
+  const handleUpload = () => {
+    setUploadDialogOpen(true)
+  }
+
+  const handleUploadConfirm = async () => {
     if (!runId) return
-    if (!window.confirm('Upload this run to the production system?')) return
+    let scheduleIso: string | null = null
+    if (storyMode === 'scheduled') {
+      if (!scheduledStartAt) {
+        showToast('Select a scheduled start datetime.', true)
+        return
+      }
+      const localDate = new Date(scheduledStartAt)
+      if (Number.isNaN(localDate.getTime())) {
+        showToast('Invalid scheduled datetime.', true)
+        return
+      }
+      scheduleIso = localDate.toISOString()
+    }
+
+    setUploading(true)
     try {
-      const result = await api.uploadRun(runId)
+      const result = await api.uploadRun(runId, {
+        story_mode: storyMode,
+        scheduled_start_at: scheduleIso,
+        tts_tier: ttsTier,
+      })
       showToast(`Uploaded! Story ID: ${result.story_id}`)
       setRunData((prev) => (prev ? { ...prev, story_id: result.story_id } : null))
+      setUploadDialogOpen(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
       showToast(msg, true)
+    } finally {
+      setUploading(false)
     }
   }
 
@@ -131,6 +211,8 @@ export default function RunDetail() {
   // Seed/tags from the stored run progress (present if set when run was created)
   const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
   const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
+  const runTitle = runData.final_title || runData.pipeline_name || 'Untitled Story'
+  const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -152,7 +234,7 @@ export default function RunDetail() {
         <div className="p-4 border-b border-border flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-text">
-              {runData.final_title || runData.pipeline_name}
+              {runTitle}
             </h2>
             <Badge variant={statusVariant()}>{runData.status}</Badge>
           </div>
@@ -173,6 +255,7 @@ export default function RunDetail() {
               <button
                 type="button"
                 onClick={handleUpload}
+                disabled={uploading}
                 className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-mint text-black hover:brightness-110 transition-colors"
               >
                 Upload
@@ -263,6 +346,65 @@ export default function RunDetail() {
         onConfirm={handleRetryConfirm}
         onCancel={() => setRetryTarget(null)}
       />
+
+      {/* Upload configuration modal */}
+      <ConfirmDialog
+        open={uploadDialogOpen}
+        title="Upload Story"
+        description="Choose story lifecycle and TTS profile for production upload."
+        confirmLabel={uploading ? 'Uploading...' : 'Upload Story'}
+        confirmVariant="primary"
+        onConfirm={handleUploadConfirm}
+        onCancel={() => !uploading && setUploadDialogOpen(false)}
+      >
+        <div className="flex flex-col gap-3 text-sm">
+          <label className="flex flex-col gap-1">
+            <span className="text-text-dim text-xs uppercase tracking-wide">Story Mode</span>
+            <select
+              value={storyMode}
+              onChange={(e) => setStoryMode(e.target.value as 'live' | 'scheduled' | 'subscription')}
+              className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
+              disabled={uploading}
+            >
+              <option value="live">Live (global start)</option>
+              <option value="scheduled">Scheduled (future start)</option>
+              <option value="subscription">Subscription (start on follow)</option>
+            </select>
+          </label>
+
+          {storyMode === 'scheduled' && (
+            <label className="flex flex-col gap-1">
+              <span className="text-text-dim text-xs uppercase tracking-wide">Scheduled Start (Local Time)</span>
+              <input
+                type="datetime-local"
+                value={scheduledStartAt}
+                onChange={(e) => setScheduledStartAt(e.target.value)}
+                className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
+                disabled={uploading}
+              />
+            </label>
+          )}
+
+          <label className="flex flex-col gap-1">
+            <span className="text-text-dim text-xs uppercase tracking-wide">TTS Tier</span>
+            <select
+              value={ttsTier}
+              onChange={(e) => setTtsTier(e.target.value as 'premium' | 'cheap')}
+              className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
+              disabled={uploading}
+            >
+              <option value="premium">Premium</option>
+              <option value="cheap">Cheap</option>
+            </select>
+          </label>
+
+          <div className="flex items-center gap-2 text-xs text-text-dim">
+            <span className="uppercase tracking-wide">Theme Preview</span>
+            <span className="inline-block w-5 h-5 rounded-full border border-border" style={{ backgroundColor: themePreviewHex }} />
+            <code>{themePreviewHex}</code>
+          </div>
+        </div>
+      </ConfirmDialog>
     </>
   )
 }

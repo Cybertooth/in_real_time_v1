@@ -7,6 +7,7 @@ import type {
   BlockConfig,
   BlockTemplate,
   PipelineCatalogItem,
+  ResetTemplateInfo,
   SettingsPayload,
   RunSummary,
   RunProgress,
@@ -27,6 +28,7 @@ export interface StudioData {
   schemas: string[]
   blockTypes: BlockType[]
   blockTemplates: BlockTemplate[]
+  resetTemplates: ResetTemplateInfo[]
   providerModels: Record<string, string[]>
 }
 
@@ -40,6 +42,7 @@ interface StudioState {
   schemas: string[]
   blockTypes: BlockType[]
   blockTemplates: BlockTemplate[]
+  resetTemplates: ResetTemplateInfo[]
   providerModels: Record<string, string[]>
 
   // UI state
@@ -175,6 +178,7 @@ export const useStore = create<StudioState>((set, get) => {
     schemas: [],
     blockTypes: [],
     blockTemplates: [],
+    resetTemplates: [],
     providerModels: {},
 
     // UI state
@@ -202,6 +206,7 @@ export const useStore = create<StudioState>((set, get) => {
           schemas: data.schemas,
           blockTypes: data.block_types,
           blockTemplates: data.block_templates,
+          resetTemplates: data.reset_templates,
           providerModels: data.provider_models,
         }
         set({
@@ -213,6 +218,7 @@ export const useStore = create<StudioState>((set, get) => {
           schemas: data.schemas,
           blockTypes: data.block_types,
           blockTemplates: data.block_templates,
+          resetTemplates: data.reset_templates,
           providerModels: data.provider_models,
           loading: false,
           bootstrapError: false,

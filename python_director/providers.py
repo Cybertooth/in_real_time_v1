@@ -157,7 +157,7 @@ class OpenAIProvider(AIProvider):
             model=model_name,
             prompt=prompt,
             size="1024x1024",
-            quality="standard",
+            quality="auto",
             n=1,
         )
         url = response.data[0].url
@@ -226,7 +226,7 @@ class OpenRouterProvider(AIProvider):
                 {"role": "user", "content": contents},
             ],
             tools=[tool_def],  # type: ignore[list-item]
-            tool_choice={"type": "function", "function": {"name": "structured_output"}},
+            tool_choice="auto",
             temperature=config.temperature,
         )
         msg = response.choices[0].message

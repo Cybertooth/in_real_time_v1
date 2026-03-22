@@ -1,13 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'timeline_screen.dart';
-import 'journal_screen.dart';
-import 'chat_screen.dart';
-import 'email_screen.dart';
-import 'files_screen.dart';
 import 'story_gallery_screen.dart';
 import 'settings_screen.dart';
-import '../theme.dart';
 
 import 'hub_screen.dart';
 
@@ -36,6 +31,7 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
     return Scaffold(
       body: IndexedStack(
         index: _selectedIndex,
@@ -51,25 +47,25 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
           type: BottomNavigationBarType.fixed,
           selectedFontSize: 10,
           unselectedFontSize: 10,
-          items: const [
+          items: [
             BottomNavigationBarItem(
               icon: Icon(Icons.timeline_outlined),
-              activeIcon: Icon(Icons.timeline, color: AppTheme.accentNeon),
+              activeIcon: Icon(Icons.timeline, color: accent),
               label: 'Timeline',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.terminal_outlined),
-              activeIcon: Icon(Icons.terminal, color: AppTheme.accentNeon),
+              activeIcon: Icon(Icons.terminal, color: accent),
               label: 'Terminal',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.history_edu_outlined),
-              activeIcon: Icon(Icons.history_edu, color: AppTheme.accentNeon),
+              activeIcon: Icon(Icons.history_edu, color: accent),
               label: 'Gallery',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.settings_outlined),
-              activeIcon: Icon(Icons.settings, color: AppTheme.accentNeon),
+              activeIcon: Icon(Icons.settings, color: accent),
               label: 'Settings',
             ),
           ],

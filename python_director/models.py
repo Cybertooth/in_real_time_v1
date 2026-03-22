@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ProviderType(str, Enum):
@@ -42,8 +43,20 @@ class BlockType(str, Enum):
     COUNCIL_MEMBER = "council_member"
     COUNCIL_JUDGE = "council_judge"
     IMAGE_GENERATOR = "image_generator"
+    TTS_GENERATOR = "tts_generator"
     VISUAL_BIBLE = "visual_bible"
     IMAGE_PROMPT_DIRECTOR = "image_prompt_director"
+
+
+class StoryMode(str, Enum):
+    LIVE = "live"
+    SCHEDULED = "scheduled"
+    SUBSCRIPTION = "subscription"
+
+
+class TTSTier(str, Enum):
+    PREMIUM = "premium"
+    CHEAP = "cheap"
 
 
 class BlockConfig(BaseModel):
@@ -225,6 +238,20 @@ class RunPipelineRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class UploadRunRequest(BaseModel):
+    story_mode: StoryMode = StoryMode.LIVE
+    scheduled_start_at: Optional[datetime] = None
+    tts_tier: TTSTier = TTSTier.PREMIUM
+
+    @model_validator(mode="after")
+    def _validate_schedule_requirements(self) -> "UploadRunRequest":
+        if self.story_mode == StoryMode.SCHEDULED and self.scheduled_start_at is None:
+            raise ValueError("scheduled_start_at is required when story_mode is 'scheduled'.")
+        if self.story_mode != StoryMode.SCHEDULED:
+            self.scheduled_start_at = None
+        return self
+
+
 class PipelineSnapshotRequest(BaseModel):
     pipeline: PipelineDefinition
     label: Optional[str] = None
@@ -239,6 +266,10 @@ class NamedPipelineSaveRequest(BaseModel):
 class NamedPipelineLoadRequest(BaseModel):
     name: str
     set_active: bool = True
+
+
+class PipelineResetRequest(BaseModel):
+    template_key: str = "full_fledged"
 
 
 class RerunRequest(BaseModel):
@@ -283,6 +314,12 @@ class BlockTemplate(BaseModel):
     config: BlockConfig
 
 
+class ResetTemplateInfo(BaseModel):
+    key: str
+    name: str
+    description: str
+
+
 class StudioBootstrap(BaseModel):
     pipeline: PipelineDefinition
     pipeline_catalog: list[PipelineCatalogItem] = Field(default_factory=list)
@@ -291,6 +328,7 @@ class StudioBootstrap(BaseModel):
     schemas: list[str]
     block_types: list[BlockType]
     block_templates: list[BlockTemplate]
+    reset_templates: list[ResetTemplateInfo] = Field(default_factory=list)
     provider_models: dict[str, list[str]]
 
 
@@ -420,6 +458,11 @@ class VoiceNote(BaseModel):
     speaker: str
     transcript: str
     time_offset_minutes: int
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
+    voice_id: Optional[str] = None
+    local_audio_path: Optional[str] = None
+    audio_url: Optional[str] = None
 
 
 class SocialPost(BaseModel):

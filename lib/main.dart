@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'providers/story_provider.dart';
 import 'screens/main_navigation.dart';
 import 'theme.dart';
 
@@ -53,15 +54,16 @@ void main() async {
   );
 }
 
-class InRealTimeApp extends StatelessWidget {
+class InRealTimeApp extends ConsumerWidget {
   const InRealTimeApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final accent = ref.watch(activeStoryThemeColorProvider);
     return MaterialApp(
       title: 'In Real Time',
       debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
+      theme: AppTheme.themedDarkTheme(accent),
       home: const MainNavigation(),
     );
   }

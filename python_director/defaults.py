@@ -11,6 +11,7 @@ if __package__:
         PipelineBlock,
         PipelineDefinition,
         ProviderType,
+        ResetTemplateInfo,
     )
 else:
     from models import (
@@ -20,6 +21,7 @@ else:
         PipelineBlock,
         PipelineDefinition,
         ProviderType,
+        ResetTemplateInfo,
     )
 
 
@@ -347,6 +349,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
     ],
     ProviderType.OPENROUTER.value: [
         "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2.5-instruct",
         "minimax/minimax-m2.5",
         "qwen/qwen3.5-122b-a10b",
         "qwen/qwen3-235b-a22b",
@@ -356,6 +359,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "mistralai/mistral-nemo",
         "nvidia/nemotron-3-super-120b-a12b:free",
         "x-ai/grok-4.1-fast",
+        "z-ai/glm-4.5",
         "z-ai/glm-4.5-air:free",
         "bytedance-seed/seedream-4.5",
     ],
@@ -365,6 +369,7 @@ PIPELINE_DEFAULT_MODELS: dict[str, str] = {
     ProviderType.GEMINI.value: "gemini-3-flash-preview",
     ProviderType.OPENAI.value: "gpt-5.4-mini",
     ProviderType.ANTHROPIC.value: "claude-sonnet-4-6",
+    ProviderType.OPENROUTER.value: "moonshotai/kimi-k2.5",
 }
 
 
@@ -516,6 +521,19 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 model_name="gemini-3.1-flash-image-preview",
                 use_pipeline_default_model=False,
                 temperature=0.7,
+                system_instruction="N/A",
+                prompt_template="[Handled dynamically by node payload]",
+            ),
+        ),
+        BlockType.TTS_GENERATOR: BlockTemplate(
+            type=BlockType.TTS_GENERATOR,
+            name="Voice Note TTS Renderer",
+            description="Locally renders voice-note audio from transcripts with deterministic speaker voices.",
+            config=BlockConfig(
+                provider=ProviderType.OPENAI,
+                model_name="gpt-4o-mini-tts",
+                use_pipeline_default_model=False,
+                temperature=0.0,
                 system_instruction="N/A",
                 prompt_template="[Handled dynamically by node payload]",
             ),
@@ -896,5 +914,144 @@ def get_default_pipeline() -> PipelineDefinition:
                     "image_prompt_director",
                 ],
             ),
+            # ── Stage 14: Voice-note TTS rendering ───────────────────────────────
+            build_block_from_template(
+                BlockType.TTS_GENERATOR,
+                block_id="tts_generation",
+                input_blocks=[
+                    "image_generation",
+                ],
+            ),
         ],
     )
+
+
+def get_reset_template_catalog() -> list[ResetTemplateInfo]:
+    return [
+        ResetTemplateInfo(
+            key="full_fledged",
+            name="Full Fledged",
+            description="Highest quality default graph with full council and image/TTS stages.",
+        ),
+        ResetTemplateInfo(
+            key="cheap_full",
+            name="Cheap Full",
+            description="Same structure as full graph, but routes to cheaper model families and OpenRouter image generation.",
+        ),
+        ResetTemplateInfo(
+            key="cheap_short",
+            name="Cheap Short",
+            description="Reduced-cost and shorter graph with fewer council models and one lightweight critique pass.",
+        ),
+    ]
+
+
+def _cheap_full_defaults() -> dict[str, str]:
+    return {
+        ProviderType.GEMINI.value: "gemini-3.1-flash-lite-preview",
+        ProviderType.OPENAI.value: "gpt-5.4-nano",
+        ProviderType.ANTHROPIC.value: "claude-haiku-4-5-20251001",
+        ProviderType.OPENROUTER.value: "moonshotai/kimi-k2.5",
+    }
+
+
+def _apply_cheap_full_profile(pipeline: PipelineDefinition) -> PipelineDefinition:
+    p = pipeline.model_copy(deep=True)
+    p.name = "Found Phone Director (Cheap Full)"
+    p.description = "Cheaper full pipeline profile with lower-cost models and OpenRouter image generation."
+    p.default_models = _cheap_full_defaults()
+    p.image_provider = ProviderType.OPENROUTER
+    p.default_image_models = {
+        ProviderType.GEMINI.value: "gemini-3.1-flash-image-preview",
+        ProviderType.OPENAI.value: "gpt-image-1.5-2025-12-16",
+        ProviderType.OPENROUTER.value: "bytedance-seed/seedream-4.5",
+        ProviderType.ANTHROPIC.value: "",
+    }
+
+    cheap_assignments = {
+        "council_brainstorm_claude": (ProviderType.OPENROUTER, "moonshotai/kimi-k2.5"),
+        "council_plan_claude": (ProviderType.OPENROUTER, "z-ai/glm-4.5-air:free"),
+    }
+    for block in p.blocks:
+        if block.id in cheap_assignments:
+            provider, model = cheap_assignments[block.id]
+            block.config.provider = provider
+            block.config.model_name = model
+            block.config.use_pipeline_default_model = False
+            if "Claude" in block.name:
+                block.name = block.name.replace("Claude", "OpenRouter")
+            if "Claude" in block.description:
+                block.description = block.description.replace("Claude", "OpenRouter")
+
+        if block.type == BlockType.CREATIVE_OUTLINER:
+            block.config.provider = ProviderType.GEMINI
+            block.config.model_name = "gemini-3.1-flash-lite-preview"
+            block.config.use_pipeline_default_model = False
+        elif block.type == BlockType.COUNCIL_JUDGE and block.id == "council_brainstorm_judge":
+            block.config.provider = ProviderType.OPENAI
+            block.config.model_name = "gpt-5.4-mini"
+            block.config.use_pipeline_default_model = False
+        elif block.type == BlockType.COUNCIL_JUDGE and block.id == "council_plan_judge":
+            block.config.provider = ProviderType.GEMINI
+            block.config.model_name = "gemini-3.1-flash-lite-preview"
+            block.config.use_pipeline_default_model = False
+        elif block.type == BlockType.TTS_GENERATOR:
+            block.config.provider = ProviderType.OPENAI
+            block.config.model_name = "gpt-4o-mini-tts"
+            block.config.use_pipeline_default_model = False
+    return p
+
+
+def _apply_cheap_short_profile(pipeline: PipelineDefinition) -> PipelineDefinition:
+    p = _apply_cheap_full_profile(pipeline)
+    p.name = "Found Phone Director (Cheap Short)"
+    p.description = "Shortened cheap profile with reduced councils and one lightweight critique loop."
+
+    disabled_ids = {
+        "council_brainstorm_gemini_pro",
+        "council_brainstorm_openai",
+        "council_plan_gemini_pro",
+        "council_plan_openai",
+    }
+    for block in p.blocks:
+        if block.id in disabled_ids:
+            block.enabled = False
+
+    # Keep judges coherent with the reduced council set.
+    for block in p.blocks:
+        if block.id == "council_brainstorm_judge":
+            block.input_blocks = [
+                "creative_brainstorm",
+                "council_brainstorm_gemini_flash",
+                "council_brainstorm_claude",
+            ]
+            block.config.prompt_template = (
+                "Original brainstorm:\n{{creative_brainstorm}}\n\n"
+                "Council member 1 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\n"
+                "Council member 2 (OpenRouter):\n{{council_brainstorm_claude}}\n\n"
+                "Synthesize the council feedback and produce the upgraded brainstorm."
+            )
+        elif block.id == "council_plan_judge":
+            block.input_blocks = [
+                "structural_plan",
+                "council_plan_gemini_flash",
+                "council_plan_claude",
+            ]
+            block.config.prompt_template = (
+                "Original StoryPlan:\n{{structural_plan}}\n\n"
+                "Council member 1 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\n"
+                "Council member 2 (OpenRouter):\n{{council_plan_claude}}\n\n"
+                "Synthesize the council feedback and produce the upgraded StoryPlan."
+            )
+    return p
+
+
+def get_pipeline_reset_template(template_key: str = "full_fledged") -> PipelineDefinition:
+    normalized = (template_key or "full_fledged").strip().lower()
+    if normalized == "full_fledged":
+        return get_default_pipeline()
+    if normalized == "cheap_full":
+        return _apply_cheap_full_profile(get_default_pipeline())
+    if normalized == "cheap_short":
+        return _apply_cheap_short_profile(get_default_pipeline())
+    raise ValueError(f"Unknown reset template_key: '{template_key}'")

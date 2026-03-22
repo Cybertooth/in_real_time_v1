@@ -10,7 +10,12 @@ from typing import Any
 from dotenv import load_dotenv
 
 if __package__:
-    from .defaults import PROVIDER_MODELS, get_block_templates, get_default_pipeline
+    from .defaults import (
+        PROVIDER_MODELS,
+        get_block_templates,
+        get_default_pipeline,
+        get_reset_template_catalog,
+    )
     from .log_utils import get_logger
     from .models import (
         AppSettings,
@@ -28,7 +33,12 @@ if __package__:
         SCHEMA_MAP,
     )
 else:
-    from defaults import PROVIDER_MODELS, get_block_templates, get_default_pipeline
+    from defaults import (
+        PROVIDER_MODELS,
+        get_block_templates,
+        get_default_pipeline,
+        get_reset_template_catalog,
+    )
     from log_utils import get_logger
     from models import (
         AppSettings,
@@ -455,5 +465,6 @@ def build_studio_bootstrap() -> StudioBootstrap:
         schemas=list(SCHEMA_MAP.keys()),
         block_types=[template.type for template in get_block_templates()],
         block_templates=get_block_templates(),
+        reset_templates=get_reset_template_catalog(),
         provider_models=PROVIDER_MODELS,
     )

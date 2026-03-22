@@ -5,6 +5,7 @@ import PipelineMeta from '../pipeline/PipelineMeta'
 import PipelineLibrary from '../pipeline/PipelineLibrary'
 import BlockList from '../pipeline/BlockList'
 import TemplateRail from '../pipeline/TemplateRail'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 const MIN_WIDTH = 260
 const MAX_WIDTH = 800
@@ -12,6 +13,8 @@ const DEFAULT_WIDTH = 420
 
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
+  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('full_fledged')
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem('sidebar-width')
     const parsed = saved ? parseInt(saved, 10) : NaN
@@ -22,6 +25,14 @@ export default function Sidebar() {
   const pipeline = useStore((s) => s.pipeline)
   const showToast = useStore((s) => s.showToast)
   const loadStudio = useStore((s) => s.loadStudio)
+  const resetTemplates = useStore((s) => s.resetTemplates)
+
+  useEffect(() => {
+    if (resetTemplates.length === 0) return
+    if (!resetTemplates.some((t) => t.key === selectedTemplateKey)) {
+      setSelectedTemplateKey(resetTemplates[0].key)
+    }
+  }, [resetTemplates, selectedTemplateKey])
 
   const onMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -67,12 +78,12 @@ export default function Sidebar() {
   }
 
   const handleReset = async () => {
-    if (!window.confirm('Reset pipeline to defaults? This cannot be undone.')) return
     try {
-      const p = await api.resetPipeline()
+      const p = await api.resetPipeline(selectedTemplateKey)
       useStore.getState().setPipeline(p)
       showToast('Pipeline reset to defaults')
       loadStudio()
+      setResetDialogOpen(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to reset'
       showToast(msg, true)
@@ -137,7 +148,7 @@ export default function Sidebar() {
             </button>
             <button
               type="button"
-              onClick={handleReset}
+              onClick={() => setResetDialogOpen(true)}
               className="flex-1 px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-danger-soft text-danger border border-danger/30 hover:brightness-110 transition-colors"
             >
               Reset Default
@@ -153,6 +164,40 @@ export default function Sidebar() {
       >
         <div className="w-[1px] h-full mx-auto bg-transparent group-hover:bg-mint/40 transition-colors" />
       </div>
+
+      <ConfirmDialog
+        open={resetDialogOpen}
+        title="Reset Pipeline Template"
+        description="Choose which backend template to apply. This replaces the current active pipeline graph."
+        confirmLabel="Apply Template"
+        confirmVariant="danger"
+        onConfirm={handleReset}
+        onCancel={() => setResetDialogOpen(false)}
+      >
+        <div className="flex flex-col gap-2">
+          {resetTemplates.map((template) => (
+            <label
+              key={template.key}
+              className={`cursor-pointer rounded-lg border px-3 py-2 text-sm transition-colors ${
+                selectedTemplateKey === template.key
+                  ? 'border-mint bg-mint/10 text-text'
+                  : 'border-border bg-surface text-text-dim hover:text-text'
+              }`}
+            >
+              <input
+                type="radio"
+                name="reset-template"
+                value={template.key}
+                checked={selectedTemplateKey === template.key}
+                onChange={() => setSelectedTemplateKey(template.key)}
+                className="mr-2"
+              />
+              <span className="font-semibold">{template.name}</span>
+              <div className="mt-1 text-xs text-text-dim">{template.description}</div>
+            </label>
+          ))}
+        </div>
+      </ConfirmDialog>
     </div>
   )
 }

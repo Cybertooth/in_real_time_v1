@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 if __package__:
-    from .defaults import get_default_pipeline
+    from .defaults import get_pipeline_reset_template
     from .logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
     from .log_utils import get_logger
     from .models import (
@@ -19,8 +19,10 @@ if __package__:
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
+        PipelineResetRequest,
         PipelineSnapshotRequest,
         RerunRequest,
+        UploadRunRequest,
         RunPipelineRequest,
         RunProgress,
         RunStatus,
@@ -46,7 +48,7 @@ if __package__:
         PIPELINE_SNAPSHOT_FILENAME,
     )
 else:
-    from defaults import get_default_pipeline
+    from defaults import get_pipeline_reset_template
     from logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
     from log_utils import get_logger
     from models import (
@@ -55,8 +57,10 @@ else:
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
+        PipelineResetRequest,
         PipelineSnapshotRequest,
         RerunRequest,
+        UploadRunRequest,
         RunPipelineRequest,
         RunProgress,
         RunStatus,
@@ -202,9 +206,13 @@ async def delete_named_pipeline_endpoint(key: str):
 
 
 @router.post("/pipeline/reset")
-async def reset_pipeline_to_default():
-    logger.warning("Resetting pipeline to default")
-    return save_pipeline(get_default_pipeline())
+async def reset_pipeline_to_default(request: PipelineResetRequest = PipelineResetRequest()):
+    logger.warning("Resetting pipeline template_key=%s", request.template_key)
+    try:
+        pipeline = get_pipeline_reset_template(request.template_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return save_pipeline(pipeline)
 
 
 @router.post("/pipeline/snapshot")
@@ -500,8 +508,14 @@ async def compare_runs(request: CompareRunsRequest):
 
 
 @router.post("/upload/{run_id}")
-async def upload_run(run_id: str):
-    logger.info("Upload requested for run_id=%s", run_id)
+async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()):
+    logger.info(
+        "Upload requested run_id=%s mode=%s tts_tier=%s scheduled_start_at=%s",
+        run_id,
+        request.story_mode.value,
+        request.tts_tier.value,
+        request.scheduled_start_at,
+    )
     try:
         run_result = load_run_result(run_id)
     except FileNotFoundError as exc:
@@ -519,8 +533,20 @@ async def upload_run(run_id: str):
         )
 
     try:
-        pipeline = load_pipeline()
-        story_id = upload_to_firestore(run_result, cred_path, settings, pipeline)
+        snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+        if snapshot_path.exists():
+            pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+        else:
+            pipeline = load_pipeline()
+        story_id = upload_to_firestore(
+            run_result,
+            cred_path,
+            settings,
+            pipeline,
+            story_mode=request.story_mode.value,
+            scheduled_start_at=request.scheduled_start_at,
+            tts_tier=request.tts_tier.value,
+        )
         logger.info("Upload completed run_id=%s story_id=%s", run_id, story_id)
 
         # Update the run_result on disk to persist the story_id

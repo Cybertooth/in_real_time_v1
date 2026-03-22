@@ -60,7 +60,7 @@ export default function SettingsDialog() {
       return
     try {
       localStorage.clear()
-      await api.resetPipeline()
+      await api.resetPipeline('full_fledged')
       setSettingsOpen(false)
       loadStudio()
       showToast('Fresh start complete')

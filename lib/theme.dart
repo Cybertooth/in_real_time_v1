@@ -64,16 +64,16 @@ class AppTheme {
   }
 
   // ── Theme Data ──────────────────────────────────────────────────────────
-  static ThemeData get darkTheme {
+  static ThemeData themedDarkTheme(Color accent) {
     final headline = GoogleFonts.spaceGrotesk();
     final body = GoogleFonts.manrope();
 
     return ThemeData(
       brightness: Brightness.dark,
       scaffoldBackgroundColor: darkBg,
-      primaryColor: accentNeon,
-      colorScheme: const ColorScheme.dark(
-        primary: accentNeon,
+      primaryColor: accent,
+      colorScheme: ColorScheme.dark(
+        primary: accent,
         secondary: secondary,
         tertiary: tertiary,
         surface: surface,
@@ -84,25 +84,25 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         titleTextStyle: headline.copyWith(
-          color: accentNeon,
+          color: accent,
           fontSize: 18,
           fontWeight: FontWeight.w600,
           letterSpacing: 1.8,
         ),
         iconTheme: const IconThemeData(color: textDim),
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      bottomNavigationBarTheme: BottomNavigationBarThemeData(
         backgroundColor: surfaceLow,
-        selectedItemColor: accentNeon,
+        selectedItemColor: accent,
         unselectedItemColor: textMuted,
         type: BottomNavigationBarType.fixed,
         elevation: 0,
-        selectedLabelStyle: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.8),
-        unselectedLabelStyle: TextStyle(fontSize: 10, letterSpacing: 0.6),
+        selectedLabelStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, letterSpacing: 0.8),
+        unselectedLabelStyle: const TextStyle(fontSize: 10, letterSpacing: 0.6),
       ),
       textTheme: TextTheme(
-        displayLarge: headline.copyWith(color: accentNeon, fontSize: 28, fontWeight: FontWeight.bold),
-        headlineMedium: headline.copyWith(color: accentNeon, fontSize: 20, fontWeight: FontWeight.w600),
+        displayLarge: headline.copyWith(color: accent, fontSize: 28, fontWeight: FontWeight.bold),
+        headlineMedium: headline.copyWith(color: accent, fontSize: 20, fontWeight: FontWeight.w600),
         headlineSmall: headline.copyWith(color: textBody, fontSize: 16, fontWeight: FontWeight.w600),
         titleMedium: headline.copyWith(color: textBody, fontSize: 14, fontWeight: FontWeight.w500),
         bodyLarge: body.copyWith(color: textBody, fontSize: 15, height: 1.6),
@@ -123,4 +123,6 @@ class AppTheme {
       ),
     );
   }
+
+  static ThemeData get darkTheme => themedDarkTheme(accentNeon);
 }

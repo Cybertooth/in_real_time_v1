@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import threading
 import time
 from collections import Counter
@@ -52,6 +53,7 @@ else:
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
+        BlockType,
         ProviderType,
         RunComparison,
         RunProgress,
@@ -75,6 +77,21 @@ else:
 
 logger = get_logger("python_director.logic")
 
+_PREMIUM_TTS_VOICES = ["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
+_CHEAP_TTS_VOICES = ["alloy", "echo", "nova"]
+_THEME_PALETTE = [
+    "#00FF9C",
+    "#FF8A65",
+    "#90CAF9",
+    "#A5D6A7",
+    "#FFB74D",
+    "#4DD0E1",
+    "#CE93D8",
+    "#F48FB1",
+    "#81D4FA",
+    "#AED581",
+]
+
 
 def _serialize_output(data: Any) -> Any:
     if isinstance(data, BaseModel):
@@ -96,6 +113,138 @@ def _write_block_artifact(run_dir: Path, block_id: str, data: Any) -> None:
 
 def _count_words(value: str) -> int:
     return len([token for token in value.split() if token.strip()])
+
+
+def _coerce_offset_minutes(raw: Any) -> int:
+    if isinstance(raw, (int, float)):
+        return int(raw)
+    try:
+        return int(str(raw).strip())
+    except Exception:
+        return 0
+
+
+def _normalize_story_datetime_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        local_tz = datetime.now().astimezone().tzinfo or timezone.utc
+        value = value.replace(tzinfo=local_tz)
+    return value.astimezone(timezone.utc)
+
+
+def _derive_theme_color_hex(story_id: str, story_title: str) -> str:
+    seed = f"{story_id}::{story_title}".encode("utf-8")
+    digest = hashlib.sha256(seed).hexdigest()
+    idx = int(digest[:8], 16) % len(_THEME_PALETTE)
+    return _THEME_PALETTE[idx]
+
+
+def _story_duration_minutes(story_payload: dict[str, Any]) -> int:
+    max_offset = 0
+    for key in [
+        "journals",
+        "chats",
+        "emails",
+        "receipts",
+        "voice_notes",
+        "social_posts",
+        "phone_calls",
+        "group_chats",
+        "photo_gallery",
+    ]:
+        for item in story_payload.get(key, []):
+            max_offset = max(max_offset, _coerce_offset_minutes(item.get("time_offset_minutes", 0)))
+    return max_offset
+
+
+def _voice_pool(tts_tier: str) -> list[str]:
+    return _CHEAP_TTS_VOICES if tts_tier == "cheap" else _PREMIUM_TTS_VOICES
+
+
+def _build_voice_map(
+    story_id: str,
+    voice_notes: list[dict[str, Any]],
+    tts_tier: str,
+    existing_map: dict[str, str] | None = None,
+) -> dict[str, str]:
+    voice_map = dict(existing_map or {})
+    pool = _voice_pool(tts_tier)
+    for note in voice_notes:
+        speaker = (note.get("speaker") or "Unknown").strip() or "Unknown"
+        if speaker in voice_map:
+            continue
+        digest = hashlib.sha256(f"{story_id}:{speaker}:{tts_tier}".encode("utf-8")).hexdigest()
+        voice_map[speaker] = pool[int(digest[:8], 16) % len(pool)]
+    return voice_map
+
+
+def _read_audio_response_bytes(response: Any) -> bytes:
+    if hasattr(response, "read"):
+        data = response.read()
+        if isinstance(data, bytes):
+            return data
+    if hasattr(response, "content") and isinstance(response.content, bytes):
+        return response.content
+    if isinstance(response, bytes):
+        return response
+    raise ValueError("TTS provider did not return audio bytes.")
+
+
+def _generate_tts_bytes(
+    transcript: str,
+    voice_id: str,
+    tts_tier: str,
+    settings: AppSettings,
+) -> bytes:
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
+
+    text = transcript.strip()
+    if not text:
+        raise ValueError("Transcript is empty.")
+
+    # Premium path: OpenAI native TTS.
+    if tts_tier != "cheap":
+        if not settings.openai_api_key:
+            raise ValueError("OpenAI API key is missing for premium TTS generation.")
+        client = OpenAI(api_key=settings.openai_api_key, timeout=3600.0)
+        response = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice=voice_id,
+            input=text,
+            response_format="mp3",
+        )
+        return _read_audio_response_bytes(response)
+
+    # Cheap path: prefer OpenRouter if configured, else fallback to OpenAI.
+    if settings.openrouter_api_key:
+        client = OpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+            timeout=3600.0,
+        )
+        response = client.audio.speech.create(
+            model="openai/gpt-4o-mini-tts",
+            voice=voice_id,
+            input=text,
+            response_format="mp3",
+        )
+        return _read_audio_response_bytes(response)
+
+    if settings.openai_api_key:
+        client = OpenAI(api_key=settings.openai_api_key, timeout=3600.0)
+        response = client.audio.speech.create(
+            model="gpt-4o-mini-tts",
+            voice=voice_id,
+            input=text,
+            response_format="mp3",
+        )
+        return _read_audio_response_bytes(response)
+
+    raise ValueError("Neither OpenRouter nor OpenAI API key is configured for cheap TTS generation.")
 
 
 def _burstiness_metrics(final_output: dict[str, Any]) -> dict[str, float | int]:
@@ -628,6 +777,27 @@ class PipelineRunner:
                     source_payload = source_payload.model_dump()
 
                 output = generate_block_images(progress.run_id, source_payload, definition, self.settings)
+
+            elif block.type == BlockType.TTS_GENERATOR:
+                if not block.input_blocks:
+                    raise ValueError("TTS Generator requires an input block.")
+                input_id = block.input_blocks[0]
+                if input_id not in outputs:
+                    raise ValueError(f"TTS Generator dependent block {input_id} output not found.")
+
+                import copy
+                source_payload = copy.deepcopy(outputs[input_id])
+                if hasattr(source_payload, "model_dump"):
+                    source_payload = source_payload.model_dump()
+                output = generate_block_tts(
+                    progress.run_id,
+                    source_payload,
+                    self.settings,
+                    tts_tier="premium",
+                    story_id_seed=progress.run_id,
+                    force_regenerate=False,
+                    existing_voice_map=source_payload.get("voice_map") if isinstance(source_payload, dict) else None,
+                )
 
             elif block.type == BlockType.IMAGE_PROMPT_DIRECTOR:
                 # Run the LLM call to get the patch, then merge it into the upstream StoryGenerated.
@@ -1184,16 +1354,102 @@ def generate_block_images(run_id: str, story_payload: dict[str, Any], pipeline: 
     return story_payload
 
 
-def upload_to_firestore(result: RunResult, firebase_service_account_path: str, settings: AppSettings, pipeline: PipelineDefinition):
+def generate_block_tts(
+    run_id: str,
+    story_payload: dict[str, Any],
+    settings: AppSettings,
+    *,
+    tts_tier: str = "premium",
+    story_id_seed: str | None = None,
+    force_regenerate: bool = False,
+    existing_voice_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    voice_notes = story_payload.get("voice_notes", [])
+    if not isinstance(voice_notes, list) or not voice_notes:
+        story_payload["voice_map"] = dict(existing_voice_map or {})
+        story_payload["tts_tier"] = tts_tier
+        return story_payload
+
+    audio_dir = RUNS_DIR / run_id / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    stable_story_id = story_id_seed or story_payload.get("story_title") or run_id
+    voice_map = _build_voice_map(
+        stable_story_id,
+        [item for item in voice_notes if isinstance(item, dict)],
+        tts_tier,
+        existing_map=existing_voice_map,
+    )
+
+    for i, item in enumerate(voice_notes):
+        if not isinstance(item, dict):
+            continue
+        transcript = str(item.get("transcript") or "").strip()
+        if not transcript:
+            continue
+
+        speaker = (item.get("speaker") or "Unknown").strip() or "Unknown"
+        voice_id = voice_map.get(speaker) or _voice_pool(tts_tier)[0]
+        prior_voice = str(item.get("voice_id") or "")
+        prior_audio = str(item.get("local_audio_path") or "")
+        if (
+            not force_regenerate
+            and prior_audio
+            and prior_voice == voice_id
+            and (RUNS_DIR / run_id / prior_audio).exists()
+        ):
+            item["voice_id"] = voice_id
+            continue
+
+        try:
+            audio_bytes = _generate_tts_bytes(transcript, voice_id, tts_tier, settings)
+            filename = f"voice_note_{i}.mp3"
+            output_path = audio_dir / filename
+            output_path.write_bytes(audio_bytes)
+            item["local_audio_path"] = f"audio/{filename}"
+            item["voice_id"] = voice_id
+        except Exception as exc:
+            logger.error("TTS generation failed for voice note index=%s speaker=%s: %s", i, speaker, exc)
+
+    story_payload["voice_map"] = voice_map
+    story_payload["tts_tier"] = tts_tier
+    return story_payload
+
+
+def upload_to_firestore(
+    result: RunResult,
+    firebase_service_account_path: str,
+    settings: AppSettings,
+    pipeline: PipelineDefinition,
+    *,
+    story_mode: str = "live",
+    scheduled_start_at: datetime | None = None,
+    tts_tier: str = "premium",
+):
     story_data = result.final_output
     if not isinstance(story_data, dict):
         raise ValueError("final_output must be a dict")
-        
-    logger.info("Upload start story_title=%s", story_data.get("story_title"))
+
+    story_mode = (story_mode or "live").strip().lower()
+    if story_mode not in {"live", "scheduled", "subscription"}:
+        raise ValueError(f"Unsupported story_mode '{story_mode}'.")
+    tts_tier = (tts_tier or "premium").strip().lower()
+    if tts_tier not in {"premium", "cheap"}:
+        raise ValueError(f"Unsupported tts_tier '{tts_tier}'.")
+
+    scheduled_start_utc = _normalize_story_datetime_utc(scheduled_start_at)
+    if story_mode == "scheduled" and scheduled_start_utc is None:
+        raise ValueError("scheduled_start_at is required when story_mode is 'scheduled'.")
+
+    logger.info(
+        "Upload start story_title=%s mode=%s tts_tier=%s",
+        story_data.get("story_title"),
+        story_mode,
+        tts_tier,
+    )
     import firebase_admin
     from firebase_admin import credentials, firestore, storage
     import time
-    from datetime import datetime, timezone, timedelta
 
     # Ensure path is absolute relative to BASE_DIR if it's a simple filename
     path = Path(firebase_service_account_path)
@@ -1222,14 +1478,45 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
         logger.warning(f"Could not initialize storage bucket, images will be skipped. {e}")
         bucket = None
 
-    start_time = datetime.now(timezone.utc)
+    created_at = datetime.now(timezone.utc)
     story_id = f"story_{int(time.time())}"
     story_ref = db.collection("stories").document(story_id)
-    
+
+    # Make sure audio exists for the chosen upload tier and keep deterministic voice mapping.
+    story_data = generate_block_tts(
+        result.run_id,
+        story_data,
+        settings,
+        tts_tier=tts_tier,
+        story_id_seed=story_id,
+        force_regenerate=True,
+        existing_voice_map=story_data.get("voice_map") if isinstance(story_data.get("voice_map"), dict) else None,
+    )
+    result.final_output = story_data
+
+    story_start_at = created_at
+    if story_mode == "scheduled":
+        story_start_at = scheduled_start_utc or created_at
+    elif story_mode == "subscription":
+        story_start_at = None
+    story_duration_minutes = _story_duration_minutes(story_data)
+    story_end_at = (
+        story_start_at + timedelta(minutes=story_duration_minutes)
+        if story_start_at is not None
+        else None
+    )
+    theme_color_hex = _derive_theme_color_hex(story_id, str(story_data.get("story_title") or "Untitled"))
+    voice_map = story_data.get("voice_map") if isinstance(story_data.get("voice_map"), dict) else {}
+
     headline_url = None
-    if getattr(result, "headline_image_path", None) and bucket:
+    headline_local_path = (
+        story_data.get("headline_image_path")
+        or getattr(result, "headline_image_path", None)
+    )
+    if headline_local_path and bucket:
         try:
-            full_local_path = RUNS_DIR / result.run_id / result.headline_image_path
+            base_path = str(headline_local_path).split("?")[0]
+            full_local_path = RUNS_DIR / result.run_id / base_path
             if full_local_path.exists():
                 blob = bucket.blob(f"stories/{story_id}/headline_{int(time.time())}.jpg")
                 blob.upload_from_filename(str(full_local_path), content_type="image/jpeg")
@@ -1245,9 +1532,20 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
             "tags": result.tags,
             "characters": [_serialize_output(c) for c in result.characters],
             "headlineImageUrl": headline_url,
-            "createdAt": start_time,
+            "createdAt": created_at,
+            "storyMode": story_mode,
+            "storyStartAt": story_start_at,
+            "storyEndAt": story_end_at,
+            "storyDurationMinutes": story_duration_minutes,
+            "themeColorHex": theme_color_hex,
+            "ttsTier": tts_tier,
+            "voiceMap": voice_map,
         }
     )
+
+    def _unlock_timestamp_for_offset(offset_minutes: int) -> datetime:
+        base = story_start_at if story_start_at is not None else created_at
+        return base + timedelta(minutes=offset_minutes)
 
     def upload_collection(collection_name, items):
         if not items:
@@ -1256,15 +1554,20 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
         batch = db.batch()
         for i, item in enumerate(items):
             doc_ref = story_ref.collection(collection_name).document()
-            unlock_time = start_time + timedelta(minutes=item.get("time_offset_minutes", 0))
             doc_data = item.copy()
-            doc_data.pop("time_offset_minutes", None)
+            offset_minutes = _coerce_offset_minutes(
+                doc_data.get("time_offset_minutes", doc_data.get("timeOffsetMinutes", 0))
+            )
+            unlock_time = _unlock_timestamp_for_offset(offset_minutes)
+            doc_data["time_offset_minutes"] = offset_minutes
+            doc_data["timeOffsetMinutes"] = offset_minutes
             doc_data["unlockTimestamp"] = unlock_time
-            
+
             local_path = doc_data.pop("local_image_path", None)
             if local_path and bucket:
                 try:
-                    full_local_path = RUNS_DIR / result.run_id / local_path
+                    base_path = str(local_path).split("?")[0]
+                    full_local_path = RUNS_DIR / result.run_id / base_path
                     if full_local_path.exists():
                         blob = bucket.blob(f"stories/{story_id}/{collection_name}_{i}_{int(time.time())}.jpg")
                         blob.upload_from_filename(str(full_local_path), content_type="image/jpeg")
@@ -1272,6 +1575,27 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
                         doc_data["imageUrl"] = blob.public_url
                 except Exception as e:
                     logger.error("Image upload failed: %s", e)
+
+            if collection_name == "voice_notes":
+                local_audio_path = doc_data.pop("local_audio_path", None)
+                audio_url = None
+                if local_audio_path and bucket:
+                    try:
+                        base_audio_path = str(local_audio_path).split("?")[0]
+                        full_local_audio = RUNS_DIR / result.run_id / base_audio_path
+                        if full_local_audio.exists():
+                            blob = bucket.blob(f"stories/{story_id}/voice_note_{i}_{int(time.time())}.mp3")
+                            blob.upload_from_filename(str(full_local_audio), content_type="audio/mpeg")
+                            blob.make_public()
+                            audio_url = blob.public_url
+                    except Exception as e:
+                        logger.error("Voice note audio upload failed: %s", e)
+                if audio_url:
+                    doc_data["audioUrl"] = audio_url
+                    doc_data["audio_url"] = audio_url
+                voice_id = doc_data.get("voice_id")
+                if voice_id:
+                    doc_data["voiceId"] = voice_id
 
             batch.set(doc_ref, doc_data)
         batch.commit()
@@ -1282,7 +1606,10 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
         batch = db.batch()
         for i, item in enumerate(items):
             doc_ref = story_ref.collection("gallery").document()
-            unlock_time = start_time + timedelta(minutes=item.get("time_offset_minutes", 0))
+            offset_minutes = _coerce_offset_minutes(
+                item.get("time_offset_minutes", item.get("timeOffsetMinutes", 0))
+            )
+            unlock_time = _unlock_timestamp_for_offset(offset_minutes)
             local_path = item.get("local_image_path")
             image_url = None
             if local_path and bucket:
@@ -1300,7 +1627,8 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
                 "tier": item.get("tier", "diegetic"),
                 "subject": item.get("subject", ""),
                 "caption": item.get("caption"),
-                "time_offset_minutes": item.get("time_offset_minutes", 0),
+                "time_offset_minutes": offset_minutes,
+                "timeOffsetMinutes": offset_minutes,
                 "unlockTimestamp": unlock_time,
                 "imageUrl": image_url,
             }
