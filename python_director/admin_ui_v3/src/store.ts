@@ -112,8 +112,12 @@ export const useStore = create<StudioState>((set, get) => {
       if (get().activeRunId !== runId) return // stopped externally
       try {
         const p = await api.getRunStatus(runId)
-        set({ liveRun: p, pollInterval: 1500 })
-        interval = 1500
+        if (interval !== 1500) {
+          interval = 1500
+          set({ liveRun: p, pollInterval: 1500 })
+        } else {
+          set({ liveRun: p })
+        }
 
         if (p.status === 'succeeded' || p.status === 'failed') {
           const isSuccess = p.status === 'succeeded'
@@ -152,9 +156,8 @@ export const useStore = create<StudioState>((set, get) => {
           return
         }
         interval = Math.min(interval * 2, 10000)
-        set({ pollInterval: interval })
         const timer = setTimeout(poll, interval)
-        set({ pollTimer: timer })
+        set({ pollInterval: interval, pollTimer: timer })
       }
     }
 
