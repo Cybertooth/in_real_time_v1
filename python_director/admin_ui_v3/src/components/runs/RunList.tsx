@@ -30,10 +30,10 @@ export default function RunList() {
     try { return new Date(ts).toLocaleString() } catch { return ts }
   }
 
-  const handleRerun = (seedPrompt: string, tags: string[]) => {
+  const handleRerun = (seedPrompt: string, tags: string[], allowedLanguages: string[]) => {
     if (!rerunTarget) return
     setRerunTarget(null)
-    rerunFromRun(rerunTarget.run_id, seedPrompt || null, tags)
+    rerunFromRun(rerunTarget.run_id, seedPrompt || null, tags, allowedLanguages)
     // No navigate — active run card appears in sidebar automatically
   }
 
@@ -161,6 +161,7 @@ export default function RunList() {
         onStart={handleRerun}
         initialSeedPrompt={rerunTarget?.seed_prompt ?? ''}
         initialTags={rerunTarget?.tags ?? []}
+        initialAllowedLanguages={rerunTarget?.allowed_languages ?? []}
         initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"

@@ -329,6 +329,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gemini-3-flash-preview",
         "gemini-3.1-flash-lite-preview",
         "gemini-3.1-flash-image-preview",
+        "imagen-4.0-fast-generate-001",
         "gemini-2.5-pro",
         "gemini-2.5-flash",
         "gemini-2.0-flash",
@@ -338,7 +339,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "gpt-5.4-mini",
         "gpt-5.4-pro",
         "gpt-5.4-nano",
-        "gpt-image-1.5-2025-12-16",
+        "gpt-image-1",
     ],
     ProviderType.ANTHROPIC.value: [
         "claude-opus-4-6",
@@ -362,6 +363,8 @@ PROVIDER_MODELS: dict[str, list[str]] = {
         "z-ai/glm-4.5",
         "z-ai/glm-4.5-air:free",
         "bytedance-seed/seedream-4.5",
+        "black-forest-labs/flux-1-schnell",
+        "stabilityai/stable-diffusion-3.5-large",
     ],
 }
 
@@ -963,7 +966,7 @@ def _apply_cheap_full_profile(pipeline: PipelineDefinition) -> PipelineDefinitio
     p.image_provider = ProviderType.OPENROUTER
     p.default_image_models = {
         ProviderType.GEMINI.value: "gemini-3.1-flash-image-preview",
-        ProviderType.OPENAI.value: "gpt-image-1.5-2025-12-16",
+        ProviderType.OPENAI.value: "gpt-image-1",
         ProviderType.OPENROUTER.value: "bytedance-seed/seedream-4.5",
         ProviderType.ANTHROPIC.value: "",
     }
@@ -994,6 +997,11 @@ def _apply_cheap_full_profile(pipeline: PipelineDefinition) -> PipelineDefinitio
         elif block.type == BlockType.COUNCIL_JUDGE and block.id == "council_plan_judge":
             block.config.provider = ProviderType.GEMINI
             block.config.model_name = "gemini-3.1-flash-lite-preview"
+            block.config.use_pipeline_default_model = False
+        elif block.type == BlockType.IMAGE_GENERATOR:
+            # Keep cheap templates explicit: OpenRouter Seedream for image rendering.
+            block.config.provider = ProviderType.OPENROUTER
+            block.config.model_name = "bytedance-seed/seedream-4.5"
             block.config.use_pipeline_default_model = False
         elif block.type == BlockType.TTS_GENERATOR:
             block.config.provider = ProviderType.OPENAI

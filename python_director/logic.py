@@ -91,6 +91,116 @@ _THEME_PALETTE = [
     "#81D4FA",
     "#AED581",
 ]
+_IMAGE_MODEL_FALLBACKS: dict[ProviderType, list[str]] = {
+    ProviderType.OPENROUTER: [
+        "bytedance-seed/seedream-4.5",
+        "black-forest-labs/flux-1-schnell",
+        "stabilityai/stable-diffusion-3.5-large",
+    ],
+    ProviderType.OPENAI: ["gpt-image-1"],
+    ProviderType.GEMINI: ["gemini-3.1-flash-image-preview", "imagen-4.0-fast-generate-001"],
+}
+_IMAGE_PROVIDER_ORDER: list[ProviderType] = [
+    ProviderType.OPENROUTER,
+    ProviderType.OPENAI,
+    ProviderType.GEMINI,
+]
+
+
+def _normalize_allowed_languages(raw_languages: list[str] | None) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_languages or []:
+        lang = str(raw or "").strip()
+        if not lang:
+            continue
+        key = lang.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(lang)
+    return normalized
+
+
+def _allowed_languages_instruction(allowed_languages: list[str]) -> str:
+    if not allowed_languages:
+        return ""
+    languages = ", ".join(allowed_languages)
+    mix_hint = (
+        "Code-switching between these languages is allowed where natural."
+        if len(allowed_languages) > 1
+        else "Do not code-switch into any other language."
+    )
+    return (
+        "LANGUAGE CONSTRAINTS (strict):\n"
+        f"- Allowed language(s): {languages}\n"
+        "- All user-facing artifact text must stay within the allowed language set.\n"
+        f"- {mix_hint}\n"
+        "- Keep platform conventions (chat slang, social tone) while respecting the language constraint."
+    )
+
+
+def _provider_has_api_key(provider: ProviderType, settings: AppSettings) -> bool:
+    if provider == ProviderType.OPENROUTER:
+        return bool(settings.openrouter_api_key)
+    if provider == ProviderType.OPENAI:
+        return bool(settings.openai_api_key)
+    if provider == ProviderType.GEMINI:
+        return bool(settings.gemini_api_key)
+    if provider == ProviderType.ANTHROPIC:
+        return bool(settings.anthropic_api_key)
+    return False
+
+
+def _configured_image_model(
+    pipeline: PipelineDefinition,
+    provider: ProviderType,
+) -> str:
+    model_map = getattr(pipeline, "default_image_models", {}) or {}
+    return str(model_map.get(provider.value, "") or "").strip()
+
+
+def _build_image_generation_candidates(
+    pipeline: PipelineDefinition,
+    settings: AppSettings,
+) -> list[tuple[ProviderType, str]]:
+    configured_provider = getattr(pipeline, "image_provider", ProviderType.GEMINI)
+    if not isinstance(configured_provider, ProviderType):
+        try:
+            configured_provider = ProviderType(str(configured_provider))
+        except ValueError:
+            configured_provider = ProviderType.GEMINI
+
+    ordered_providers = [configured_provider] + [
+        provider for provider in _IMAGE_PROVIDER_ORDER if provider != configured_provider
+    ]
+    candidates: list[tuple[ProviderType, str]] = []
+    seen: set[tuple[ProviderType, str]] = set()
+
+    for provider in ordered_providers:
+        if not _provider_has_api_key(provider, settings):
+            continue
+        configured_model = _configured_image_model(pipeline, provider)
+        model_list: list[str] = []
+        if configured_model:
+            model_list.append(configured_model)
+        model_list.extend(_IMAGE_MODEL_FALLBACKS.get(provider, []))
+
+        for model in model_list:
+            key = (provider, model)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(key)
+
+    return candidates
+
+
+def _short_error_message(exc: Exception, max_chars: int = 280) -> str:
+    message = " ".join(str(exc).split())
+    if len(message) <= max_chars:
+        return message
+    return message[:max_chars].rstrip() + "..."
 
 
 def _serialize_output(data: Any) -> Any:
@@ -874,34 +984,50 @@ class PipelineRunner:
         progress_callback: Any | None = None,
         seed_prompt: str | None = None,
         tags: list[str] | None = None,
+        allowed_languages: list[str] | None = None,
     ) -> RunResult:
         run_id = run_id or f"run_{int(time.time())}"
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        normalized_languages = _normalize_allowed_languages(allowed_languages)
 
         # Keep the original definition for snapshotting (seed must not be baked in)
         original_definition = definition
 
-        # Inject seed prompt and tags into the first creative_outliner block's prompt
-        if seed_prompt or tags:
+        # Inject seed prompt/tags/language constraints into brainstorm + generation blocks.
+        if seed_prompt or tags or normalized_languages:
             injected_parts: list[str] = []
             if seed_prompt:
                 injected_parts.append(f"STORY SEED (use as creative inspiration):\n{seed_prompt}")
             if tags:
                 injected_parts.append(f"REQUIRED THEMES / TAGS: {', '.join(tags)}")
+            language_instruction = _allowed_languages_instruction(normalized_languages)
+            if language_instruction:
+                injected_parts.append(language_instruction)
             prefix = "\n\n".join(injected_parts) + "\n\n"
 
             import copy as _copy
             definition = _copy.deepcopy(definition)
+            creative_injected = False
             for block in definition.blocks:
-                if block.enabled and block.type == "creative_outliner":
+                if block.enabled and block.type == BlockType.CREATIVE_OUTLINER and not creative_injected:
                     block.config.prompt_template = prefix + block.config.prompt_template
+                    creative_injected = True
                     logger.info(
-                        "Injected seed/tags into block id=%s seed_len=%s tags=%s",
-                        block.id, len(seed_prompt or ""), tags,
+                        "Injected seed/tags/languages into block id=%s seed_len=%s tags=%s languages=%s",
+                        block.id,
+                        len(seed_prompt or ""),
+                        tags,
+                        normalized_languages,
                     )
-                    break
+                elif block.enabled and block.type == BlockType.GENERATOR and language_instruction:
+                    block.config.prompt_template = f"{language_instruction}\n\n{block.config.prompt_template}"
+                    logger.info(
+                        "Injected allowed_languages into generator block id=%s languages=%s",
+                        block.id,
+                        normalized_languages,
+                    )
 
         waves = self._execution_waves(definition)
         # Pre-compute block_sequence from waves (deterministic, wave order preserved)
@@ -915,6 +1041,9 @@ class PipelineRunner:
             block_count=len(block_sequence),
             block_sequence=block_sequence,
             started_at=started_at.isoformat(),
+            seed_prompt=seed_prompt or None,
+            tags=list(tags or []),
+            allowed_languages=normalized_languages,
         )
 
         def _persist_progress():
@@ -1028,6 +1157,7 @@ class PipelineRunner:
             mode="dry_run",
             seed_prompt=seed_prompt or None,
             tags=list(tags or []),
+            allowed_languages=normalized_languages,
             setup=setup_val,
             characters=characters_val,
             outputs={block_id: _serialize_output(value) for block_id, value in outputs.items()},
@@ -1295,39 +1425,77 @@ class PipelineRunner:
 
         return progress
 
-def generate_block_images(run_id: str, story_payload: dict[str, Any], pipeline: PipelineDefinition, settings: AppSettings) -> dict[str, Any]:
-    image_provider_key = getattr(pipeline, "image_provider", ProviderType.GEMINI)
-    provider_val = image_provider_key.value if hasattr(image_provider_key, "value") else image_provider_key
-    image_model_name = getattr(pipeline, "default_image_models", {}).get(provider_val, "")
-    
-    if not image_model_name:
-        return story_payload
+def generate_image_with_fallback(
+    prompt: str,
+    pipeline: PipelineDefinition,
+    settings: AppSettings,
+    *,
+    provider_cache: dict[ProviderType, Any] | None = None,
+    preferred_candidate: tuple[ProviderType, str] | None = None,
+) -> tuple[bytes, tuple[ProviderType, str]]:
+    candidates = _build_image_generation_candidates(pipeline, settings)
+    if not candidates:
+        raise ValueError(
+            "No image generation provider is configured with a usable API key/model. "
+            "Add an image-capable key in Settings."
+        )
 
+    ordered_candidates = list(candidates)
+    if preferred_candidate and preferred_candidate in ordered_candidates:
+        ordered_candidates.remove(preferred_candidate)
+        ordered_candidates.insert(0, preferred_candidate)
+
+    cache = provider_cache if provider_cache is not None else {}
     api_keys = {
         "GEMINI_API_KEY": settings.gemini_api_key,
         "OPENAI_API_KEY": settings.openai_api_key,
         "OPENROUTER_API_KEY": settings.openrouter_api_key,
         "ANTHROPIC_API_KEY": settings.anthropic_api_key,
     }
-    
-    try:
-        img_provider = get_provider(image_provider_key, api_keys)
-    except Exception as e:
-        logger.warning(f"Could not initialize image provider: {e}")
-        return story_payload
+
+    errors: list[str] = []
+    for provider_type, model_name in ordered_candidates:
+        provider = cache.get(provider_type)
+        if provider is None:
+            try:
+                provider = get_provider(provider_type, api_keys)
+                cache[provider_type] = provider
+            except Exception as exc:
+                errors.append(f"{provider_type.value}/{model_name} init error: {_short_error_message(exc)}")
+                continue
+
+        try:
+            image_bytes = provider.generate_image(prompt, model_name)
+            return image_bytes, (provider_type, model_name)
+        except Exception as exc:
+            errors.append(f"{provider_type.value}/{model_name} failed: {_short_error_message(exc)}")
+
+    raise RuntimeError("Image generation failed across all candidates: " + " | ".join(errors))
+
+
+def generate_block_images(run_id: str, story_payload: dict[str, Any], pipeline: PipelineDefinition, settings: AppSettings) -> dict[str, Any]:
+    provider_cache: dict[ProviderType, Any] = {}
+    preferred_candidate: tuple[ProviderType, str] | None = None
 
     images_dir = RUNS_DIR / run_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
 
     def _gen_and_save(prompt: str, filename: str) -> str | None:
+        nonlocal preferred_candidate
         try:
             logger.info("Generating image locally: %s", filename)
-            img_bytes = img_provider.generate_image(prompt, image_model_name)
+            img_bytes, preferred_candidate = generate_image_with_fallback(
+                prompt,
+                pipeline,
+                settings,
+                provider_cache=provider_cache,
+                preferred_candidate=preferred_candidate,
+            )
             path = images_dir / filename
             path.write_bytes(img_bytes)
             return f"images/{filename}"
-        except Exception as e:
-            logger.error("Local image generation failed for %s: %s", filename, e)
+        except Exception as exc:
+            logger.error("Local image generation failed for %s: %s", filename, _short_error_message(exc))
             return None
 
     if story_payload.get("headline_image_prompt") and not story_payload.get("headline_image_path"):
@@ -1462,20 +1630,29 @@ def upload_to_firestore(
     resolved_path = str(path)
 
     cred = credentials.Certificate(resolved_path)
-    try:
-        app = firebase_admin.get_app()
-    except ValueError:
+    bucket_name = (settings.firebase_storage_bucket or "").strip()
+    if not bucket_name:
         import json
         with open(resolved_path, "r", encoding="utf-8") as f:
             sa = json.load(f)
             project_id = sa.get("project_id")
-        app = firebase_admin.initialize_app(cred, {"storageBucket": f"{project_id}.appspot.com"})
+        bucket_name = f"{project_id}.firebasestorage.app"
+
+    try:
+        app = firebase_admin.get_app()
+    except ValueError:
+        app = firebase_admin.initialize_app(cred, {"storageBucket": bucket_name})
         
     db = firestore.client()
     try:
-        bucket = storage.bucket()
+        # Explicitly use bucket_name in case the app was initialized with a different one or no bucket.
+        bucket = storage.bucket(name=bucket_name)
+        # Check if bucket exists to fail early if misconfigured
+        if not bucket.exists():
+            logger.warning(f"Storage bucket '{bucket_name}' does not exist, images will be skipped.")
+            bucket = None
     except Exception as e:
-        logger.warning(f"Could not initialize storage bucket, images will be skipped. {e}")
+        logger.warning(f"Could not initialize storage bucket '{bucket_name}', images will be skipped. {e}")
         bucket = None
 
     created_at = datetime.now(timezone.utc)
@@ -1530,6 +1707,7 @@ def upload_to_firestore(
             "title": story_data.get("story_title", "Untitled"),
             "setup": result.setup,
             "tags": result.tags,
+            "allowedLanguages": result.allowed_languages,
             "characters": [_serialize_output(c) for c in result.characters],
             "headlineImageUrl": headline_url,
             "createdAt": created_at,

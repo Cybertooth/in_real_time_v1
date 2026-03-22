@@ -140,7 +140,7 @@ export default function PipelineMeta() {
             <span className="text-text-dim text-xs">OpenAI Image Model</span>
             <input
               type="text"
-              placeholder="gpt-image-1.5-2025-12-16"
+              placeholder="gpt-image-1"
               value={pipeline.default_image_models?.['OPENAI'] || ''}
               onChange={(e) =>
                 updatePipelineMeta({

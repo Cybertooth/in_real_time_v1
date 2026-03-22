@@ -1,7 +1,7 @@
 {
   "name": "Found Phone Director (Cheap Short)",
   "description": "Shortened cheap profile with reduced councils and one lightweight critique loop.",
-  "updated_at": "2026-03-22T15:30:22.193986+00:00",
+  "updated_at": "2026-03-22T16:33:13.994331+00:00",
   "default_models": {
     "GEMINI": "gemini-3.1-flash-lite-preview",
     "OPENAI": "gpt-5.4-nano",
@@ -11,7 +11,7 @@
   "image_provider": "OPENROUTER",
   "default_image_models": {
     "GEMINI": "gemini-3.1-flash-image-preview",
-    "OPENAI": "gpt-image-1.5-2025-12-16",
+    "OPENAI": "gpt-image-1",
     "OPENROUTER": "bytedance-seed/seedream-4.5",
     "ANTHROPIC": ""
   },
@@ -42,7 +42,7 @@
       "enabled": false,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3-flash-preview",
+        "model_name": "gemini-3.1-pro-preview",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
@@ -394,8 +394,8 @@
       "type": "image_generator",
       "enabled": true,
       "config": {
-        "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-image-preview",
+        "provider": "OPENROUTER",
+        "model_name": "bytedance-seed/seedream-4.5",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "N/A",

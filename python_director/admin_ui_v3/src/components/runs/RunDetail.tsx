@@ -38,6 +38,7 @@ export default function RunDetail() {
     headline_image_prompt?: string | null
     seed_prompt?: string | null
     tags?: string[]
+    allowed_languages?: string[]
   }) | null>(null)
   const [loading, setLoading] = useState(true)
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
@@ -63,6 +64,7 @@ export default function RunDetail() {
           headline_image_prompt?: string | null
           seed_prompt?: string | null
           tags?: string[]
+          allowed_languages?: string[]
         })
         setLoading(false)
       })
@@ -95,6 +97,7 @@ export default function RunDetail() {
         headline_image_prompt?: string | null
         seed_prompt?: string | null
         tags?: string[]
+        allowed_languages?: string[]
       }))
       setLoading(false)
       if (liveRun.status === 'succeeded' && runId) {
@@ -105,6 +108,7 @@ export default function RunDetail() {
             headline_image_prompt?: string | null
             seed_prompt?: string | null
             tags?: string[]
+            allowed_languages?: string[]
           }))
         }).catch(() => {
           // no-op; status fallback still works
@@ -184,10 +188,10 @@ export default function RunDetail() {
     }
   }
 
-  const handleRerun = (seedPrompt: string, tags: string[]) => {
+  const handleRerun = (seedPrompt: string, tags: string[], allowedLanguages: string[]) => {
     setRerunDialogOpen(false)
     if (!runId) return
-    rerunFromRun(runId, seedPrompt || null, tags)
+    rerunFromRun(runId, seedPrompt || null, tags, allowedLanguages)
     navigate('/runs')
   }
 
@@ -211,6 +215,7 @@ export default function RunDetail() {
   // Seed/tags from the stored run progress (present if set when run was created)
   const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
   const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
+  const storedAllowedLanguages = (runData as unknown as Record<string, unknown>).allowed_languages as string[] | undefined
   const runTitle = runData.final_title || runData.pipeline_name || 'Untitled Story'
   const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
 
@@ -320,6 +325,7 @@ export default function RunDetail() {
         onStart={handleRerun}
         initialSeedPrompt={storedSeed ?? ''}
         initialTags={storedTags ?? []}
+        initialAllowedLanguages={storedAllowedLanguages ?? []}
         initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"

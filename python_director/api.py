@@ -11,16 +11,26 @@ from fastapi.staticfiles import StaticFiles
 
 if __package__:
     from .defaults import get_pipeline_reset_template
-    from .logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
+    from .logic import (
+        PipelineRunner,
+        compare_final_outputs,
+        upload_to_firestore,
+        derive_story_timeline,
+        generate_image_with_fallback,
+    )
     from .log_utils import get_logger
     from .models import (
         AppSettings,
+        BlockConfig,
         CompareRunsRequest,
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineResetRequest,
         PipelineSnapshotRequest,
+        ProviderType,
+        RandomSeedPromptRequest,
+        RandomSeedPromptResponse,
         RerunRequest,
         UploadRunRequest,
         RunPipelineRequest,
@@ -28,6 +38,7 @@ if __package__:
         RunStatus,
         RegenerateImageRequest,
     )
+    from .providers import get_provider
     from .storage import (
         BASE_DIR,
         RUNS_DIR,
@@ -49,16 +60,26 @@ if __package__:
     )
 else:
     from defaults import get_pipeline_reset_template
-    from logic import PipelineRunner, compare_final_outputs, upload_to_firestore, derive_story_timeline
+    from logic import (
+        PipelineRunner,
+        compare_final_outputs,
+        upload_to_firestore,
+        derive_story_timeline,
+        generate_image_with_fallback,
+    )
     from log_utils import get_logger
     from models import (
         AppSettings,
+        BlockConfig,
         CompareRunsRequest,
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
         PipelineResetRequest,
         PipelineSnapshotRequest,
+        ProviderType,
+        RandomSeedPromptRequest,
+        RandomSeedPromptResponse,
         RerunRequest,
         UploadRunRequest,
         RunPipelineRequest,
@@ -66,6 +87,7 @@ else:
         RunStatus,
         RegenerateImageRequest,
     )
+    from providers import get_provider
     from storage import (
         BASE_DIR,
         RUNS_DIR,
@@ -83,6 +105,7 @@ else:
         save_pipeline,
         save_settings,
         snapshot_pipeline,
+        PIPELINE_SNAPSHOT_FILENAME,
     )
 
 app = FastAPI(title="Python Director Studio API")
@@ -240,6 +263,61 @@ async def update_settings(settings: AppSettings):
     return get_settings_payload()
 
 
+@router.post("/seed-prompt/random")
+async def generate_random_seed_prompt(
+    request: RandomSeedPromptRequest = RandomSeedPromptRequest(),
+) -> RandomSeedPromptResponse:
+    settings = load_settings()
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="Gemini API key is missing. Add it in Settings before generating random seeds.",
+        )
+
+    provider = get_provider(
+        ProviderType.GEMINI,
+        {
+            "GEMINI_API_KEY": settings.gemini_api_key,
+            "OPENAI_API_KEY": settings.openai_api_key,
+            "OPENROUTER_API_KEY": settings.openrouter_api_key,
+            "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+        },
+    )
+
+    tags = [tag.strip() for tag in request.tags if tag and tag.strip()]
+    allowed_languages = [lang.strip() for lang in request.allowed_languages if lang and lang.strip()]
+    tags_line = f"\nPreferred themes/tags: {', '.join(tags)}" if tags else ""
+    languages_line = (
+        f"\nAllowed language(s): {', '.join(allowed_languages)}. "
+        "The generated seed should fit these language constraints."
+        if allowed_languages
+        else ""
+    )
+
+    prompt = (
+        "Create one fresh, original found-phone thriller seed idea for a mobile story app. "
+        "Return a single concise seed prompt (2-4 sentences), no bullets, no JSON, no title."
+        f"{tags_line}"
+        f"{languages_line}"
+    )
+
+    config = BlockConfig(
+        provider=ProviderType.GEMINI,
+        model_name="gemini-3.1-flash-lite-preview",
+        use_pipeline_default_model=False,
+        temperature=1.0,
+        system_instruction=(
+            "You are a story concept generator for interactive found-phone thrillers. "
+            "Always produce compact, high-concept prompts with strong conflict and twist potential."
+        ),
+        prompt_template="[handled directly]",
+    )
+    seed_prompt = provider.generate_content(config, prompt).strip()
+    if not seed_prompt:
+        raise HTTPException(status_code=500, detail="Random seed generation returned empty output.")
+    return RandomSeedPromptResponse(seed_prompt=seed_prompt)
+
+
 @router.get("/runs")
 async def list_runs():
     logger.info("Listing run summaries")
@@ -291,7 +369,13 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
     settings = load_settings()
     runner = PipelineRunner(settings)
     try:
-        result = runner.run_pipeline(pipeline, run_id=request.run_id)
+        result = runner.run_pipeline(
+            pipeline,
+            run_id=request.run_id,
+            seed_prompt=request.seed_prompt,
+            tags=request.tags,
+            allowed_languages=request.allowed_languages,
+        )
         logger.info(
             "Run finished run_id=%s blocks=%s final_title=%s",
             result.run_id,
@@ -310,6 +394,7 @@ def _bg_run_pipeline(
     settings: AppSettings,
     seed_prompt: str | None = None,
     tags: list[str] | None = None,
+    allowed_languages: list[str] | None = None,
 ):
     runner = PipelineRunner(settings)
 
@@ -323,6 +408,7 @@ def _bg_run_pipeline(
             progress_callback=_progress_callback,
             seed_prompt=seed_prompt,
             tags=tags or [],
+            allowed_languages=allowed_languages or [],
         )
     except Exception:
         # runner already logs and updates progress status to FAILED
@@ -355,6 +441,9 @@ async def start_run(
         timestamp=Path().cwd().name,  # placeholder, runner will set real one
         pipeline_name=pipeline.name,
         status=RunStatus.QUEUED,
+        seed_prompt=request.seed_prompt,
+        tags=request.tags,
+        allowed_languages=request.allowed_languages,
         block_count=len(pipeline.blocks),
         block_sequence=[b.id for b in pipeline.blocks if b.enabled],
     )
@@ -362,7 +451,7 @@ async def start_run(
 
     background_tasks.add_task(
         _bg_run_pipeline, run_id, pipeline, settings,
-        request.seed_prompt, request.tags,
+        request.seed_prompt, request.tags, request.allowed_languages,
     )
 
     return initial_progress
@@ -387,6 +476,9 @@ async def get_run_status(run_id: str):
             timestamp=result.timestamp,
             pipeline_name=result.pipeline_name,
             status=result.status,
+            seed_prompt=result.seed_prompt,
+            tags=result.tags,
+            allowed_languages=result.allowed_languages,
             block_count=result.block_count,
             current_block_id=result.current_block_id,
             final_title=result.final_title,
@@ -420,12 +512,19 @@ async def rerun_run(
             original = load_run_result(run_id)
             seed_prompt = original.seed_prompt
             tags = original.tags
+            allowed_languages = (
+                request.allowed_languages
+                if request.allowed_languages is not None
+                else original.allowed_languages
+            )
         except FileNotFoundError:
             seed_prompt = None
             tags = []
+            allowed_languages = request.allowed_languages or []
     else:
         seed_prompt = request.seed_prompt
         tags = request.tags
+        allowed_languages = request.allowed_languages or []
 
     settings = load_settings()
     new_run_id = f"run_{int(perf_counter() * 1000)}"
@@ -435,12 +534,23 @@ async def rerun_run(
         timestamp=str(new_run_id),
         pipeline_name=pipeline.name,
         status=RunStatus.QUEUED,
+        seed_prompt=seed_prompt,
+        tags=tags,
+        allowed_languages=allowed_languages,
         block_count=len([b for b in pipeline.blocks if b.enabled]),
         block_sequence=[b.id for b in pipeline.blocks if b.enabled],
     )
     active_runs[new_run_id] = initial_progress
 
-    background_tasks.add_task(_bg_run_pipeline, new_run_id, pipeline, settings, seed_prompt, tags)
+    background_tasks.add_task(
+        _bg_run_pipeline,
+        new_run_id,
+        pipeline,
+        settings,
+        seed_prompt,
+        tags,
+        allowed_languages,
+    )
     logger.info("Re-run started new_run_id=%s from_run_id=%s", new_run_id, run_id)
     return initial_progress
 
@@ -578,21 +688,6 @@ async def regenerate_image(run_id: str, req: RegenerateImageRequest):
 
     settings = load_settings()
 
-    from providers import get_provider, ProviderType
-    image_provider_key = getattr(pipeline, "image_provider", ProviderType.GEMINI)
-    image_model_name = getattr(pipeline, "default_image_models", {}).get(image_provider_key.value, "")
-    
-    if not image_model_name:
-        raise HTTPException(status_code=400, detail="No image model configured.")
-
-    api_keys = {
-        "GEMINI_API_KEY": settings.gemini_api_key,
-        "OPENAI_API_KEY": settings.openai_api_key,
-        "OPENROUTER_API_KEY": settings.openrouter_api_key,
-        "ANTHROPIC_API_KEY": settings.anthropic_api_key,
-    }
-    img_provider = get_provider(image_provider_key, api_keys)
-
     images_dir = RUNS_DIR / run_id / "images"
     images_dir.mkdir(parents=True, exist_ok=True)
     
@@ -631,9 +726,17 @@ async def regenerate_image(run_id: str, req: RegenerateImageRequest):
 
     # Invoke AI
     try:
-        img_bytes = img_provider.generate_image(req.new_prompt, image_model_name)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        img_bytes, chosen = generate_image_with_fallback(req.new_prompt, pipeline, settings)
+        logger.info(
+            "Regenerated image via provider=%s model=%s run_id=%s event_type=%s index=%s",
+            chosen[0].value,
+            chosen[1],
+            run_id,
+            event_type,
+            req.index,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
     # Save to disk
     path = images_dir / filename

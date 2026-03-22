@@ -132,6 +132,7 @@ export interface RunSummary {
   error_message: string | null
   seed_prompt: string | null
   tags: string[]
+  allowed_languages: string[]
   story_id: string | null
 }
 
@@ -141,6 +142,9 @@ export interface RunProgress {
   pipeline_name: string
   status: RunStatus
   mode: string
+  seed_prompt: string | null
+  tags: string[]
+  allowed_languages: string[]
   block_count: number
   current_block_id: string | null
   started_at: string | null

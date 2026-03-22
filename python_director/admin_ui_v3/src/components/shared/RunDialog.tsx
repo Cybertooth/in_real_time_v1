@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
+import * as api from '../../api'
 
 interface RunDialogProps {
   open: boolean
   onClose: () => void
-  onStart: (seedPrompt: string, tags: string[]) => void
+  onStart: (seedPrompt: string, tags: string[], allowedLanguages: string[]) => void
   initialSeedPrompt?: string
   initialTags?: string[]
+  initialAllowedLanguages?: string[]
   initialMode?: 'same' | 'new'
   title?: string
   submitLabel?: string
@@ -18,6 +20,7 @@ export default function RunDialog({
   onStart,
   initialSeedPrompt = '',
   initialTags = [],
+  initialAllowedLanguages = [],
   initialMode,
   title = 'Start Dry Run',
   submitLabel = 'Start Run',
@@ -27,6 +30,10 @@ export default function RunDialog({
   const [seedPrompt, setSeedPrompt] = useState(initialSeedPrompt)
   const [tags, setTags] = useState<string[]>(initialTags)
   const [tagInput, setTagInput] = useState('')
+  const [allowedLanguages, setAllowedLanguages] = useState<string[]>(initialAllowedLanguages)
+  const [languageInput, setLanguageInput] = useState('')
+  const [generatingSeed, setGeneratingSeed] = useState(false)
+  const [seedGenError, setSeedGenError] = useState<string | null>(null)
   const [mode, setMode] = useState<'same' | 'new'>(initialMode ?? 'same')
   // Show mode toggle only for retries (when a previous seed prompt exists)
   const isRetry = Boolean(initialSeedPrompt)
@@ -38,7 +45,11 @@ export default function RunDialog({
       setMode(openMode)
       setSeedPrompt(openMode === 'new' ? '' : initialSeedPrompt)
       setTags(initialTags)
+      setAllowedLanguages(initialAllowedLanguages)
       setTagInput('')
+      setLanguageInput('')
+      setGeneratingSeed(false)
+      setSeedGenError(null)
       dialogRef.current?.showModal()
       if (openMode === 'new') {
         setTimeout(() => textareaRef.current?.focus(), 50)
@@ -65,11 +76,44 @@ export default function RunDialog({
     }
   }
 
+  const addLanguage = () => {
+    const trimmed = languageInput.trim()
+    if (trimmed && !allowedLanguages.some((lang) => lang.toLowerCase() === trimmed.toLowerCase())) {
+      setAllowedLanguages((prev) => [...prev, trimmed])
+    }
+    setLanguageInput('')
+  }
+
+  const handleLanguageKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault()
+      addLanguage()
+    } else if (e.key === 'Backspace' && languageInput === '' && allowedLanguages.length > 0) {
+      setAllowedLanguages((prev) => prev.slice(0, -1))
+    }
+  }
+
+  const handleGenerateRandomSeed = async () => {
+    setGeneratingSeed(true)
+    setSeedGenError(null)
+    try {
+      const result = await api.generateRandomSeedPrompt(tags, allowedLanguages)
+      setSeedPrompt(result.seed_prompt.trim())
+    } catch (err) {
+      setSeedGenError(err instanceof Error ? err.message : 'Failed to generate random seed.')
+    } finally {
+      setGeneratingSeed(false)
+    }
+  }
+
   const handleStart = () => {
-    onStart(seedPrompt.trim(), tags)
+    onStart(seedPrompt.trim(), tags, allowedLanguages)
     setSeedPrompt('')
     setTags([])
+    setAllowedLanguages([])
     setTagInput('')
+    setLanguageInput('')
+    setSeedGenError(null)
   }
 
   return (
@@ -109,9 +153,23 @@ export default function RunDialog({
         )}
 
         <label className="flex flex-col gap-1.5">
-          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
-            Seed Prompt
-          </span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+              Seed Prompt
+            </span>
+            <button
+              type="button"
+              onClick={handleGenerateRandomSeed}
+              disabled={generatingSeed}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                generatingSeed
+                  ? 'border-border text-text-dim bg-surface cursor-not-allowed opacity-70'
+                  : 'border-mint/40 text-mint hover:border-mint hover:bg-mint/10 cursor-pointer'
+              }`}
+            >
+              {generatingSeed ? 'Generating...' : 'Random Idea'}
+            </button>
+          </div>
           <textarea
             ref={textareaRef}
             value={seedPrompt}
@@ -123,6 +181,9 @@ export default function RunDialog({
           <p className="text-text-dim text-xs">
             Injected into the creative brainstorm prompt to steer the story.
           </p>
+          {seedGenError && (
+            <p className="text-danger text-xs">{seedGenError}</p>
+          )}
         </label>
 
         <label className="flex flex-col gap-1.5">
@@ -157,6 +218,41 @@ export default function RunDialog({
           </div>
           <p className="text-text-dim text-xs">
             e.g. police-thriller, domestic-drama, workplace-intrigue
+          </p>
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+            Allowed Languages
+          </span>
+          <div className="bg-[#111] border border-border rounded-lg px-3 py-2 flex flex-wrap gap-2 min-h-[42px] focus-within:border-mint">
+            {allowedLanguages.map((language) => (
+              <span
+                key={language}
+                className="flex items-center gap-1 bg-sky-500/10 text-sky-300 text-xs font-semibold px-2 py-0.5 rounded-full"
+              >
+                {language}
+                <button
+                  type="button"
+                  onClick={() => setAllowedLanguages((prev) => prev.filter((l) => l !== language))}
+                  className="text-sky-300/70 hover:text-sky-200 cursor-pointer bg-transparent border-none text-sm leading-none"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <input
+              type="text"
+              value={languageInput}
+              onChange={(e) => setLanguageInput(e.target.value)}
+              onKeyDown={handleLanguageKeyDown}
+              onBlur={addLanguage}
+              placeholder={allowedLanguages.length === 0 ? 'e.g. English, Hindi, Bengali, Japanese…' : ''}
+              className="bg-transparent text-text text-sm outline-none flex-1 min-w-[120px]"
+            />
+          </div>
+          <p className="text-text-dim text-xs">
+            Restricts generated story artifacts to these languages. Add multiple for mixed-language stories.
           </p>
         </label>
 

@@ -239,18 +239,20 @@ def load_settings() -> AppSettings:
         "google_application_credentials",
         os.getenv("GOOGLE_APPLICATION_CREDENTIALS"),
     )
+    payload.setdefault("firebase_storage_bucket", os.getenv("FIREBASE_STORAGE_BUCKET"))
     return AppSettings.model_validate(payload)
 
 
 def save_settings(settings: AppSettings) -> AppSettings:
     _write_json(SETTINGS_FILE, settings.model_dump(mode="json"))
     logger.info(
-        "Saved settings gemini_set=%s openai_set=%s anthropic_set=%s openrouter_set=%s creds_set=%s",
+        "Saved settings gemini_set=%s openai_set=%s anthropic_set=%s openrouter_set=%s creds_set=%s bucket_set=%s",
         bool(settings.gemini_api_key),
         bool(settings.openai_api_key),
         bool(settings.anthropic_api_key),
         bool(settings.openrouter_api_key),
         bool(settings.google_application_credentials),
+        bool(settings.firebase_storage_bucket),
     )
     return settings
 
@@ -335,6 +337,9 @@ def run_progress_from_result(run_result: RunResult) -> RunProgress:
         pipeline_name=run_result.pipeline_name,
         status=run_result.status,
         mode=run_result.mode,
+        seed_prompt=run_result.seed_prompt,
+        tags=run_result.tags,
+        allowed_languages=run_result.allowed_languages,
         block_count=run_result.block_count,
         current_block_id=run_result.current_block_id,
         started_at=run_result.timestamp,
@@ -369,6 +374,9 @@ def _summary_from_run_progress(run_progress: RunProgress) -> RunSummary:
         final_metrics=run_progress.final_metrics,
         mode=run_progress.mode,
         error_message=run_progress.error_message,
+        seed_prompt=run_progress.seed_prompt,
+        tags=run_progress.tags,
+        allowed_languages=run_progress.allowed_languages,
         story_id=run_progress.story_id,
     )
 
@@ -416,6 +424,7 @@ def list_run_summaries() -> list[RunSummary]:
                     error_message=run_result.error_message,
                     seed_prompt=run_result.seed_prompt,
                     tags=run_result.tags,
+                    allowed_languages=run_result.allowed_languages,
                     story_id=run_result.story_id,
                 )
             )

@@ -94,7 +94,7 @@ class PipelineDefinition(BaseModel):
     default_image_models: dict[str, str] = Field(
         default_factory=lambda: {
             ProviderType.GEMINI.value: "gemini-3.1-flash-image-preview",
-            ProviderType.OPENAI.value: "gpt-image-1.5-2025-12-16",
+            ProviderType.OPENAI.value: "gpt-image-1",
             ProviderType.OPENROUTER.value: "bytedance-seed/seedream-4.5",
             ProviderType.ANTHROPIC.value: "",
         }
@@ -116,6 +116,7 @@ class AppSettings(BaseModel):
     anthropic_api_key: Optional[str] = None
     openrouter_api_key: Optional[str] = None
     google_application_credentials: Optional[str] = None
+    firebase_storage_bucket: Optional[str] = None
 
 
 class SettingsStatus(BaseModel):
@@ -192,6 +193,7 @@ class RunSummary(BaseModel):
     error_message: Optional[str] = None
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    allowed_languages: list[str] = Field(default_factory=list)
     setup: str = ""
     characters: list[CharacterInfo] = Field(default_factory=list)
     headline_image_prompt: Optional[str] = None
@@ -216,6 +218,9 @@ class RunProgress(BaseModel):
     pipeline_name: str
     status: RunStatus
     mode: str = "dry_run"
+    seed_prompt: Optional[str] = None
+    tags: list[str] = Field(default_factory=list)
+    allowed_languages: list[str] = Field(default_factory=list)
     block_count: int = 0
     current_block_id: Optional[str] = None
     started_at: Optional[str] = None
@@ -236,6 +241,7 @@ class RunPipelineRequest(BaseModel):
     persist_pipeline: bool = True
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    allowed_languages: list[str] = Field(default_factory=list)
 
 
 class UploadRunRequest(BaseModel):
@@ -275,7 +281,17 @@ class PipelineResetRequest(BaseModel):
 class RerunRequest(BaseModel):
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
+    allowed_languages: list[str] | None = None
     use_original_seed: bool = True  # if True and no override, use stored seed/tags
+
+
+class RandomSeedPromptRequest(BaseModel):
+    tags: list[str] = Field(default_factory=list)
+    allowed_languages: list[str] = Field(default_factory=list)
+
+
+class RandomSeedPromptResponse(BaseModel):
+    seed_prompt: str
 
 
 class CompareRunsRequest(BaseModel):

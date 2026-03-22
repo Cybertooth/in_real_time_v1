@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+import os
 
 from pydantic import BaseModel
 
@@ -79,18 +80,53 @@ class GeminiProvider(AIProvider):
                 temperature=config.temperature,
             ),
         )
+        parsed = getattr(response, "parsed", None)
+        if parsed is not None:
+            if isinstance(parsed, response_schema):
+                return parsed
+            return response_schema.model_validate(parsed)
         return response_schema.model_validate_json(response.text or "{}")
 
     def generate_image(self, prompt: str, model_name: str) -> bytes:
         logger.debug("Gemini generate_image model=%s prompt_len=%s", model_name, len(prompt))
+        import base64
+
+        def _extract_inline_image_bytes(response: object) -> bytes | None:
+            for candidate in getattr(response, "candidates", []) or []:
+                content = getattr(candidate, "content", None)
+                for part in getattr(content, "parts", []) or []:
+                    inline = getattr(part, "inline_data", None)
+                    if inline is None:
+                        continue
+                    data = getattr(inline, "data", None)
+                    if isinstance(data, bytes):
+                        return data
+                    if isinstance(data, str) and data:
+                        return base64.b64decode(data)
+            return None
+
+        model_lower = model_name.lower()
+        if model_lower.startswith("gemini-"):
+            response = self.client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=self._genai.types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
+            image_bytes = _extract_inline_image_bytes(response)
+            if image_bytes:
+                return image_bytes
+            raise ValueError("Gemini image model returned no image bytes.")
+
         result = self.client.models.generate_images(
             model=model_name,
             prompt=prompt,
             config=self._genai.types.GenerateImagesConfig(
                 number_of_images=1,
                 output_mime_type="image/jpeg",
-                aspect_ratio="1:1"
-            )
+                aspect_ratio="1:1",
+            ),
         )
         if not result.generated_images:
             raise ValueError("Gemini failed to generate an image.")
@@ -153,6 +189,7 @@ class OpenAIProvider(AIProvider):
     def generate_image(self, prompt: str, model_name: str) -> bytes:
         logger.debug("OpenAI generate_image model=%s prompt_len=%s", model_name, len(prompt))
         import requests
+        import base64
         response = self.client.images.generate(
             model=model_name,
             prompt=prompt,
@@ -160,9 +197,13 @@ class OpenAIProvider(AIProvider):
             quality="auto",
             n=1,
         )
+        b64 = getattr(response.data[0], "b64_json", None)
+        if b64:
+            return base64.b64decode(b64)
+
         url = response.data[0].url
         if not url:
-            raise ValueError("OpenAI failed to return an image URL.")
+            raise ValueError("OpenAI failed to return an image URL or b64 payload.")
         res = requests.get(url, timeout=30)
         res.raise_for_status()
         return res.content
@@ -183,7 +224,17 @@ class OpenRouterProvider(AIProvider):
             from openai import OpenAI
         except ImportError as exc:
             raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
-        self.client = OpenAI(api_key=api_key, base_url=self.BASE_URL, timeout=3600.0)
+        http_referer = os.getenv("OPENROUTER_HTTP_REFERER", "http://localhost")
+        app_title = os.getenv("OPENROUTER_APP_TITLE", "Python Director Studio")
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url=self.BASE_URL,
+            timeout=3600.0,
+            default_headers={
+                "HTTP-Referer": http_referer,
+                "X-Title": app_title,
+            },
+        )
         logger.info("OpenRouterProvider initialized")
 
     def generate_content(self, config: BlockConfig, contents: str) -> str:
@@ -239,25 +290,58 @@ class OpenRouterProvider(AIProvider):
 
     def generate_image(self, prompt: str, model_name: str) -> bytes:
         logger.debug("OpenRouter generate_image model=%s prompt_len=%s", model_name, len(prompt))
+        import base64
+        import re
         import requests
-        # OpenRouter supports images.generate for supported models
-        response = self.client.images.generate(
+
+        response = self.client.chat.completions.create(
             model=model_name,
-            prompt=prompt,
-            n=1
+            messages=[{"role": "user", "content": prompt}],
+            extra_body={"modalities": ["image"]},
         )
-        
-        b64 = response.data[0].b64_json
-        if b64:
-            import base64
-            return base64.b64decode(b64)
-            
-        url = response.data[0].url
-        if not url:
-            raise ValueError("OpenRouter failed to return an image URL or b64.")
-        res = requests.get(url, timeout=30)
-        res.raise_for_status()
-        return res.content
+        message = response.choices[0].message
+
+        def _decode_data_url(value: str) -> bytes | None:
+            if not value.startswith("data:image"):
+                return None
+            _, encoded = value.split(",", 1)
+            return base64.b64decode(encoded)
+
+        def _download(url: str) -> bytes:
+            res = requests.get(url, timeout=30)
+            res.raise_for_status()
+            return res.content
+
+        # OpenRouter multimodal shape: message.images = [{"type":"image_url","image_url":{"url":"..."}}]
+        images = getattr(message, "images", None)
+        if images:
+            for entry in images:
+                if isinstance(entry, dict):
+                    image_url = ((entry.get("image_url") or {}).get("url") or "").strip()
+                else:
+                    image_url_obj = getattr(entry, "image_url", None)
+                    image_url = str(getattr(image_url_obj, "url", "") or "").strip()
+                if not image_url:
+                    continue
+                decoded = _decode_data_url(image_url)
+                if decoded:
+                    return decoded
+                if image_url.startswith("http"):
+                    return _download(image_url)
+
+        # Fallback: scan content for markdown image URL or data URL.
+        content = getattr(message, "content", None)
+        if isinstance(content, str) and content:
+            match = re.search(r"!\[[^\]]*\]\((https?://[^)]+)\)", content)
+            if match:
+                return _download(match.group(1))
+            data_match = re.search(r"(data:image\/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=]+)", content)
+            if data_match:
+                decoded = _decode_data_url(data_match.group(1))
+                if decoded:
+                    return decoded
+
+        raise ValueError(f"OpenRouter failed to generate an image. message={message}")
 
 
 class AnthropicProvider(AIProvider):

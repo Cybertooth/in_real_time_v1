@@ -71,8 +71,13 @@ interface StudioState {
   addBlockFromTemplate: (template: BlockTemplate) => void
   showToast: (message: string, isError?: boolean) => void
   setSettingsOpen: (open: boolean) => void
-  startRun: (seedPrompt?: string, tags?: string[]) => Promise<void>
-  rerunFromRun: (runId: string, seedPrompt?: string | null, tags?: string[]) => Promise<void>
+  startRun: (seedPrompt?: string, tags?: string[], allowedLanguages?: string[]) => Promise<void>
+  rerunFromRun: (
+    runId: string,
+    seedPrompt?: string | null,
+    tags?: string[],
+    allowedLanguages?: string[],
+  ) => Promise<void>
   retryBlock: (runId: string, blockId: string) => Promise<void>
   deleteRun: (runId: string) => Promise<void>
   stopPolling: () => void
@@ -97,8 +102,9 @@ function progressToSummary(p: RunProgress): RunSummary {
     final_metrics: p.final_metrics,
     mode: p.mode,
     error_message: p.error_message,
-    seed_prompt: (raw.seed_prompt as string | null) ?? null,
-    tags: (raw.tags as string[]) ?? [],
+    seed_prompt: p.seed_prompt ?? (raw.seed_prompt as string | null) ?? null,
+    tags: p.tags ?? (raw.tags as string[]) ?? [],
+    allowed_languages: p.allowed_languages ?? (raw.allowed_languages as string[]) ?? [],
     story_id: p.story_id,
   }
 }
@@ -407,12 +413,12 @@ export const useStore = create<StudioState>((set, get) => {
       }, 3000)
     },
 
-    startRun: async (seedPrompt?: string, tags?: string[]) => {
+    startRun: async (seedPrompt?: string, tags?: string[], allowedLanguages?: string[]) => {
       const { pipeline } = get()
       if (!pipeline) return
       get().stopPolling()
       try {
-        const progress = await api.startRun(pipeline, seedPrompt, tags)
+        const progress = await api.startRun(pipeline, seedPrompt, tags, allowedLanguages)
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Run completed successfully', 'Run failed')
       } catch (err) {
@@ -421,10 +427,10 @@ export const useStore = create<StudioState>((set, get) => {
       }
     },
 
-    rerunFromRun: async (runId, seedPrompt, tags) => {
+    rerunFromRun: async (runId, seedPrompt, tags, allowedLanguages) => {
       get().stopPolling()
       try {
-        const progress = await api.rerunRun(runId, seedPrompt, tags)
+        const progress = await api.rerunRun(runId, seedPrompt, tags, allowedLanguages)
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Re-run completed successfully', 'Re-run failed')
       } catch (err) {

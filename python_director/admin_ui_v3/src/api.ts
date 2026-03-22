@@ -97,11 +97,26 @@ export function startRun(
   pipeline: PipelineDefinition,
   seedPrompt?: string,
   tags?: string[],
+  allowedLanguages?: string[],
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { pipeline }
   if (seedPrompt) body.seed_prompt = seedPrompt
   if (tags && tags.length > 0) body.tags = tags
+  if (allowedLanguages && allowedLanguages.length > 0) body.allowed_languages = allowedLanguages
   return request<RunProgress>('/api/runs/start', { method: 'POST', ...json(body) })
+}
+
+export function generateRandomSeedPrompt(
+  tags?: string[],
+  allowedLanguages?: string[],
+): Promise<{ seed_prompt: string }> {
+  const body: Record<string, unknown> = {}
+  if (tags && tags.length > 0) body.tags = tags
+  if (allowedLanguages && allowedLanguages.length > 0) body.allowed_languages = allowedLanguages
+  return request<{ seed_prompt: string }>('/api/seed-prompt/random', {
+    method: 'POST',
+    ...json(body),
+  })
 }
 
 export function getRunStatus(runId: string): Promise<RunProgress> {
@@ -149,10 +164,12 @@ export function rerunRun(
   runId: string,
   seedPrompt?: string | null,
   tags?: string[],
+  allowedLanguages?: string[],
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { use_original_seed: seedPrompt === undefined }
   if (seedPrompt !== undefined) body.seed_prompt = seedPrompt
   if (tags !== undefined) body.tags = tags
+  if (allowedLanguages !== undefined) body.allowed_languages = allowedLanguages
   return request<RunProgress>(`/api/runs/${encodeURIComponent(runId)}/rerun`, {
     method: 'POST',
     ...json(body),
