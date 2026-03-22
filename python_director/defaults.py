@@ -22,6 +22,7 @@ else:
         ProviderType,
     )
 
+
 CREATIVE_OUTLINER_PROMPT = """
 You are developing a premium, real-time found-phone thriller for mobile delivery.
 Goal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.
@@ -245,8 +246,79 @@ ANTI-GENERIC RULES:
 - No contradictory knowledge leaks (character can't know something they haven't learned yet).
 - Avoid clichés: "I can't believe this is happening", "Everything changed that day", etc.
 
+VISUAL BIBLE (authoritative source for all image_prompt fields):
+{{visual_bible}}
+
+IMAGE PROMPT RULES (applies when writing any image_prompt field):
+- Describe the scene visually and literally — never include character names, only their physical
+  descriptions from the Visual Bible above.
+- Enforce the aesthetic_style, color_palette, and era_and_setting from the Visual Bible.
+- For each entry in the Visual Bible shot_list where artifact_hint matches the current artifact type,
+  use the artifact_narrative_moment to identify the correct artifact and fulfill that shot.
+- Do NOT create photo_gallery entries — leave standalone shots (artifact_hint = "gallery") for the
+  Image Prompt Director block that runs after you.
+
 Output must strictly match StoryGenerated schema.
 time_offset_minutes must fit scene boundaries across the 48-hour arc.
+""".strip()
+
+VISUAL_BIBLE_PROMPT = """
+You are the Visual Director for a found-phone thriller. Given the final StoryPlan and SceneList,
+produce a lightweight but precise visual canon that will govern all image generation for this story.
+
+Your output must be strict VisualBible schema.
+
+Guidelines:
+- `aesthetic_style`: one sentence — overall cinematic tone (e.g. "gritty iPhone vérité, underexposed, muted greens").
+- `color_palette`: dominant mood colors and lighting quality (2-3 sentences max).
+- `era_and_setting`: time period, geography, and environment (1-2 sentences).
+- `characters`: for each main character, write ONE dense paragraph covering age, build, hair color/style,
+  typical clothing style, and 1-2 signature physical details. Be specific and visual — no vague adjectives.
+- `key_locations`: for each significant location, describe its lighting, texture, and mood in 2-3 sentences.
+- `shot_list`: plan 15-25 images that tell the visual story. For each shot:
+  - `shot_id`: short slug (e.g. "headline_dusk", "alex_cafe_photo", "evidence_note")
+  - `tier`: "atmospheric" (cinematic mood), "diegetic" (character took this photo), or "document"
+  - `subject`: what/who is the main subject
+  - `narrative_purpose`: why this image exists in the story
+  - `artifact_hint`: which artifact type this belongs to ("social_post", "journal", "email", "chat",
+    "receipt", "voice_note") or "gallery" for standalone camera-roll / atmospheric images
+  - `artifact_narrative_moment`: a precise prose description of the story moment this image captures —
+    specific enough that the artifact generator can match it to the right artifact instance
+  - `suggested_prompt`: a visual description suitable for an image generation model — describe the scene
+    literally, never use character names, only physical descriptions
+
+Ensure a mix of tiers. Include at least one "atmospheric" headline shot, 5+ "diegetic" photos
+(things characters would post on Instagram or share in chat), and 2+ "document" shots.
+""".strip()
+
+IMAGE_PROMPT_DIRECTOR_PROMPT = """
+You are the Image Prompt Director. You receive a fully-generated StoryGenerated payload (as JSON)
+and the VisualBible for this story. Your job is a focused visual consistency pass.
+
+Output must strictly match StoryGeneratedImagePatch schema.
+
+Your tasks:
+1. Review EVERY artifact that has an `image_prompt` field (journals, chats, emails, social_posts,
+   receipts, voice_notes). For each one:
+   - Replace any character name references with their canonical appearance from the VisualBible.
+   - Enforce the aesthetic_style, color_palette, and era_and_setting from the VisualBible.
+   - Make prompts literal and visual — no abstract concepts, no story spoilers, just what the camera sees.
+   - Add these as `artifact_patches` entries in your output.
+
+2. Review the VisualBible shot_list for any shots with `artifact_hint = "gallery"` that are NOT already
+   covered by existing artifact image_prompts. Add each as a `photo_gallery` entry with:
+   - `photo_id`: the shot's `shot_id`
+   - `tier`: from the PlannedShot
+   - `subject`: from the PlannedShot
+   - `caption`: a brief character-voice caption if diegetic (e.g. what the character might write on Instagram),
+     null for atmospheric/document
+   - `time_offset_minutes`: estimate based on the narrative_purpose and story arc (0-2880 minutes)
+   - `image_prompt`: an improved version of `suggested_prompt` refined against the VisualBible
+
+3. Set `headline_image_prompt` to a refined version of the story's headline image prompt if the
+   VisualBible or existing StoryGenerated has one, applying Visual Bible style rules.
+
+CRITICAL: Do NOT reproduce the story content. Only output the patch fields described above.
 """.strip()
 
 PROVIDER_MODELS: dict[str, list[str]] = {
@@ -446,6 +518,44 @@ def _template_library() -> dict[BlockType, BlockTemplate]:
                 temperature=0.7,
                 system_instruction="N/A",
                 prompt_template="[Handled dynamically by node payload]",
+            ),
+        ),
+        BlockType.VISUAL_BIBLE: BlockTemplate(
+            type=BlockType.VISUAL_BIBLE,
+            name="Visual Bible",
+            description="Produces the canonical visual canon (character appearances, aesthetic style, shot list) that governs all image generation.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name=None,
+                use_pipeline_default_model=True,
+                temperature=0.5,
+                system_instruction=VISUAL_BIBLE_PROMPT,
+                prompt_template=(
+                    "StoryPlan:\n{{council_plan_judge}}\n\n"
+                    "SceneList:\n{{scene_decomposition}}\n\n"
+                    "Produce the VisualBible."
+                ),
+                response_mime_type="application/json",
+                response_schema_name="VisualBible",
+            ),
+        ),
+        BlockType.IMAGE_PROMPT_DIRECTOR: BlockTemplate(
+            type=BlockType.IMAGE_PROMPT_DIRECTOR,
+            name="Image Prompt Director",
+            description="Refines all image prompts for character consistency, applies the Visual Bible, and adds standalone gallery shots.",
+            config=BlockConfig(
+                provider=ProviderType.GEMINI,
+                model_name=None,
+                use_pipeline_default_model=True,
+                temperature=0.4,
+                system_instruction=IMAGE_PROMPT_DIRECTOR_PROMPT,
+                prompt_template=(
+                    "Visual Bible:\n{{visual_bible}}\n\n"
+                    "StoryGenerated (full JSON):\n{{final_artifact_generation}}\n\n"
+                    "Produce the StoryGeneratedImagePatch."
+                ),
+                response_mime_type="application/json",
+                response_schema_name="StoryGeneratedImagePatch",
             ),
         ),
     }
@@ -716,20 +826,34 @@ def get_default_pipeline() -> PipelineDefinition:
                     ),
                 },
             ),
-            # ── Stage 9: Drop director ────────────────────────────────────────────
+            # ── Stage 9: Visual Bible ─────────────────────────────────────────────
             build_block_from_template(
-                BlockType.DROP_DIRECTOR,
-                block_id="drop_director",
+                BlockType.VISUAL_BIBLE,
+                block_id="visual_bible",
                 input_blocks=["council_plan_judge", "scene_decomposition"],
                 config_overrides={
                     "prompt_template": (
                         "StoryPlan:\n{{council_plan_judge}}\n\n"
                         "SceneList:\n{{scene_decomposition}}\n\n"
+                        "Produce the VisualBible."
+                    ),
+                },
+            ),
+            # ── Stage 10: Drop director ───────────────────────────────────────────
+            build_block_from_template(
+                BlockType.DROP_DIRECTOR,
+                block_id="drop_director",
+                input_blocks=["council_plan_judge", "scene_decomposition", "visual_bible"],
+                config_overrides={
+                    "prompt_template": (
+                        "StoryPlan:\n{{council_plan_judge}}\n\n"
+                        "SceneList:\n{{scene_decomposition}}\n\n"
+                        "Visual Bible:\n{{visual_bible}}\n\n"
                         "Create DropPlan."
                     ),
                 },
             ),
-            # ── Stage 10: Final artifact generation ───────────────────────────────
+            # ── Stage 11: Final artifact generation ───────────────────────────────
             build_block_from_template(
                 BlockType.GENERATOR,
                 block_id="final_artifact_generation",
@@ -738,6 +862,7 @@ def get_default_pipeline() -> PipelineDefinition:
                     "continuity_audit",
                     "scene_decomposition",
                     "drop_director",
+                    "visual_bible",
                 ],
                 config_overrides={
                     "prompt_template": (
@@ -745,16 +870,30 @@ def get_default_pipeline() -> PipelineDefinition:
                         "Continuity Audit:\n{{continuity_audit}}\n\n"
                         "Scenes:\n{{scene_decomposition}}\n\n"
                         "Drop Plan:\n{{drop_director}}\n\n"
+                        "Visual Bible (use for all image_prompt fields):\n{{visual_bible}}\n\n"
                         "Generate StoryGenerated artifacts."
                     ),
                 },
             ),
-            # ── Stage 11: Image rendering ─────────────────────────────────────────
+            # ── Stage 12: Image Prompt Director ───────────────────────────────────
+            build_block_from_template(
+                BlockType.IMAGE_PROMPT_DIRECTOR,
+                block_id="image_prompt_director",
+                input_blocks=["final_artifact_generation", "visual_bible"],
+                config_overrides={
+                    "prompt_template": (
+                        "Visual Bible:\n{{visual_bible}}\n\n"
+                        "StoryGenerated (full JSON):\n{{final_artifact_generation}}\n\n"
+                        "Produce the StoryGeneratedImagePatch."
+                    ),
+                },
+            ),
+            # ── Stage 13: Image rendering ─────────────────────────────────────────
             build_block_from_template(
                 BlockType.IMAGE_GENERATOR,
                 block_id="image_generation",
                 input_blocks=[
-                    "final_artifact_generation",
+                    "image_prompt_director",
                 ],
             ),
         ],

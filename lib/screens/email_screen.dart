@@ -120,6 +120,14 @@ class EmailScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: 24),
+              if (email.imageUrl != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 20),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(email.imageUrl!, fit: BoxFit.cover, width: double.infinity),
+                  ),
+                ),
               Text(email.body, style: Theme.of(context).textTheme.bodyLarge),
             ],
           ),

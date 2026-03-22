@@ -158,6 +158,9 @@ final phoneCallProvider = _collectionProvider<PhoneCall>(_rawPhoneCallProvider);
 final _rawGroupChatProvider = _rawCollectionProvider<GroupChatThread>(GroupChatThread.fromFirestore, 'group_chats');
 final groupChatProvider = _collectionProvider<GroupChatThread>(_rawGroupChatProvider);
 
+final _rawGalleryProvider = _rawCollectionProvider<GalleryPhoto>(GalleryPhoto.fromFirestore, 'gallery', ascending: true);
+final galleryProvider = _collectionProvider<GalleryPhoto>(_rawGalleryProvider);
+
 // ---------------------------------------------------------------------------
 // Unified timeline — merges all content types into one sorted list
 // ---------------------------------------------------------------------------

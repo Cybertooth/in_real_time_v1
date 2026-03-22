@@ -42,6 +42,8 @@ class BlockType(str, Enum):
     COUNCIL_MEMBER = "council_member"
     COUNCIL_JUDGE = "council_judge"
     IMAGE_GENERATOR = "image_generator"
+    VISUAL_BIBLE = "visual_bible"
+    IMAGE_PROMPT_DIRECTOR = "image_prompt_director"
 
 
 class BlockConfig(BaseModel):
@@ -459,6 +461,16 @@ class GroupChatThread(BaseModel):
     time_offset_minutes: int = 0  # time of first message
 
 
+class GalleryPhoto(BaseModel):
+    photo_id: str
+    tier: str  # "atmospheric" | "diegetic" | "document"
+    subject: str
+    caption: Optional[str] = None
+    time_offset_minutes: int = 0
+    image_prompt: Optional[str] = None
+    local_image_path: Optional[str] = None
+
+
 class StoryGenerated(BaseModel):
     story_title: str
     headline_image_prompt: Optional[str] = None
@@ -471,6 +483,48 @@ class StoryGenerated(BaseModel):
     social_posts: list[SocialPost] = Field(default_factory=list)
     phone_calls: list[PhoneCall] = Field(default_factory=list)
     group_chats: list[GroupChatThread] = Field(default_factory=list)
+    photo_gallery: list[GalleryPhoto] = Field(default_factory=list)
+
+
+class CharacterVisual(BaseModel):
+    name: str
+    appearance: str  # canonical description: age, build, hair, style, signature items
+
+
+class LocationVisual(BaseModel):
+    name: str
+    visual_brief: str  # lighting, palette, mood, distinguishing details
+
+
+class PlannedShot(BaseModel):
+    shot_id: str
+    tier: str  # "atmospheric" | "diegetic" | "document"
+    subject: str
+    narrative_purpose: str
+    artifact_hint: str  # artifact type ("social_post", "journal", etc.) or "gallery"
+    artifact_narrative_moment: str  # prose description of the story moment for matching
+    suggested_prompt: str
+
+
+class VisualBible(BaseModel):
+    aesthetic_style: str
+    color_palette: str
+    era_and_setting: str
+    characters: list[CharacterVisual] = Field(default_factory=list)
+    key_locations: list[LocationVisual] = Field(default_factory=list)
+    shot_list: list[PlannedShot] = Field(default_factory=list)
+
+
+class ArtifactImagePatch(BaseModel):
+    collection: str  # "journals" | "chats" | "emails" | "social_posts" | "receipts" | "voice_notes"
+    index: int
+    image_prompt: str
+
+
+class StoryGeneratedImagePatch(BaseModel):
+    headline_image_prompt: Optional[str] = None
+    artifact_patches: list[ArtifactImagePatch] = Field(default_factory=list)
+    photo_gallery: list[GalleryPhoto] = Field(default_factory=list)
 
 
 SCHEMA_MAP = {
@@ -481,9 +535,13 @@ SCHEMA_MAP = {
     "ContinuityAudit": ContinuityAudit,
     "DropPlan": DropPlan,
     "StoryGenerated": StoryGenerated,
+    "VisualBible": VisualBible,
+    "StoryGeneratedImagePatch": StoryGeneratedImagePatch,
 }
 
 # Re-export new artifact types for use in other modules
 __all__ = [
     "SocialPost", "PhoneCallLine", "PhoneCall", "GroupChatMessage", "GroupChatThread",
+    "GalleryPhoto", "CharacterVisual", "LocationVisual", "PlannedShot", "VisualBible",
+    "ArtifactImagePatch", "StoryGeneratedImagePatch",
 ]

@@ -305,6 +305,41 @@ class PhoneCall extends StoryItem {
 }
 
 // ---------------------------------------------------------------------------
+// Gallery Photo  (standalone image: atmospheric, diegetic, or document)
+// ---------------------------------------------------------------------------
+class GalleryPhoto extends StoryItem {
+  final String tier; // "atmospheric" | "diegetic" | "document"
+  final String subject;
+  final String? caption;
+
+  GalleryPhoto({
+    required this.tier,
+    required this.subject,
+    this.caption,
+    required super.unlockTimestamp,
+    super.id = '',
+    super.imageUrl,
+    super.isPasswordLocked = false,
+    super.unlockPassword,
+  });
+
+  @override
+  String get contentType => 'gallery_photo';
+
+  factory GalleryPhoto.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return GalleryPhoto(
+      id: doc.id,
+      tier: data['tier'] ?? 'diegetic',
+      subject: data['subject'] ?? '',
+      caption: data['caption'] as String?,
+      unlockTimestamp: (data['unlockTimestamp'] as Timestamp).toDate(),
+      imageUrl: data['imageUrl'] as String?,
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Group Chat Thread  (with nested messages)
 // ---------------------------------------------------------------------------
 class GroupChatMessage {

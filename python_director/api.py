@@ -585,8 +585,8 @@ async def regenerate_image(run_id: str, req: RegenerateImageRequest):
     else:
         # map `event_type` to plural if needed
         collection_map = {
-            "journal": "journals", "chat": "chats", "email": "emails", "receipt": "receipts", 
-            "voice_note": "voice_notes", "social_post": "social_posts"
+            "journal": "journals", "chat": "chats", "email": "emails", "receipt": "receipts",
+            "voice_note": "voice_notes", "social_post": "social_posts", "gallery": "photo_gallery",
         }
         collection_name = collection_map.get(event_type, event_type)
         if collection_name not in final_out:
@@ -598,7 +598,10 @@ async def regenerate_image(run_id: str, req: RegenerateImageRequest):
         
         target_item = items[req.index]
         target_item["image_prompt"] = req.new_prompt
-        filename = f"{collection_name}_{req.index}.jpg"
+        if collection_name == "photo_gallery":
+            filename = f"gallery_{req.index}.jpg"
+        else:
+            filename = f"{collection_name}_{req.index}.jpg"
 
     # Invoke AI
     try:

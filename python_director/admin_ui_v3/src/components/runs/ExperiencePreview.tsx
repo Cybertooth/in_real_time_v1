@@ -71,33 +71,52 @@ function renderArtifactCard(entry: RunTimelineEntry, runId: string) {
   const parts = entry.block_id.split('_')
   const index = parseInt(parts[parts.length - 1], 10) || 0
 
-  const Editor = () => (
-    <InlineImageEditor
-      runId={runId}
-      eventType={entry.event_type}
-      index={index}
-      initialPrompt={data.image_prompt as string}
-      initialImageUrl={data.local_image_path as string}
-      onImageUpdated={(newPath, newPrompt) => {
-        data.local_image_path = newPath
-        data.image_prompt = newPrompt
-      }}
-    />
-  )
+  const hasImage = !!(data.image_prompt || data.local_image_path)
+
+  const ImageHeader = () => {
+    if (!hasImage) return null
+    const localPath = data.local_image_path as string | undefined
+    const srcUrl = localPath?.startsWith('images/')
+      ? `/api/runs/${runId}/${localPath}`
+      : localPath
+    return (
+      <div className="mb-3">
+        {srcUrl && (
+          <img
+            src={srcUrl}
+            alt={data.image_prompt as string}
+            className="w-full max-h-[280px] object-cover rounded-md border border-border mb-2"
+          />
+        )}
+        <InlineImageEditor
+          runId={runId}
+          eventType={entry.event_type}
+          index={index}
+          initialPrompt={data.image_prompt as string}
+          initialImageUrl={localPath}
+          hideImage={true}
+          onImageUpdated={(newPath, newPrompt) => {
+            data.local_image_path = newPath
+            data.image_prompt = newPrompt
+          }}
+        />
+      </div>
+    )
+  }
 
   switch (entry.event_type) {
     case 'journal':
-      return <><JournalCard data={data} /><Editor /></>
+      return <><ImageHeader /><JournalCard data={data} /></>
     case 'chat':
-      return <><ChatBubble data={data} /><Editor /></>
+      return <><ImageHeader /><ChatBubble data={data} /></>
     case 'email':
-      return <><EmailCard data={data} /><Editor /></>
+      return <><ImageHeader /><EmailCard data={data} /></>
     case 'receipt':
-      return <><ReceiptCard data={data} /><Editor /></>
+      return <><ImageHeader /><ReceiptCard data={data} /></>
     case 'voice_note':
       return <VoiceNoteCard data={data} />
     case 'social_post':
-      return <><SocialPostCard data={data} /><Editor /></>
+      return <><ImageHeader /><SocialPostCard data={data} /></>
     case 'phone_call':
       return <PhoneCallCard data={data} />
     case 'group_chat':

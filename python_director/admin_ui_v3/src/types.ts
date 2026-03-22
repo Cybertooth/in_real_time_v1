@@ -5,6 +5,8 @@ export type BlockType =
   | 'creative_outliner' | 'brainstorm_critic' | 'brainstorm_rewriter'
   | 'planner' | 'critic' | 'reviser' | 'continuity_auditor'
   | 'decomposer' | 'drop_director' | 'generator'
+  | 'council_member' | 'council_judge' | 'image_generator'
+  | 'visual_bible' | 'image_prompt_director'
 
 export interface BlockConfig {
   provider: ProviderType
@@ -93,6 +95,17 @@ export interface RunTimelineEntry {
   story_time: string
   title: string
   content: Record<string, unknown> | null
+  local_image_path?: string | null
+}
+
+export interface GalleryPhoto {
+  photo_id: string
+  tier: 'atmospheric' | 'diegetic' | 'document'
+  subject: string
+  caption?: string | null
+  time_offset_minutes: number
+  image_prompt?: string | null
+  local_image_path?: string | null
 }
 
 export interface RunStats {

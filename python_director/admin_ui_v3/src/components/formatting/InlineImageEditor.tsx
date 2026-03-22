@@ -7,6 +7,7 @@ interface InlineImageEditorProps {
   index: number
   initialPrompt?: string
   initialImageUrl?: string
+  hideImage?: boolean
   onImageUpdated?: (newImagePath: string, newPrompt: string) => void
 }
 
@@ -16,9 +17,11 @@ export default function InlineImageEditor({
   index,
   initialPrompt,
   initialImageUrl,
+  hideImage = false,
   onImageUpdated,
 }: InlineImageEditorProps) {
   const [prompt, setPrompt] = useState(initialPrompt || '')
+  const [currentImageUrl, setCurrentImageUrl] = useState(initialImageUrl)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -30,8 +33,9 @@ export default function InlineImageEditor({
       setIsRegenerating(true)
       setError(null)
       const res = await regenerateImage(runId, eventType, index, prompt)
-      if (res.local_image_path && onImageUpdated) {
-        onImageUpdated(res.local_image_path, prompt)
+      if (res.local_image_path) {
+        setCurrentImageUrl(res.local_image_path)
+        if (onImageUpdated) onImageUpdated(res.local_image_path, prompt)
       }
     } catch (err: any) {
       setError(err.message || 'Failed to regenerate image')
@@ -41,12 +45,12 @@ export default function InlineImageEditor({
   }
 
   // Construct src url. If not uploaded to firebase yet, it's local.
-  const isLocalMap = initialImageUrl?.startsWith('images/')
-  const srcUrl = isLocalMap ? `/api/runs/${runId}/${initialImageUrl}` : initialImageUrl
+  const isLocalPath = currentImageUrl?.startsWith('images/')
+  const srcUrl = isLocalPath ? `/api/runs/${runId}/${currentImageUrl}` : currentImageUrl
 
   return (
-    <div className="mt-4 border-t border-border pt-3 flex flex-col gap-3">
-      {srcUrl && (
+    <div className="mt-2 border-t border-border pt-3 flex flex-col gap-3">
+      {!hideImage && srcUrl && (
         <img
           src={srcUrl}
           alt={prompt}

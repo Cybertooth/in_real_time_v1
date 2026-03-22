@@ -9,6 +9,7 @@ import ConfirmDialog from '../shared/ConfirmDialog'
 import BlockAccordion from './BlockAccordion'
 import TimelineView from './TimelineView'
 import ExperiencePreview from './ExperiencePreview'
+import ImagesView from './ImagesView'
 
 export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
@@ -193,6 +194,7 @@ export default function RunDetail() {
           <NavLink to={`/runs/${runId}/blocks`} className={navLinkClass}>Blocks</NavLink>
           <NavLink to={`/runs/${runId}/timeline`} className={navLinkClass}>Timeline</NavLink>
           <NavLink to={`/runs/${runId}/experience`} className={navLinkClass}>Experience</NavLink>
+          <NavLink to={`/runs/${runId}/images`} className={navLinkClass}>Images</NavLink>
         </nav>
 
         {/* Content */}
@@ -210,6 +212,17 @@ export default function RunDetail() {
             />
             <Route path="timeline" element={<TimelineView timeline={runData.timeline} />} />
             <Route path="experience" element={<ExperiencePreview runData={runData} />} />
+            <Route
+              path="images"
+              element={
+                <ImagesView
+                  runId={runId!}
+                  finalOutput={(runData as unknown as Record<string, unknown>).final_output as Record<string, unknown> | null}
+                  headlineImagePath={(runData as unknown as Record<string, unknown>).headline_image_path as string | null}
+                  headlineImagePrompt={(runData as unknown as Record<string, unknown>).headline_image_prompt as string | null}
+                />
+              }
+            />
             <Route path="*" element={<Navigate to="blocks" replace />} />
           </Routes>
         </div>

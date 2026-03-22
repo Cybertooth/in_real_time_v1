@@ -30,6 +30,7 @@ if __package__:
         RunStatus,
         RunTimelineEntry,
         SCHEMA_MAP,
+        StoryGeneratedImagePatch,
     )
     from .providers import get_provider
     from .storage import (
@@ -59,6 +60,7 @@ else:
         RunStatus,
         RunTimelineEntry,
         SCHEMA_MAP,
+        StoryGeneratedImagePatch,
     )
     from providers import get_provider
     from storage import (
@@ -618,15 +620,50 @@ class PipelineRunner:
                 input_id = block.input_blocks[0]
                 if input_id not in outputs:
                     raise ValueError(f"Image Generator dependent block {input_id} output not found.")
-                
+
                 # We do a deep copy to preserve the original output's state, and mutate the new one
                 import copy
                 source_payload = copy.deepcopy(outputs[input_id])
                 if hasattr(source_payload, "model_dump"):
                     source_payload = source_payload.model_dump()
-                    
+
                 output = generate_block_images(progress.run_id, source_payload, definition, self.settings)
-                
+
+            elif block.type == BlockType.IMAGE_PROMPT_DIRECTOR:
+                # Run the LLM call to get the patch, then merge it into the upstream StoryGenerated.
+                # The merged result is stored in outputs[block.id] so IMAGE_GENERATOR reads a full payload.
+                provider = get_provider(effective_config.provider, self._api_keys())
+                patch: StoryGeneratedImagePatch = provider.generate_structured_output(
+                    effective_config, contents, StoryGeneratedImagePatch
+                )
+
+                # Locate the upstream StoryGenerated (first input block)
+                upstream_id = block.input_blocks[0] if block.input_blocks else None
+                import copy
+                base: dict = {}
+                if upstream_id and upstream_id in outputs:
+                    base = copy.deepcopy(outputs[upstream_id])
+                    if hasattr(base, "model_dump"):
+                        base = base.model_dump()
+
+                # Apply headline prompt
+                if patch.headline_image_prompt:
+                    base["headline_image_prompt"] = patch.headline_image_prompt
+
+                # Apply per-artifact patches
+                for ap in patch.artifact_patches:
+                    items = base.get(ap.collection, [])
+                    if 0 <= ap.index < len(items):
+                        items[ap.index]["image_prompt"] = ap.image_prompt
+
+                # Add gallery photos
+                base["photo_gallery"] = [
+                    p.model_dump() if hasattr(p, "model_dump") else p
+                    for p in patch.photo_gallery
+                ]
+
+                output = base
+
             else:
                 provider = get_provider(effective_config.provider, self._api_keys())
                 if effective_config.response_schema_name:
@@ -1137,6 +1174,13 @@ def generate_block_images(run_id: str, story_payload: dict[str, Any], pipeline: 
                 if path:
                     item["local_image_path"] = path
 
+    for i, item in enumerate(story_payload.get("photo_gallery", [])):
+        prompt = item.get("image_prompt")
+        if prompt and not item.get("local_image_path"):
+            path = _gen_and_save(prompt, f"gallery_{i}.jpg")
+            if path:
+                item["local_image_path"] = path
+
     return story_payload
 
 
@@ -1232,6 +1276,37 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
             batch.set(doc_ref, doc_data)
         batch.commit()
 
+    def upload_gallery(items):
+        if not items:
+            return
+        batch = db.batch()
+        for i, item in enumerate(items):
+            doc_ref = story_ref.collection("gallery").document()
+            unlock_time = start_time + timedelta(minutes=item.get("time_offset_minutes", 0))
+            local_path = item.get("local_image_path")
+            image_url = None
+            if local_path and bucket:
+                try:
+                    base_path = local_path.split("?")[0]
+                    full_local_path = RUNS_DIR / result.run_id / base_path
+                    if full_local_path.exists():
+                        blob = bucket.blob(f"stories/{story_id}/gallery_{i}_{int(time.time())}.jpg")
+                        blob.upload_from_filename(str(full_local_path), content_type="image/jpeg")
+                        blob.make_public()
+                        image_url = blob.public_url
+                except Exception as e:
+                    logger.error("Gallery image upload failed: %s", e)
+            doc_data = {
+                "tier": item.get("tier", "diegetic"),
+                "subject": item.get("subject", ""),
+                "caption": item.get("caption"),
+                "time_offset_minutes": item.get("time_offset_minutes", 0),
+                "unlockTimestamp": unlock_time,
+                "imageUrl": image_url,
+            }
+            batch.set(doc_ref, doc_data)
+        batch.commit()
+
     upload_collection("journals", story_data.get("journals", []))
     upload_collection("chats", story_data.get("chats", []))
     upload_collection("emails", story_data.get("emails", []))
@@ -1240,6 +1315,7 @@ def upload_to_firestore(result: RunResult, firebase_service_account_path: str, s
     upload_collection("social_posts", story_data.get("social_posts", []))
     upload_collection("phone_calls", story_data.get("phone_calls", []))
     upload_collection("group_chats", story_data.get("group_chats", []))
+    upload_gallery(story_data.get("photo_gallery", []))
 
     logger.info("Upload complete story_id=%s", story_id)
     return story_id
