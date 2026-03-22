@@ -1,7 +1,7 @@
 {
-  "name": "Found Phone Director (Cheap Short)",
-  "description": "Shortened cheap profile with reduced councils and one lightweight critique loop.",
-  "updated_at": "2026-03-22T16:33:13.994331+00:00",
+  "name": "Cheap - full - creative - g3.1",
+  "description": "Cheaper full pipeline profile with lower-cost models and OpenRouter image generation.",
+  "updated_at": "2026-03-22T17:01:00.570414+00:00",
   "default_models": {
     "GEMINI": "gemini-3.1-flash-lite-preview",
     "OPENAI": "gpt-5.4-nano",
@@ -24,9 +24,9 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3.1-pro-preview",
         "use_pipeline_default_model": false,
-        "temperature": 1.0,
+        "temperature": 0.7,
         "system_instruction": "You are developing a premium, real-time found-phone thriller for mobile delivery.\nGoal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.\n\nRequirements:\n1) Define one central hidden truth that explains all major events.\n2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.\n3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.\n4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.\n5) Ensure every major beat can manifest as believable phone artifacts across ALL channel types:\n   - journals (private reflections, diary entries)\n   - direct chats / IM exchanges (back-and-forth conversations)\n   - emails (formal or semi-formal communications)\n   - receipts (transactions that reveal movement or purchases)\n   - voice notes (recorded audio memos)\n   - social media posts (Instagram, Twitter, Facebook, TikTok \u2014 public-facing character facades)\n   - phone call transcripts (calls with caller, receiver, and dialogue lines)\n   - group chat threads (WhatsApp/Telegram/iMessage group conversations)\n6) ENGAGEMENT DENSITY \u2014 communication must happen in bursts, not isolated pings:\n   - Chat / IM exchanges must be back-and-forth conversations (5-15 messages each) not single texts.\n   - Group chats should have 8-15 messages from multiple participants, showing social dynamics.\n   - Emails must be substantial multi-paragraph messages, not one-liners.\n   - Social posts reveal the public character facade vs private reality \u2014 contrast is key.\n   - Phone calls expose confrontations, revelations, or key plot turns through dialogue.\n   - Act 1 (first ~16 hours) must be the densest activity window to hook users early.\n   - No silent gaps longer than 90 minutes in Act 1.\n   - Plan at least 2 rapid-fire \"flurry\" sequences where 3+ artifact types overlap within 30 minutes.\n\nOutput format (plain text sections):\n- Premise\n- Hidden Truth\n- Character Web\n- 48h Beat Timeline\n- Clue Ladder (clue, where discovered, payoff beat)\n- Spike Events\n- Social Media Strategy (which characters post publicly and what facade they maintain)\n- Group Chat Dynamics (which group chats exist, who is in them, key revelations)\n- Phone Call Moments (calls that must happen and why)\n- Engagement Density Plan (burst clusters, Act 1 density map)\n- Risks to coherence",
         "prompt_template": "Brainstorm the initial massive story outline. Avoid sci-fi and extra-terrestrial themes. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
         "response_mime_type": null,
@@ -79,7 +79,7 @@
       "name": "Council: OpenAI Review",
       "description": "Independent brainstorm critique from OpenAI.",
       "type": "council_member",
-      "enabled": false,
+      "enabled": true,
       "config": {
         "provider": "OPENAI",
         "model_name": "gpt-5.4-nano",
@@ -121,18 +121,20 @@
       "type": "council_judge",
       "enabled": true,
       "config": {
-        "provider": "OPENAI",
-        "model_name": "gpt-5.4-mini",
+        "provider": "GEMINI",
+        "model_name": "gemini-3.1-pro-preview",
         "use_pipeline_default_model": false,
         "temperature": 0.8,
         "system_instruction": "You are the Chief Creative Arbitrator. You have received independent critiques of a brainstorm\nfrom multiple AI council members, each with a different training perspective.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus, highlight unique insights, flag contradictions.\n2. Produce a substantially upgraded brainstorm integrating the highest-impact recommendations.\n3. Where council members disagree, apply your own creative judgment.\n4. Preserve what is strong. Fix what is weak. Cut what is redundant.\n\nOutput plain text sections:\n- Revised Premise\n- Revised Hidden Truth\n- Revised Character Web\n- Revised 48h Beat Timeline\n- Revised Clue Ladder\n- Revised Spike Events\n- Council synthesis notes (consensus that emerged, unique insights surfaced)",
-        "prompt_template": "Original brainstorm:\n{{creative_brainstorm}}\n\nCouncil member 1 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\nCouncil member 2 (OpenRouter):\n{{council_brainstorm_claude}}\n\nSynthesize the council feedback and produce the upgraded brainstorm.",
+        "prompt_template": "Original brainstorm:\n{{creative_brainstorm}}\n\nCouncil member 1 (Gemini Pro):\n{{council_brainstorm_gemini_pro}}\n\nCouncil member 2 (Gemini Flash):\n{{council_brainstorm_gemini_flash}}\n\nCouncil member 3 (OpenAI):\n{{council_brainstorm_openai}}\n\nCouncil member 4 (Claude):\n{{council_brainstorm_claude}}\n\nSynthesize the council feedback and produce the upgraded brainstorm.",
         "response_mime_type": null,
         "response_schema_name": null
       },
       "input_blocks": [
         "creative_brainstorm",
+        "council_brainstorm_gemini_pro",
         "council_brainstorm_gemini_flash",
+        "council_brainstorm_openai",
         "council_brainstorm_claude"
       ]
     },
@@ -201,7 +203,7 @@
       "name": "Council: Plan Review (OpenAI)",
       "description": "Independent StoryPlan critique from OpenAI.",
       "type": "council_member",
-      "enabled": false,
+      "enabled": true,
       "config": {
         "provider": "OPENAI",
         "model_name": "gpt-5.4-nano",
@@ -248,13 +250,15 @@
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "You are the Chief Story Architect. You have received independent structural critiques of a StoryPlan\nfrom multiple AI council members.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus structural issues and extract unique insights.\n2. Produce a substantially upgraded StoryPlan applying all High-severity fixes and the best Medium fixes.\n3. Where council members disagree, use your architectural judgment to choose the stronger path.\n4. Strengthen foreshadowing, tighten act transitions, and deepen character credibility.\n\nReturn strict StoryPlan schema.",
-        "prompt_template": "Original StoryPlan:\n{{structural_plan}}\n\nCouncil member 1 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\nCouncil member 2 (OpenRouter):\n{{council_plan_claude}}\n\nSynthesize the council feedback and produce the upgraded StoryPlan.",
+        "prompt_template": "Original StoryPlan:\n{{structural_plan}}\n\nCouncil member 1 (Gemini Pro):\n{{council_plan_gemini_pro}}\n\nCouncil member 2 (Gemini Flash):\n{{council_plan_gemini_flash}}\n\nCouncil member 3 (OpenAI):\n{{council_plan_openai}}\n\nCouncil member 4 (Claude):\n{{council_plan_claude}}\n\nSynthesize the council feedback and produce the upgraded StoryPlan.",
         "response_mime_type": "application/json",
         "response_schema_name": "StoryPlan"
       },
       "input_blocks": [
         "structural_plan",
+        "council_plan_gemini_pro",
         "council_plan_gemini_flash",
+        "council_plan_openai",
         "council_plan_claude"
       ]
     },
