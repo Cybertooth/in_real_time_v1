@@ -5,7 +5,7 @@ export default function BlockList() {
   const pipeline = useStore((s) => s.pipeline)
   const selectedBlockId = useStore((s) => s.selectedBlockId)
   const selectBlock = useStore((s) => s.selectBlock)
-  const activeRunProgress = useStore((s) => s.activeRunProgress)
+  const activeRunProgress = useStore((s) => s.liveRun)
 
   if (!pipeline) return null
 

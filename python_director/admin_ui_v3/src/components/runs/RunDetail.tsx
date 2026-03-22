@@ -15,7 +15,7 @@ export default function RunDetail() {
   const { runId } = useParams<{ runId: string }>()
   const navigate = useNavigate()
   const showToast = useStore((s) => s.showToast)
-  const activeRunProgress = useStore((s) => s.activeRunProgress)
+  const activeRunProgress = useStore((s) => s.liveRun)
   const activeRunId = useStore((s) => s.activeRunId)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
   const retryBlock = useStore((s) => s.retryBlock)
