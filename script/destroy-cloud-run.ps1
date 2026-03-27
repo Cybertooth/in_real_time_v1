@@ -1,7 +1,7 @@
 # Destruction script for Python Director on Google Cloud Run
 
 $PROJECT_ID = "gen-lang-client-0667969294"
-$SERVICE_NAME = "python-director"
+$SERVICE_NAME = "director-backend"
 $REGION = "us-central1"
 
 Write-Host "WARNING: This will permanently delete the $SERVICE_NAME service on Google Cloud Run." -ForegroundColor Yellow

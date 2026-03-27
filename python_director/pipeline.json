@@ -1,14 +1,14 @@
 {
-  "name": "Cheap - full - creative - g3.1",
-  "description": "Cheaper full pipeline profile with lower-cost models and OpenRouter image generation.",
-  "updated_at": "2026-03-22T17:01:00.570414+00:00",
+  "name": "Found Phone Director",
+  "description": "Low-code story generation pipeline for found-phone narratives.",
+  "updated_at": "2026-03-22T17:28:00.817471+00:00",
   "default_models": {
-    "GEMINI": "gemini-3.1-flash-lite-preview",
-    "OPENAI": "gpt-5.4-nano",
-    "ANTHROPIC": "claude-haiku-4-5-20251001",
+    "GEMINI": "gemini-3-flash-preview",
+    "OPENAI": "gpt-5.4-mini",
+    "ANTHROPIC": "claude-sonnet-4-6",
     "OPENROUTER": "moonshotai/kimi-k2.5"
   },
-  "image_provider": "OPENROUTER",
+  "image_provider": "GEMINI",
   "default_image_models": {
     "GEMINI": "gemini-3.1-flash-image-preview",
     "OPENAI": "gpt-image-1",
@@ -26,7 +26,7 @@
         "provider": "GEMINI",
         "model_name": "gemini-3.1-pro-preview",
         "use_pipeline_default_model": false,
-        "temperature": 0.7,
+        "temperature": 1.0,
         "system_instruction": "You are developing a premium, real-time found-phone thriller for mobile delivery.\nGoal: produce a high-potential narrative blueprint optimized for 48 hours of staggered reveal.\n\nRequirements:\n1) Define one central hidden truth that explains all major events.\n2) Create 4-6 core characters with conflicting goals, private secrets, and relationship tensions.\n3) Build a clue ladder with at least 10 clues, at least 3 red herrings, and at least 2 late-stage reversals.\n4) Include real-time cadence: quiet windows, escalating interruptions, and 3 major spike events.\n5) Ensure every major beat can manifest as believable phone artifacts across ALL channel types:\n   - journals (private reflections, diary entries)\n   - direct chats / IM exchanges (back-and-forth conversations)\n   - emails (formal or semi-formal communications)\n   - receipts (transactions that reveal movement or purchases)\n   - voice notes (recorded audio memos)\n   - social media posts (Instagram, Twitter, Facebook, TikTok \u2014 public-facing character facades)\n   - phone call transcripts (calls with caller, receiver, and dialogue lines)\n   - group chat threads (WhatsApp/Telegram/iMessage group conversations)\n6) ENGAGEMENT DENSITY \u2014 communication must happen in bursts, not isolated pings:\n   - Chat / IM exchanges must be back-and-forth conversations (5-15 messages each) not single texts.\n   - Group chats should have 8-15 messages from multiple participants, showing social dynamics.\n   - Emails must be substantial multi-paragraph messages, not one-liners.\n   - Social posts reveal the public character facade vs private reality \u2014 contrast is key.\n   - Phone calls expose confrontations, revelations, or key plot turns through dialogue.\n   - Act 1 (first ~16 hours) must be the densest activity window to hook users early.\n   - No silent gaps longer than 90 minutes in Act 1.\n   - Plan at least 2 rapid-fire \"flurry\" sequences where 3+ artifact types overlap within 30 minutes.\n\nOutput format (plain text sections):\n- Premise\n- Hidden Truth\n- Character Web\n- 48h Beat Timeline\n- Clue Ladder (clue, where discovered, payoff beat)\n- Spike Events\n- Social Media Strategy (which characters post publicly and what facade they maintain)\n- Group Chat Dynamics (which group chats exist, who is in them, key revelations)\n- Phone Call Moments (calls that must happen and why)\n- Engagement Density Plan (burst clusters, Act 1 density map)\n- Risks to coherence",
         "prompt_template": "Brainstorm the initial massive story outline. Avoid sci-fi and extra-terrestrial themes. Story should have a lot of inter-personal drama and conflict. There should be opportunity to have lots of conversations.",
         "response_mime_type": null,
@@ -62,7 +62,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
@@ -82,7 +82,7 @@
       "enabled": true,
       "config": {
         "provider": "OPENAI",
-        "model_name": "gpt-5.4-nano",
+        "model_name": "gpt-5.4-mini",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
@@ -96,13 +96,13 @@
     },
     {
       "id": "council_brainstorm_claude",
-      "name": "Council: OpenRouter Review",
-      "description": "Independent brainstorm critique from OpenRouter.",
+      "name": "Council: Claude Review",
+      "description": "Independent brainstorm critique from Claude.",
       "type": "council_member",
       "enabled": true,
       "config": {
-        "provider": "OPENROUTER",
-        "model_name": "moonshotai/kimi-k2.5",
+        "provider": "ANTHROPIC",
+        "model_name": "claude-sonnet-4-6",
         "use_pipeline_default_model": false,
         "temperature": 0.6,
         "system_instruction": "You are an independent expert serving on a creative council reviewing a found-phone thriller brainstorm.\nYou review the material with fresh eyes and produce your own unbiased critique.\n\nYour mandate:\n- Evaluate story logic, clue architecture, character depth, and phone-native believability.\n- Evaluate ENGAGEMENT DENSITY: are chat exchanges bursty back-and-forth conversations (5-15 messages)\n  or isolated pings? Are emails substantial or stubs? Is Act 1 dense enough to retain users?\n  Flag any dead zones in Act 1 where the user would stop checking the app.\n- Identify missed opportunities that could dramatically improve the concept.\n- Be specific and evidence-based. Cite actual elements from the brainstorm.\n- Push hard. Generic praise wastes council time.\n\nReturn strict BrainstormCritique schema.",
@@ -121,8 +121,8 @@
       "type": "council_judge",
       "enabled": true,
       "config": {
-        "provider": "GEMINI",
-        "model_name": "gemini-3.1-pro-preview",
+        "provider": "OPENAI",
+        "model_name": "gpt-5.4",
         "use_pipeline_default_model": false,
         "temperature": 0.8,
         "system_instruction": "You are the Chief Creative Arbitrator. You have received independent critiques of a brainstorm\nfrom multiple AI council members, each with a different training perspective.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus, highlight unique insights, flag contradictions.\n2. Produce a substantially upgraded brainstorm integrating the highest-impact recommendations.\n3. Where council members disagree, apply your own creative judgment.\n4. Preserve what is strong. Fix what is weak. Cut what is redundant.\n\nOutput plain text sections:\n- Revised Premise\n- Revised Hidden Truth\n- Revised Character Web\n- Revised 48h Beat Timeline\n- Revised Clue Ladder\n- Revised Spike Events\n- Council synthesis notes (consensus that emerged, unique insights surfaced)",
@@ -146,7 +146,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.7,
         "system_instruction": "Convert the provided creative outline into a production-ready StoryPlan.\nPreserve ambition, but prioritize coherence and payoff.\n\nYou MUST populate ALL of the following fields in your JSON response:\n- title: the story title\n- characters: list of characters (each with name, background, arc_summary)\n- core_conflict: the central dramatic conflict driving the story\n- background_lore: world-building and backstory that pressures current events\n- the_twist: the major reveal or turn \u2014 must be foreshadowed from the start\n- act_1_summary: setup, introduction of characters and conflict (first third)\n- act_2_summary: escalation, complications, mid-point turn (middle third)\n- act_3_summary: climax, resolution, aftermath (final third)\n\nNon-negotiables:\n- Character actions must match motivation and prior knowledge.\n- Core conflict must escalate through the 3 acts.\n- Twist must be foreshadowed by earlier signals.\n- Background lore must directly pressure current events.\n- Story must support serialized real-time delivery with anticipation between drops.\n\nBefore finalizing, self-check:\n- Any timeline contradictions?\n- Any character acting out-of-character?\n- Any missing setup for major payoff?\nIf yes, repair before output.",
@@ -186,7 +186,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
@@ -206,7 +206,7 @@
       "enabled": true,
       "config": {
         "provider": "OPENAI",
-        "model_name": "gpt-5.4-nano",
+        "model_name": "gpt-5.4-mini",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
@@ -220,13 +220,13 @@
     },
     {
       "id": "council_plan_claude",
-      "name": "Council: Plan Review (OpenRouter)",
-      "description": "Independent StoryPlan critique from OpenRouter.",
+      "name": "Council: Plan Review (Claude)",
+      "description": "Independent StoryPlan critique from Claude.",
       "type": "council_member",
       "enabled": true,
       "config": {
-        "provider": "OPENROUTER",
-        "model_name": "z-ai/glm-4.5-air:free",
+        "provider": "ANTHROPIC",
+        "model_name": "claude-sonnet-4-6",
         "use_pipeline_default_model": false,
         "temperature": 0.5,
         "system_instruction": "You are an independent story editor serving on a creative council reviewing a structural StoryPlan\nfor a found-phone thriller.\n\nYour mandate:\n- Evaluate continuity, tension curve, clue/payoff fairness, character credibility, and artifact potential.\n- Evaluate ENGAGEMENT DENSITY: does each scene produce enough artifacts to keep the user engaged?\n  Are IM conversations full back-and-forth exchanges or single messages? Is Act 1 front-loaded with\n  dense activity to retain users in the first session? Flag any gap > 90 min in Act 1 as High severity.\n- Identify structural weaknesses with specific fix instructions.\n- Flag High severity issues that break immersion, Medium that reduce engagement, Low that polish.\n- Be specific. Cite plan elements. Avoid generic advice.\n\nReturn strict StoryCritique schema.",
@@ -246,7 +246,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3.1-pro-preview",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "You are the Chief Story Architect. You have received independent structural critiques of a StoryPlan\nfrom multiple AI council members.\n\nYour job:\n1. Synthesize the council feedback \u2014 find consensus structural issues and extract unique insights.\n2. Produce a substantially upgraded StoryPlan applying all High-severity fixes and the best Medium fixes.\n3. Where council members disagree, use your architectural judgment to choose the stronger path.\n4. Strengthen foreshadowing, tighten act transitions, and deepen character credibility.\n\nReturn strict StoryPlan schema.",
@@ -270,7 +270,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.2,
         "system_instruction": "Perform a continuity release check on the StoryPlan.\n\nObjectives:\n- Detect contradictions in timeline, character knowledge, and motivation.\n- Detect clue setup/payoff breaks.\n- Identify high-risk sections likely to reduce trust or immersion.\n\nOutput strict ContinuityAudit schema.\nIf no contradiction exists, return an empty contradictions list and a high continuity_score.\nDo not invent issues just to fill fields.",
@@ -290,7 +290,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "Break the final StoryPlan into scene blocks for real-time release design.\n\nConstraints:\n- Timeline must be strictly chronological across 48 hours.\n- Mix calm investigative windows and high-intensity interruption windows.\n- Every scene must specify artifact expectations that are plausible for that moment.\n- Ensure at least 3 interruption spikes, 2 deceptive calm periods, and 1 pre-climax acceleration sequence.\n- Scene descriptions must include narrative purpose (setup, pressure, reveal, misdirect, payoff).\n\nAvoid filler scenes that do not move either conflict or clue chain.",
@@ -311,7 +311,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.5,
         "system_instruction": "You are the Visual Director for a found-phone thriller. Given the final StoryPlan and SceneList,\nproduce a lightweight but precise visual canon that will govern all image generation for this story.\n\nYour output must be strict VisualBible schema.\n\nGuidelines:\n- `aesthetic_style`: one sentence \u2014 overall cinematic tone (e.g. \"gritty iPhone v\u00e9rit\u00e9, underexposed, muted greens\").\n- `color_palette`: dominant mood colors and lighting quality (2-3 sentences max).\n- `era_and_setting`: time period, geography, and environment (1-2 sentences).\n- `characters`: for each main character, write ONE dense paragraph covering age, build, hair color/style,\n  typical clothing style, and 1-2 signature physical details. Be specific and visual \u2014 no vague adjectives.\n- `key_locations`: for each significant location, describe its lighting, texture, and mood in 2-3 sentences.\n- `shot_list`: plan 15-25 images that tell the visual story. For each shot:\n  - `shot_id`: short slug (e.g. \"headline_dusk\", \"alex_cafe_photo\", \"evidence_note\")\n  - `tier`: \"atmospheric\" (cinematic mood), \"diegetic\" (character took this photo), or \"document\"\n  - `subject`: what/who is the main subject\n  - `narrative_purpose`: why this image exists in the story\n  - `artifact_hint`: which artifact type this belongs to (\"social_post\", \"journal\", \"email\", \"chat\",\n    \"receipt\", \"voice_note\") or \"gallery\" for standalone camera-roll / atmospheric images\n  - `artifact_narrative_moment`: a precise prose description of the story moment this image captures \u2014\n    specific enough that the artifact generator can match it to the right artifact instance\n  - `suggested_prompt`: a visual description suitable for an image generation model \u2014 describe the scene\n    literally, never use character names, only physical descriptions\n\nEnsure a mix of tiers. Include at least one \"atmospheric\" headline shot, 5+ \"diegetic\" photos\n(things characters would post on Instagram or share in chat), and 2+ \"document\" shots.",
@@ -332,7 +332,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.4,
         "system_instruction": "Create a real-time delivery DropPlan from StoryPlan and SceneList.\n\nRules:\n- Plan timed events that feel notification-worthy.\n- Balance interruption spikes with quiet windows to preserve anticipation.\n- Ensure cliffhanger targets are spread across the 48-hour arc.\n- Keep event summaries concise and operational for CMS scheduling.\n\nOutput strict DropPlan schema.",
@@ -354,7 +354,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.7,
         "system_instruction": "Generate a LARGE, RICH set of phone-native artifacts from StoryPlan, SceneList, ContinuityAudit, and DropPlan.\nTarget: ~5,000 words of story content spread across ALL artifact types.\n\nMANDATORY QUANTITY TARGETS (minimum, more is better):\n- journals: 8+ entries, each 200-400 words (multi-paragraph reflections, not bullet lists)\n- chats: 3+ conversations of 10-15 back-and-forth messages each\n- emails: 6+ emails with 3+ substantial paragraphs each\n- receipts: 4+ receipts (reveal character movement, spending, or secret activities)\n- voice_notes: 4+ voice notes, each 80-150 words (spoken monologue realism)\n- social_posts: 8+ posts across Instagram/Twitter/Facebook/TikTok from different characters\n  (contrast public facade with private reality)\n- phone_calls: 3+ calls with full dialogue transcripts (10-20 lines each)\n  (use calls for confrontations, urgent revelations, or key plot turns)\n- group_chats: 2+ group chat threads (WhatsApp/Telegram/iMessage) with 10-15 messages each\n  from multiple participants (show group dynamics, rumors, panic, coordination)\n\nQUALITY RULES:\n- Each character must have distinct voice and language patterns.\n- Direct chats feel like real texting: short bursts, typos, emojis where appropriate.\n- Emails match sender role (formal cop = formal email; teenager = casual/brief).\n- Journals show psychological progression \u2014 fear, suspicion, grief, denial, resolve.\n- Voice notes capture spoken hesitation, self-correction, emotional rawness.\n- Social posts reveal the public facade characters maintain while private reality unravels.\n- Phone calls expose raw confrontations that characters wouldn't commit to text.\n- Group chats show social pressure, gossip, collective panic or denial.\n- All artifact content must align with chronology and character knowledge at that point in time.\n- Embed discoverable clues without blunt exposition.\n- Each major drop should reveal, reframe, or raise risk.\n\nENGAGEMENT DENSITY RULES (critical):\n- Act 1 (first ~960 time_offset_minutes) must be the DENSEST section \u2014 hook users in session 1.\n- No gap between consecutive artifacts should exceed 90 minutes in Act 1.\n- Create at least 3 \"flurry\" windows where 4+ artifacts land within 30 minutes.\n- IM / chat conversations MUST be back-and-forth (10-15 messages). Never isolated single texts.\n- Group chats must have real multi-person dynamics, not monologues.\n\nIMAGE GENERATION RULES:\n- Include an `image_prompt` for at least 30% of social media posts, describing the exact photograph.\n- Add an `image_prompt` for key journals or emails where a visual clue or attached document is mentioned.\n- You MUST provide a `headline_image_prompt` attribute at the root of your response describing the overarching atmospheric header image for the story.\n- The `image_prompt` and `headline_image_prompt` must strictly be visual high-quality literal descriptions of the image content.\n\nANTI-GENERIC RULES:\n- No repetitive phrasing across artifacts.\n- No summary-narrator tone inside artifacts. Stay in character voice.\n- No contradictory knowledge leaks (character can't know something they haven't learned yet).\n- Avoid clich\u00e9s: \"I can't believe this is happening\", \"Everything changed that day\", etc.\n\nVISUAL BIBLE (authoritative source for all image_prompt fields):\n{{visual_bible}}\n\nIMAGE PROMPT RULES (applies when writing any image_prompt field):\n- Describe the scene visually and literally \u2014 never include character names, only their physical\n  descriptions from the Visual Bible above.\n- Enforce the aesthetic_style, color_palette, and era_and_setting from the Visual Bible.\n- For each entry in the Visual Bible shot_list where artifact_hint matches the current artifact type,\n  use the artifact_narrative_moment to identify the correct artifact and fulfill that shot.\n- Do NOT create photo_gallery entries \u2014 leave standalone shots (artifact_hint = \"gallery\") for the\n  Image Prompt Director block that runs after you.\n\nOutput must strictly match StoryGenerated schema.\ntime_offset_minutes must fit scene boundaries across the 48-hour arc.",
@@ -378,7 +378,7 @@
       "enabled": true,
       "config": {
         "provider": "GEMINI",
-        "model_name": "gemini-3.1-flash-lite-preview",
+        "model_name": "gemini-3-flash-preview",
         "use_pipeline_default_model": true,
         "temperature": 0.4,
         "system_instruction": "You are the Image Prompt Director. You receive a fully-generated StoryGenerated payload (as JSON)\nand the VisualBible for this story. Your job is a focused visual consistency pass.\n\nOutput must strictly match StoryGeneratedImagePatch schema.\n\nYour tasks:\n1. Review EVERY artifact that has an `image_prompt` field (journals, chats, emails, social_posts,\n   receipts, voice_notes). For each one:\n   - Replace any character name references with their canonical appearance from the VisualBible.\n   - Enforce the aesthetic_style, color_palette, and era_and_setting from the VisualBible.\n   - Make prompts literal and visual \u2014 no abstract concepts, no story spoilers, just what the camera sees.\n   - Add these as `artifact_patches` entries in your output.\n\n2. Review the VisualBible shot_list for any shots with `artifact_hint = \"gallery\"` that are NOT already\n   covered by existing artifact image_prompts. Add each as a `photo_gallery` entry with:\n   - `photo_id`: the shot's `shot_id`\n   - `tier`: from the PlannedShot\n   - `subject`: from the PlannedShot\n   - `caption`: a brief character-voice caption if diegetic (e.g. what the character might write on Instagram),\n     null for atmospheric/document\n   - `time_offset_minutes`: estimate based on the narrative_purpose and story arc (0-2880 minutes)\n   - `image_prompt`: an improved version of `suggested_prompt` refined against the VisualBible\n\n3. Set `headline_image_prompt` to a refined version of the story's headline image prompt if the\n   VisualBible or existing StoryGenerated has one, applying Visual Bible style rules.\n\nCRITICAL: Do NOT reproduce the story content. Only output the patch fields described above.",
@@ -398,8 +398,8 @@
       "type": "image_generator",
       "enabled": true,
       "config": {
-        "provider": "OPENROUTER",
-        "model_name": "bytedance-seed/seedream-4.5",
+        "provider": "GEMINI",
+        "model_name": "gemini-3.1-flash-image-preview",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "N/A",

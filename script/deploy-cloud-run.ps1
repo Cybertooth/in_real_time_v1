@@ -1,8 +1,9 @@
 # Deployment script for Python Director to Google Cloud Run
 
 $PROJECT_ID = "gen-lang-client-0667969294"
-$SERVICE_NAME = "python-director"
+$SERVICE_NAME = "director-backend"
 $REGION = "us-central1"
+$ARTIFACT_BUCKET = "$PROJECT_ID-artifacts"
 
 Write-Host "Deploying $SERVICE_NAME to Google Cloud Run in project $PROJECT_ID ($REGION)..." -ForegroundColor Cyan
 
@@ -10,13 +11,14 @@ Write-Host "Deploying $SERVICE_NAME to Google Cloud Run in project $PROJECT_ID (
 Push-Location "$PSScriptRoot\..\python_director"
 
 try {
-    # Run the deployment command
+    # Run the deployment command with GCS volume mount for durable storage
     gcloud run deploy $SERVICE_NAME `
         --source . `
         --project $PROJECT_ID `
         --region $REGION `
         --allow-unauthenticated `
-        --platform managed
+        --add-volume="name=artifacts,type=cloud-storage,bucket=$ARTIFACT_BUCKET" `
+        --add-volume-mount="volume=artifacts,mount-path=/app/temp_artifacts"
 }
 finally {
     Pop-Location

@@ -1,3 +1,7 @@
+**/node_modules
+node_modules
+admin_ui_v3/src
+admin_ui_v3/test
 .venv
 __pycache__
 *.pyc
