@@ -249,3 +249,12 @@ export interface StudioBootstrap {
   reset_templates: ResetTemplateInfo[]
   provider_models: Record<string, string[]>
 }
+
+export interface Story {
+  id: string
+  title: string
+  createdAt: string
+  storyMode: string
+  headlineImageUrl: string | null
+  storyDurationMinutes: number
+}

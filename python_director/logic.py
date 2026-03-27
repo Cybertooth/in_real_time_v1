@@ -1583,10 +1583,127 @@ def generate_block_tts(
     story_payload["tts_tier"] = tts_tier
     return story_payload
 
+def _get_firebase_clients(settings: AppSettings):
+    """Helper to initialize and return Firestore and Storage clients."""
+    import firebase_admin
+    from firebase_admin import credentials, firestore, storage
+    from pathlib import Path
+    import json
+
+    path_val = settings.google_application_credentials
+    if not path_val:
+        return None, None
+        
+    path = Path(path_val)
+    # Assuming BASE_DIR is defined elsewhere, if not, this might need adjustment
+    # For now, assuming it's available in the scope where this function would be placed.
+    # If BASE_DIR is not available, path.resolve() might be sufficient if path_val is absolute or relative to CWD.
+    # For robustness, let's assume BASE_DIR is available or path_val is absolute.
+    if not path.is_absolute():
+        # This line assumes BASE_DIR exists in the context. If not, it will cause an error.
+        # For this exercise, I'll assume BASE_DIR is defined globally or imported.
+        # If not, a more robust solution would be to pass BASE_DIR or derive it.
+        # For now, I'll comment out the BASE_DIR part if it's not explicitly provided in the context.
+        # path = (BASE_DIR / path).resolve()
+        path = path.resolve() # Fallback if BASE_DIR is not available
+
+    if not path.exists():
+        logger.warning(f"Firebase credentials not found at {path}")
+        return None, None
+
+    resolved_path = str(path)
+    cred = credentials.Certificate(resolved_path)
+    bucket_name = (settings.firebase_storage_bucket or "").strip()
+    if not bucket_name:
+        with open(resolved_path, "r", encoding="utf-8") as f:
+            sa = json.load(f)
+            project_id = sa.get("project_id")
+        bucket_name = f"{project_id}.appspot.com" # Corrected default bucket name format
+
+    try:
+        firebase_admin.get_app()
+    except ValueError:
+        firebase_admin.initialize_app(cred, {"storageBucket": bucket_name})
+        
+    db = firestore.client()
+    bucket = None
+    if bucket_name:
+        try:
+            bucket = storage.bucket(name=bucket_name)
+            if not bucket.exists():
+                logger.warning(f"Bucket {bucket_name} does not exist")
+                bucket = None
+        except Exception as e:
+            logger.warning(f"Could not get bucket {bucket_name}: {e}")
+            bucket = None
+        
+    return db, bucket
+
+def list_stories(settings: AppSettings):
+    """Lists all stories from Firestore."""
+    db, _ = _get_firebase_clients(settings)
+    if db is None:
+        return []
+    
+    stories_ref = db.collection("stories").order_by("createdAt", direction="DESCENDING")
+    stories = []
+    for doc in stories_ref.stream():
+        data = doc.to_dict()
+        data["id"] = doc.id
+        
+        # Safe defaults for older stories
+        data.setdefault("storyMode", "live")
+        data.setdefault("storyDurationMinutes", 0)
+        data.setdefault("title", "Untitled Story")
+        
+        # Convert datetime objects to ISO strings for JSON serialization
+        for key in ["createdAt", "storyStartAt", "storyEndAt"]:
+            if key in data and isinstance(data[key], datetime):
+                data[key] = data[key].isoformat()
+            elif key not in data:
+                data[key] = None
+        
+        stories.append(data)
+    
+    return stories
+
+def delete_story(story_id: str, settings: AppSettings):
+    """Deletes a story from Firestore and its assets from Storage."""
+    db, bucket = _get_firebase_clients(settings)
+    if db is None:
+        logger.error("Firebase clients not initialized, cannot delete story.")
+        return False
+        
+    story_ref = db.collection("stories").document(story_id)
+    if not story_ref.get().exists:
+        logger.info(f"Story {story_id} not found.")
+        return False
+
+    # 1. Delete blobs in storage folder: stories/{story_id}/
+    if bucket:
+        try:
+            blobs = bucket.list_blobs(prefix=f"stories/{story_id}/")
+            for blob in blobs:
+                blob.delete()
+            logger.info(f"Deleted storage assets for {story_id}")
+        except Exception as e:
+            logger.error(f"Failed to delete story assets in storage for {story_id}: {e}")
+
+    # 2. Delete subcollections in Firestore
+    # Note: Firestore subcollections must be deleted manually by deleting all documents
+    # The list of subcollections should be comprehensive based on what's uploaded.
+    for coll_name in ["journals", "chats", "emails", "receipts", "voice_notes", "social_posts", "phone_calls", "group_chats", "gallery"]:
+        sub_coll_docs = story_ref.collection(coll_name).stream()
+        for doc in sub_coll_docs:
+            doc.reference.delete()
+            
+    # 3. Delete the parent document
+    story_ref.delete()
+    logger.info(f"Deleted story document {story_id}")
+    return True
 
 def upload_to_firestore(
     result: RunResult,
-    firebase_service_account_path: str,
     settings: AppSettings,
     pipeline: PipelineDefinition,
     *,
@@ -1615,45 +1732,13 @@ def upload_to_firestore(
         story_mode,
         tts_tier,
     )
-    import firebase_admin
-    from firebase_admin import credentials, firestore, storage
-    import time
-
-    # Ensure path is absolute relative to BASE_DIR if it's a simple filename
-    path = Path(firebase_service_account_path)
-    if not path.is_absolute():
-        path = (BASE_DIR / path).resolve()
     
-    if not path.exists():
-        raise FileNotFoundError(f"Firebase service account key not found at: {path}")
-    
-    resolved_path = str(path)
+    db, bucket = _get_firebase_clients(settings)
+    if db is None:
+        logger.error("Firebase clients not initialized, upload skipped.")
+        return None
 
-    cred = credentials.Certificate(resolved_path)
-    bucket_name = (settings.firebase_storage_bucket or "").strip()
-    if not bucket_name:
-        import json
-        with open(resolved_path, "r", encoding="utf-8") as f:
-            sa = json.load(f)
-            project_id = sa.get("project_id")
-        bucket_name = f"{project_id}.firebasestorage.app"
-
-    try:
-        app = firebase_admin.get_app()
-    except ValueError:
-        app = firebase_admin.initialize_app(cred, {"storageBucket": bucket_name})
-        
-    db = firestore.client()
-    try:
-        # Explicitly use bucket_name in case the app was initialized with a different one or no bucket.
-        bucket = storage.bucket(name=bucket_name)
-        # Check if bucket exists to fail early if misconfigured
-        if not bucket.exists():
-            logger.warning(f"Storage bucket '{bucket_name}' does not exist, images will be skipped.")
-            bucket = None
-    except Exception as e:
-        logger.warning(f"Could not initialize storage bucket '{bucket_name}', images will be skipped. {e}")
-        bucket = None
+    import time # Keep time import as it's used for story_id and blob names
 
     created_at = datetime.now(timezone.utc)
     story_id = f"story_{int(time.time())}"

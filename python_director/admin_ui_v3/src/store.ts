@@ -13,6 +13,7 @@ import type {
   RunProgress,
   BlockType,
   StudioBootstrap,
+  Story,
 } from './types'
 
 interface Toast {
@@ -30,6 +31,7 @@ export interface StudioData {
   blockTemplates: BlockTemplate[]
   resetTemplates: ResetTemplateInfo[]
   providerModels: Record<string, string[]>
+  stories: Story[]
 }
 
 interface StudioState {
@@ -44,6 +46,7 @@ interface StudioState {
   blockTemplates: BlockTemplate[]
   resetTemplates: ResetTemplateInfo[]
   providerModels: Record<string, string[]>
+  stories: Story[]
 
   // UI state
   selectedBlockId: string | null
@@ -86,6 +89,8 @@ interface StudioState {
   setPipelineCatalog: (catalog: PipelineCatalogItem[]) => void
   setSettings: (settings: SettingsPayload) => void
   updatePipelineMeta: (updates: Partial<PipelineDefinition>) => void
+  loadStories: () => Promise<void>
+  undeployStory: (storyId: string) => Promise<void>
 }
 
 function progressToSummary(p: RunProgress): RunSummary {
@@ -186,6 +191,7 @@ export const useStore = create<StudioState>((set, get) => {
     blockTemplates: [],
     resetTemplates: [],
     providerModels: {},
+    stories: [],
 
     // UI state
     selectedBlockId: null,
@@ -214,6 +220,7 @@ export const useStore = create<StudioState>((set, get) => {
           blockTemplates: data.block_templates,
           resetTemplates: data.reset_templates,
           providerModels: data.provider_models,
+          stories: [], // Stories handled separately or initially empty
         }
         set({
           studio: studioData,
@@ -226,6 +233,7 @@ export const useStore = create<StudioState>((set, get) => {
           blockTemplates: data.block_templates,
           resetTemplates: data.reset_templates,
           providerModels: data.provider_models,
+          stories: [], // Initialize empty, will load on demand
           loading: false,
           bootstrapError: false,
         })
@@ -477,6 +485,27 @@ export const useStore = create<StudioState>((set, get) => {
         set({ activeRunId: runId, liveRun: progress })
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to load run progress'
+        get().showToast(msg, true)
+      }
+    },
+
+    loadStories: async () => {
+      try {
+        const stories = await api.listStories()
+        set({ stories })
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to load stories'
+        get().showToast(msg, true)
+      }
+    },
+
+    undeployStory: async (storyId) => {
+      try {
+        await api.deleteStory(storyId)
+        set({ stories: get().stories.filter(s => s.id !== storyId) })
+        get().showToast('Story undeployed successfully')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to undeploy story'
         get().showToast(msg, true)
       }
     },

@@ -46,6 +46,9 @@ export default function TopBar() {
           <NavLink to="/compare" className={navLinkClass}>
             Compare
           </NavLink>
+          <NavLink to="/deployments" className={navLinkClass}>
+            Deployments
+          </NavLink>
         </nav>
 
         {/* Right: Actions */}

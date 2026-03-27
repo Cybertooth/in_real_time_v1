@@ -17,6 +17,8 @@ if __package__:
         upload_to_firestore,
         derive_story_timeline,
         generate_image_with_fallback,
+        list_stories,
+        delete_story,
     )
     from .log_utils import get_logger
     from .models import (
@@ -66,6 +68,8 @@ else:
         upload_to_firestore,
         derive_story_timeline,
         generate_image_with_fallback,
+        list_stories,
+        delete_story,
     )
     from log_utils import get_logger
     from models import (
@@ -803,3 +807,14 @@ if __name__ == "__main__":
     # Cloud Run provides the PORT environment variable.
     port = int(os.environ.get("PORT", 8042))
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
+@router.get("/stories")
+async def api_list_stories():
+    return list_stories(load_settings())
+
+
+@router.delete("/stories/{story_id}")
+async def api_delete_story(story_id: str):
+    success = delete_story(story_id, load_settings())
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found or delete failed")
+    return {"status": "success", "story_id": story_id}

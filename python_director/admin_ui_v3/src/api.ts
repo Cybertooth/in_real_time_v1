@@ -7,6 +7,7 @@ import type {
   RunProgress,
   RunResult,
   RunComparison,
+  Story,
 } from './types'
 
 export class ApiError extends Error {
@@ -202,5 +203,16 @@ export function regenerateImage(
       method: 'POST',
       ...json({ event_type: eventType, index, new_prompt: newPrompt }),
     },
+  )
+}
+
+export function listStories(): Promise<Story[]> {
+  return request<Story[]>('/api/stories')
+}
+
+export function deleteStory(storyId: string): Promise<{ status: string; story_id: string }> {
+  return request<{ status: string; story_id: string }>(
+    `/api/stories/${encodeURIComponent(storyId)}`,
+    { method: 'DELETE' },
   )
 }
