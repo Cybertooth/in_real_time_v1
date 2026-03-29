@@ -294,6 +294,15 @@ async def generate_random_seed_prompt(
     )
 
     tags = [tag.strip() for tag in request.tags if tag and tag.strip()]
+
+    if not tags:
+        all_tags = [
+            "betrayal", "secrets", "scandal", "drama", "mystery", "conspiracy",
+            "revenge", "hidden-identity", "obsession", "lies", "blackmail",
+            "gossip", "workplace-intrigue", "domestic-drama", "police-thriller"
+        ]
+        tags = random.sample(all_tags, k=random.randint(2, 4))
+
     allowed_languages = [lang.strip() for lang in request.allowed_languages if lang and lang.strip()]
     tags_line = f"\nPreferred themes/tags: {', '.join(tags)}" if tags else ""
     languages_line = (
@@ -333,7 +342,7 @@ async def generate_random_seed_prompt(
     seed_prompt = provider.generate_content(config, prompt).strip()
     if not seed_prompt:
         raise HTTPException(status_code=500, detail="Random seed generation returned empty output.")
-    return RandomSeedPromptResponse(seed_prompt=seed_prompt)
+    return RandomSeedPromptResponse(seed_prompt=seed_prompt, tags=tags)
 
 
 @router.get("/runs")

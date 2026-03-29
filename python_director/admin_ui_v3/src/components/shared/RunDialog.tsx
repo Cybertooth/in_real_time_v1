@@ -108,6 +108,9 @@ export default function RunDialog({
     try {
       const result = await api.generateRandomSeedPrompt(tags, allowedLanguages)
       setSeedPrompt(result.seed_prompt.trim())
+      if (result.tags && result.tags.length > 0) {
+        setTags(result.tags)
+      }
     } catch (err) {
       setSeedGenError(err instanceof Error ? err.message : 'Failed to generate random seed.')
     } finally {

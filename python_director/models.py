@@ -322,6 +322,7 @@ class RandomSeedPromptRequest(BaseModel):
 
 class RandomSeedPromptResponse(BaseModel):
     seed_prompt: str
+    tags: list[str] = Field(default_factory=list)
 
 
 class CompareRunsRequest(BaseModel):

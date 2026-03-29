@@ -1,7 +1,7 @@
 {
   "name": "Found Phone Director (Cheap Full)",
   "description": "Cheaper full pipeline profile with lower-cost models and OpenRouter image generation.",
-  "updated_at": "2026-03-29T12:43:00.536795+00:00",
+  "updated_at": "2026-03-29T12:59:45.649981+00:00",
   "default_models": {
     "GEMINI": "gemini-3.1-flash-lite-preview",
     "OPENAI": "gpt-5.4-nano",

@@ -118,11 +118,11 @@ export function startRun(
 export function generateRandomSeedPrompt(
   tags?: string[],
   allowedLanguages?: string[],
-): Promise<{ seed_prompt: string }> {
+): Promise<{ seed_prompt: string; tags?: string[] }> {
   const body: Record<string, unknown> = {}
   if (tags && tags.length > 0) body.tags = tags
   if (allowedLanguages && allowedLanguages.length > 0) body.allowed_languages = allowedLanguages
-  return request<{ seed_prompt: string }>('/api/seed-prompt/random', {
+  return request<{ seed_prompt: string; tags?: string[] }>('/api/seed-prompt/random', {
     method: 'POST',
     ...json(body),
   })
