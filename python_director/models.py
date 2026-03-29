@@ -54,6 +54,11 @@ class StoryMode(str, Enum):
     SUBSCRIPTION = "subscription"
 
 
+class StorySubMode(str, Enum):
+    DEFAULT = "default"
+    ON_DEMAND = "on_demand"
+
+
 class TTSTier(str, Enum):
     PREMIUM = "premium"
     CHEAP = "cheap"
@@ -199,6 +204,12 @@ class RunSummary(BaseModel):
     headline_image_prompt: Optional[str] = None
     headline_image_path: Optional[str] = None
     story_id: Optional[str] = None
+    dry_run_stage: int = 3
+    dry_run_stage_name: str = "multimedia_artifact_generation"
+    awaiting_stage_approval: bool = False
+    staged_workflow: bool = False
+    delivery_profile: str = "standard"
+    deployment_stage: str = "dry_run"
 
 
 class RunResult(RunSummary):
@@ -233,6 +244,12 @@ class RunProgress(BaseModel):
     timeline: list[RunTimelineEntry] = Field(default_factory=list)
     stats: RunStats = Field(default_factory=RunStats)
     story_id: Optional[str] = None
+    dry_run_stage: int = 3
+    dry_run_stage_name: str = "multimedia_artifact_generation"
+    awaiting_stage_approval: bool = False
+    staged_workflow: bool = False
+    delivery_profile: str = "standard"
+    deployment_stage: str = "dry_run"
 
 
 class RunPipelineRequest(BaseModel):
@@ -242,10 +259,14 @@ class RunPipelineRequest(BaseModel):
     seed_prompt: Optional[str] = None
     tags: list[str] = Field(default_factory=list)
     allowed_languages: list[str] = Field(default_factory=list)
+    staged_workflow: bool = True
+    target_dry_run_stage: Optional[int] = None
+    delivery_profile: str = "standard"
 
 
 class UploadRunRequest(BaseModel):
     story_mode: StoryMode = StoryMode.LIVE
+    story_sub_mode: StorySubMode = StorySubMode.DEFAULT
     scheduled_start_at: Optional[datetime] = None
     tts_tier: TTSTier = TTSTier.PREMIUM
 
@@ -255,7 +276,13 @@ class UploadRunRequest(BaseModel):
             raise ValueError("scheduled_start_at is required when story_mode is 'scheduled'.")
         if self.story_mode != StoryMode.SCHEDULED:
             self.scheduled_start_at = None
+        if self.story_mode != StoryMode.SUBSCRIPTION:
+            self.story_sub_mode = StorySubMode.DEFAULT
         return self
+
+
+class AdvanceRunStageRequest(BaseModel):
+    target_dry_run_stage: Optional[int] = None
 
 
 class PipelineSnapshotRequest(BaseModel):
@@ -283,6 +310,9 @@ class RerunRequest(BaseModel):
     tags: list[str] = Field(default_factory=list)
     allowed_languages: list[str] | None = None
     use_original_seed: bool = True  # if True and no override, use stored seed/tags
+    staged_workflow: bool | None = None
+    target_dry_run_stage: Optional[int] = None
+    delivery_profile: Optional[str] = None
 
 
 class RandomSeedPromptRequest(BaseModel):

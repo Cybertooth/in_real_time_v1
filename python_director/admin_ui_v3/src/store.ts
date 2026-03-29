@@ -74,12 +74,24 @@ interface StudioState {
   addBlockFromTemplate: (template: BlockTemplate) => void
   showToast: (message: string, isError?: boolean) => void
   setSettingsOpen: (open: boolean) => void
-  startRun: (seedPrompt?: string, tags?: string[], allowedLanguages?: string[]) => Promise<void>
+  startRun: (
+    seedPrompt?: string,
+    tags?: string[],
+    allowedLanguages?: string[],
+    options?: {
+      stagedWorkflow?: boolean
+      deliveryProfile?: 'standard' | 'on_demand'
+    },
+  ) => Promise<void>
   rerunFromRun: (
     runId: string,
     seedPrompt?: string | null,
     tags?: string[],
     allowedLanguages?: string[],
+    options?: {
+      stagedWorkflow?: boolean
+      deliveryProfile?: 'standard' | 'on_demand'
+    },
   ) => Promise<void>
   retryBlock: (runId: string, blockId: string) => Promise<void>
   deleteRun: (runId: string) => Promise<void>
@@ -111,6 +123,12 @@ function progressToSummary(p: RunProgress): RunSummary {
     tags: p.tags ?? (raw.tags as string[]) ?? [],
     allowed_languages: p.allowed_languages ?? (raw.allowed_languages as string[]) ?? [],
     story_id: p.story_id,
+    dry_run_stage: p.dry_run_stage ?? 3,
+    dry_run_stage_name: p.dry_run_stage_name ?? 'multimedia_artifact_generation',
+    awaiting_stage_approval: p.awaiting_stage_approval ?? false,
+    staged_workflow: p.staged_workflow ?? false,
+    delivery_profile: p.delivery_profile ?? 'standard',
+    deployment_stage: p.deployment_stage ?? 'dry_run',
   }
 }
 
@@ -421,12 +439,20 @@ export const useStore = create<StudioState>((set, get) => {
       }, 3000)
     },
 
-    startRun: async (seedPrompt?: string, tags?: string[], allowedLanguages?: string[]) => {
+    startRun: async (
+      seedPrompt?: string,
+      tags?: string[],
+      allowedLanguages?: string[],
+      options?: { stagedWorkflow?: boolean; deliveryProfile?: 'standard' | 'on_demand' },
+    ) => {
       const { pipeline } = get()
       if (!pipeline) return
       get().stopPolling()
       try {
-        const progress = await api.startRun(pipeline, seedPrompt, tags, allowedLanguages)
+        const progress = await api.startRun(pipeline, seedPrompt, tags, allowedLanguages, {
+          staged_workflow: options?.stagedWorkflow ?? true,
+          delivery_profile: options?.deliveryProfile ?? 'standard',
+        })
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Run completed successfully', 'Run failed')
       } catch (err) {
@@ -435,10 +461,13 @@ export const useStore = create<StudioState>((set, get) => {
       }
     },
 
-    rerunFromRun: async (runId, seedPrompt, tags, allowedLanguages) => {
+    rerunFromRun: async (runId, seedPrompt, tags, allowedLanguages, options) => {
       get().stopPolling()
       try {
-        const progress = await api.rerunRun(runId, seedPrompt, tags, allowedLanguages)
+        const progress = await api.rerunRun(runId, seedPrompt, tags, allowedLanguages, {
+          staged_workflow: options?.stagedWorkflow,
+          delivery_profile: options?.deliveryProfile,
+        })
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Re-run completed successfully', 'Re-run failed')
       } catch (err) {

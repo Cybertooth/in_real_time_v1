@@ -5,7 +5,12 @@ import * as api from '../../api'
 interface RunDialogProps {
   open: boolean
   onClose: () => void
-  onStart: (seedPrompt: string, tags: string[], allowedLanguages: string[]) => void
+  onStart: (
+    seedPrompt: string,
+    tags: string[],
+    allowedLanguages: string[],
+    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+  ) => void
   initialSeedPrompt?: string
   initialTags?: string[]
   initialAllowedLanguages?: string[]
@@ -35,6 +40,8 @@ export default function RunDialog({
   const [generatingSeed, setGeneratingSeed] = useState(false)
   const [seedGenError, setSeedGenError] = useState<string | null>(null)
   const [mode, setMode] = useState<'same' | 'new'>(initialMode ?? 'same')
+  const [stagedWorkflow, setStagedWorkflow] = useState(true)
+  const [deliveryProfile, setDeliveryProfile] = useState<'standard' | 'on_demand'>('standard')
   // Show mode toggle only for retries (when a previous seed prompt exists)
   const isRetry = Boolean(initialSeedPrompt)
 
@@ -50,6 +57,8 @@ export default function RunDialog({
       setLanguageInput('')
       setGeneratingSeed(false)
       setSeedGenError(null)
+      setStagedWorkflow(true)
+      setDeliveryProfile('standard')
       dialogRef.current?.showModal()
       if (openMode === 'new') {
         setTimeout(() => textareaRef.current?.focus(), 50)
@@ -107,7 +116,7 @@ export default function RunDialog({
   }
 
   const handleStart = () => {
-    onStart(seedPrompt.trim(), tags, allowedLanguages)
+    onStart(seedPrompt.trim(), tags, allowedLanguages, { stagedWorkflow, deliveryProfile })
     setSeedPrompt('')
     setTags([])
     setAllowedLanguages([])
@@ -253,6 +262,40 @@ export default function RunDialog({
           </div>
           <p className="text-text-dim text-xs">
             Restricts generated story artifacts to these languages. Add multiple for mixed-language stories.
+          </p>
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+            Dry-Run Workflow
+          </span>
+          <select
+            value={stagedWorkflow ? 'staged' : 'full'}
+            onChange={(e) => setStagedWorkflow(e.target.value === 'staged')}
+            className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
+          >
+            <option value="staged">Staged (Approval Gates)</option>
+            <option value="full">Full (One Shot)</option>
+          </select>
+          <p className="text-text-dim text-xs">
+            Staged runs pause at each generation stage so you can approve before spending more tokens.
+          </p>
+        </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+            Delivery Profile Hint
+          </span>
+          <select
+            value={deliveryProfile}
+            onChange={(e) => setDeliveryProfile(e.target.value as 'standard' | 'on_demand')}
+            className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
+          >
+            <option value="standard">Standard Realtime</option>
+            <option value="on_demand">On-Demand Burst</option>
+          </select>
+          <p className="text-text-dim text-xs">
+            Adds generation guidance for bursty session-based pacing when using subscription on-demand stories.
           </p>
         </label>
 

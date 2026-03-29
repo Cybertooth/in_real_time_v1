@@ -18,12 +18,18 @@ export default function TopBar() {
         : 'text-text-dim hover:text-text border-b-2 border-transparent'
     }`
 
-  const handleRunStart = (seedPrompt: string, tags: string[], allowedLanguages: string[]) => {
+  const handleRunStart = (
+    seedPrompt: string,
+    tags: string[],
+    allowedLanguages: string[],
+    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+  ) => {
     setRunDialogOpen(false)
     startRun(
       seedPrompt || undefined,
       tags.length > 0 ? tags : undefined,
       allowedLanguages.length > 0 ? allowedLanguages : undefined,
+      options,
     )
   }
 

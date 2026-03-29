@@ -99,11 +99,19 @@ export function startRun(
   seedPrompt?: string,
   tags?: string[],
   allowedLanguages?: string[],
+  options?: {
+    staged_workflow?: boolean
+    target_dry_run_stage?: number
+    delivery_profile?: 'standard' | 'on_demand'
+  },
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { pipeline }
   if (seedPrompt) body.seed_prompt = seedPrompt
   if (tags && tags.length > 0) body.tags = tags
   if (allowedLanguages && allowedLanguages.length > 0) body.allowed_languages = allowedLanguages
+  if (options?.staged_workflow !== undefined) body.staged_workflow = options.staged_workflow
+  if (options?.target_dry_run_stage !== undefined) body.target_dry_run_stage = options.target_dry_run_stage
+  if (options?.delivery_profile) body.delivery_profile = options.delivery_profile
   return request<RunProgress>('/api/runs/start', { method: 'POST', ...json(body) })
 }
 
@@ -146,12 +154,14 @@ export function uploadRun(
   runId: string,
   payload: {
     story_mode: 'live' | 'scheduled' | 'subscription'
+    story_sub_mode?: 'default' | 'on_demand'
     scheduled_start_at?: string | null
     tts_tier: 'premium' | 'cheap'
   },
 ): Promise<{ status: string; story_id: string }> {
   const body: Record<string, unknown> = {
     story_mode: payload.story_mode,
+    story_sub_mode: payload.story_sub_mode ?? 'default',
     tts_tier: payload.tts_tier,
   }
   if (payload.scheduled_start_at) body.scheduled_start_at = payload.scheduled_start_at
@@ -161,16 +171,43 @@ export function uploadRun(
   )
 }
 
+export function approveNextRunStage(
+  runId: string,
+  targetDryRunStage?: number,
+): Promise<RunProgress> {
+  const body: Record<string, unknown> = {}
+  if (targetDryRunStage !== undefined) body.target_dry_run_stage = targetDryRunStage
+  return request<RunProgress>(
+    `/api/runs/${encodeURIComponent(runId)}/approve-next-stage`,
+    { method: 'POST', ...json(body) },
+  )
+}
+
+export function makeRunLive(runId: string): Promise<{ status: string; story_id: string }> {
+  return request<{ status: string; story_id: string }>(
+    `/api/runs/${encodeURIComponent(runId)}/make-live`,
+    { method: 'POST' },
+  )
+}
+
 export function rerunRun(
   runId: string,
   seedPrompt?: string | null,
   tags?: string[],
   allowedLanguages?: string[],
+  options?: {
+    staged_workflow?: boolean
+    target_dry_run_stage?: number
+    delivery_profile?: 'standard' | 'on_demand'
+  },
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { use_original_seed: seedPrompt === undefined }
   if (seedPrompt !== undefined) body.seed_prompt = seedPrompt
   if (tags !== undefined) body.tags = tags
   if (allowedLanguages !== undefined) body.allowed_languages = allowedLanguages
+  if (options?.staged_workflow !== undefined) body.staged_workflow = options.staged_workflow
+  if (options?.target_dry_run_stage !== undefined) body.target_dry_run_stage = options.target_dry_run_stage
+  if (options?.delivery_profile) body.delivery_profile = options.delivery_profile
   return request<RunProgress>(`/api/runs/${encodeURIComponent(runId)}/rerun`, {
     method: 'POST',
     ...json(body),

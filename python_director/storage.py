@@ -355,6 +355,12 @@ def run_progress_from_result(run_result: RunResult) -> RunProgress:
         timeline=run_result.timeline,
         stats=run_result.stats,
         story_id=run_result.story_id,
+        dry_run_stage=run_result.dry_run_stage,
+        dry_run_stage_name=run_result.dry_run_stage_name,
+        awaiting_stage_approval=run_result.awaiting_stage_approval,
+        staged_workflow=run_result.staged_workflow,
+        delivery_profile=run_result.delivery_profile,
+        deployment_stage=run_result.deployment_stage,
     )
 
 
@@ -378,6 +384,12 @@ def _summary_from_run_progress(run_progress: RunProgress) -> RunSummary:
         tags=run_progress.tags,
         allowed_languages=run_progress.allowed_languages,
         story_id=run_progress.story_id,
+        dry_run_stage=run_progress.dry_run_stage,
+        dry_run_stage_name=run_progress.dry_run_stage_name,
+        awaiting_stage_approval=run_progress.awaiting_stage_approval,
+        staged_workflow=run_progress.staged_workflow,
+        delivery_profile=run_progress.delivery_profile,
+        deployment_stage=run_progress.deployment_stage,
     )
 
 
@@ -426,6 +438,12 @@ def list_run_summaries() -> list[RunSummary]:
                     tags=run_result.tags,
                     allowed_languages=run_result.allowed_languages,
                     story_id=run_result.story_id,
+                    dry_run_stage=run_result.dry_run_stage,
+                    dry_run_stage_name=run_result.dry_run_stage_name,
+                    awaiting_stage_approval=run_result.awaiting_stage_approval,
+                    staged_workflow=run_result.staged_workflow,
+                    delivery_profile=run_result.delivery_profile,
+                    deployment_stage=run_result.deployment_stage,
                 )
             )
             continue

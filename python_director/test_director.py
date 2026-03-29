@@ -18,6 +18,7 @@ from python_director.models import (
     ProviderType,
     RunResult,
     StoryMode,
+    StorySubMode,
     TTSTier,
     UploadRunRequest,
 )
@@ -388,6 +389,29 @@ def test_burstiness_score_perfect_vs_irregular():
     )
 
 
+def test_runner_can_stop_at_stage_one(tmp_path: Path, monkeypatch):
+    pipeline = PipelineDefinition(
+        name="staged-test",
+        blocks=[
+            _block("a", block_type=BlockType.CREATIVE_OUTLINER, prompt="first"),
+            _block("b", block_type=BlockType.GENERATOR, prompt="second {{a}}", inputs=["a"]),
+        ],
+    )
+    monkeypatch.setattr("python_director.logic.RUNS_DIR", tmp_path)
+    monkeypatch.setattr("python_director.logic.save_run_result", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("python_director.logic.get_provider", lambda *_args, **_kwargs: FakeProvider())
+
+    result = PipelineRunner(AppSettings(gemini_api_key="test")).run_pipeline(
+        pipeline,
+        run_id="run_stage_one",
+        staged_workflow=True,
+    )
+
+    assert result.block_sequence == ["a"]
+    assert result.dry_run_stage == 1
+    assert result.awaiting_stage_approval is True
+
+
 def test_upload_request_validates_scheduled_mode():
     with pytest.raises(ValueError, match="scheduled_start_at is required"):
         UploadRunRequest(story_mode=StoryMode.SCHEDULED, scheduled_start_at=None)
@@ -403,8 +427,16 @@ def test_upload_request_validates_scheduled_mode():
     live_req = UploadRunRequest(
         story_mode=StoryMode.LIVE,
         scheduled_start_at=datetime(2026, 3, 22, 12, 0, tzinfo=timezone.utc),
+        story_sub_mode=StorySubMode.ON_DEMAND,
     )
     assert live_req.scheduled_start_at is None
+    assert live_req.story_sub_mode == StorySubMode.DEFAULT
+
+    sub_req = UploadRunRequest(
+        story_mode=StoryMode.SUBSCRIPTION,
+        story_sub_mode=StorySubMode.ON_DEMAND,
+    )
+    assert sub_req.story_sub_mode == StorySubMode.ON_DEMAND
 
 
 def test_reset_templates_catalog_and_profiles():

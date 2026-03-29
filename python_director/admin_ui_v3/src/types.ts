@@ -134,6 +134,12 @@ export interface RunSummary {
   tags: string[]
   allowed_languages: string[]
   story_id: string | null
+  dry_run_stage: number
+  dry_run_stage_name: string
+  awaiting_stage_approval: boolean
+  staged_workflow: boolean
+  delivery_profile: string
+  deployment_stage: string
 }
 
 export interface RunProgress {
@@ -157,6 +163,12 @@ export interface RunProgress {
   timeline: RunTimelineEntry[]
   stats: RunStats
   story_id: string | null
+  dry_run_stage: number
+  dry_run_stage_name: string
+  awaiting_stage_approval: boolean
+  staged_workflow: boolean
+  delivery_profile: string
+  deployment_stage: string
 }
 
 export interface RunResult extends RunSummary {
@@ -255,6 +267,9 @@ export interface Story {
   title: string
   createdAt: string
   storyMode: string
+  storySubMode: string
   headlineImageUrl: string | null
   storyDurationMinutes: number
+  isPublished?: boolean
+  publishedAt?: string | null
 }

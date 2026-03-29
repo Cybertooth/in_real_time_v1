@@ -19,12 +19,14 @@ if __package__:
         generate_image_with_fallback,
         list_stories,
         delete_story,
+        make_story_live,
     )
     from .log_utils import get_logger
     from .models import (
         AppSettings,
         BlockConfig,
         CompareRunsRequest,
+        AdvanceRunStageRequest,
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
@@ -70,12 +72,14 @@ else:
         generate_image_with_fallback,
         list_stories,
         delete_story,
+        make_story_live,
     )
     from log_utils import get_logger
     from models import (
         AppSettings,
         BlockConfig,
         CompareRunsRequest,
+        AdvanceRunStageRequest,
         NamedPipelineLoadRequest,
         NamedPipelineSaveRequest,
         PipelineDefinition,
@@ -379,6 +383,9 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
             seed_prompt=request.seed_prompt,
             tags=request.tags,
             allowed_languages=request.allowed_languages,
+            staged_workflow=request.staged_workflow,
+            target_dry_run_stage=request.target_dry_run_stage,
+            delivery_profile=request.delivery_profile,
         )
         logger.info(
             "Run finished run_id=%s blocks=%s final_title=%s",
@@ -399,6 +406,9 @@ def _bg_run_pipeline(
     seed_prompt: str | None = None,
     tags: list[str] | None = None,
     allowed_languages: list[str] | None = None,
+    staged_workflow: bool = True,
+    target_dry_run_stage: int | None = None,
+    delivery_profile: str = "standard",
 ):
     runner = PipelineRunner(settings)
 
@@ -413,6 +423,9 @@ def _bg_run_pipeline(
             seed_prompt=seed_prompt,
             tags=tags or [],
             allowed_languages=allowed_languages or [],
+            staged_workflow=staged_workflow,
+            target_dry_run_stage=target_dry_run_stage,
+            delivery_profile=delivery_profile,
         )
     except Exception:
         # runner already logs and updates progress status to FAILED
@@ -450,12 +463,21 @@ async def start_run(
         allowed_languages=request.allowed_languages,
         block_count=len(pipeline.blocks),
         block_sequence=[b.id for b in pipeline.blocks if b.enabled],
+        dry_run_stage=request.target_dry_run_stage or (1 if request.staged_workflow else 3),
+        dry_run_stage_name="fundamental_story_generation" if request.staged_workflow else "multimedia_artifact_generation",
+        staged_workflow=request.staged_workflow,
+        delivery_profile=request.delivery_profile,
     )
     active_runs[run_id] = initial_progress
 
     background_tasks.add_task(
         _bg_run_pipeline, run_id, pipeline, settings,
-        request.seed_prompt, request.tags, request.allowed_languages,
+        request.seed_prompt,
+        request.tags,
+        request.allowed_languages,
+        request.staged_workflow,
+        request.target_dry_run_stage,
+        request.delivery_profile,
     )
 
     return initial_progress
@@ -491,9 +513,53 @@ async def get_run_status(run_id: str):
             block_traces=result.block_traces,
             timeline=result.timeline,
             stats=result.stats,
+            story_id=result.story_id,
+            dry_run_stage=result.dry_run_stage,
+            dry_run_stage_name=result.dry_run_stage_name,
+            awaiting_stage_approval=result.awaiting_stage_approval,
+            staged_workflow=result.staged_workflow,
+            delivery_profile=result.delivery_profile,
+            deployment_stage=result.deployment_stage,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
+
+
+@router.post("/runs/{run_id}/approve-next-stage")
+async def approve_next_stage(
+    run_id: str,
+    background_tasks: BackgroundTasks,
+    request: AdvanceRunStageRequest = AdvanceRunStageRequest(),
+):
+    logger.info("Stage approval requested run_id=%s target_stage=%s", run_id, request.target_dry_run_stage)
+
+    if run_id in active_runs and active_runs[run_id].status == RunStatus.RUNNING:
+        raise HTTPException(status_code=409, detail="Run is already active. Wait for it to finish.")
+
+    settings = load_settings()
+    runner = PipelineRunner(settings)
+
+    def _progress_callback(p: RunProgress):
+        active_runs[run_id] = p
+
+    try:
+        progress = runner.advance_run_stage(
+            run_id,
+            target_dry_run_stage=request.target_dry_run_stage,
+            progress_callback=_progress_callback,
+        )
+        active_runs[run_id] = progress
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def _cleanup():
+        import time
+
+        time.sleep(60)
+        active_runs.pop(run_id, None)
+
+    background_tasks.add_task(_cleanup)
+    return progress
 
 
 @router.post("/runs/{run_id}/rerun")
@@ -521,14 +587,24 @@ async def rerun_run(
                 if request.allowed_languages is not None
                 else original.allowed_languages
             )
+            staged_workflow = (
+                request.staged_workflow
+                if request.staged_workflow is not None
+                else original.staged_workflow
+            )
+            delivery_profile = request.delivery_profile or original.delivery_profile
         except FileNotFoundError:
             seed_prompt = None
             tags = []
             allowed_languages = request.allowed_languages or []
+            staged_workflow = request.staged_workflow if request.staged_workflow is not None else True
+            delivery_profile = request.delivery_profile or "standard"
     else:
         seed_prompt = request.seed_prompt
         tags = request.tags
         allowed_languages = request.allowed_languages or []
+        staged_workflow = request.staged_workflow if request.staged_workflow is not None else True
+        delivery_profile = request.delivery_profile or "standard"
 
     settings = load_settings()
     new_run_id = f"run_{int(perf_counter() * 1000)}"
@@ -543,6 +619,10 @@ async def rerun_run(
         allowed_languages=allowed_languages,
         block_count=len([b for b in pipeline.blocks if b.enabled]),
         block_sequence=[b.id for b in pipeline.blocks if b.enabled],
+        dry_run_stage=request.target_dry_run_stage or (1 if staged_workflow else 3),
+        dry_run_stage_name="fundamental_story_generation" if staged_workflow else "multimedia_artifact_generation",
+        staged_workflow=staged_workflow,
+        delivery_profile=delivery_profile,
     )
     active_runs[new_run_id] = initial_progress
 
@@ -554,6 +634,9 @@ async def rerun_run(
         seed_prompt,
         tags,
         allowed_languages,
+        staged_workflow,
+        request.target_dry_run_stage,
+        delivery_profile,
     )
     logger.info("Re-run started new_run_id=%s from_run_id=%s", new_run_id, run_id)
     return initial_progress
@@ -624,9 +707,10 @@ async def compare_runs(request: CompareRunsRequest):
 @router.post("/upload/{run_id}")
 async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()):
     logger.info(
-        "Upload requested run_id=%s mode=%s tts_tier=%s scheduled_start_at=%s",
+        "Upload requested run_id=%s mode=%s sub_mode=%s tts_tier=%s scheduled_start_at=%s",
         run_id,
         request.story_mode.value,
+        request.story_sub_mode.value,
         request.tts_tier.value,
         request.scheduled_start_at,
     )
@@ -637,6 +721,14 @@ async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()
 
     if not isinstance(run_result.final_output, dict):
         raise HTTPException(status_code=400, detail="Selected run has no structured final artifact.")
+    if (run_result.dry_run_stage or 0) < 3:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Run has not completed Stage 3 (multimedia artifact generation). "
+                "Approve and continue dry-run stages before uploading."
+            ),
+        )
 
     settings = load_settings()
     cred_path = settings.google_application_credentials
@@ -654,10 +746,10 @@ async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()
             pipeline = load_pipeline()
         story_id = upload_to_firestore(
             run_result,
-            cred_path,
             settings,
             pipeline,
             story_mode=request.story_mode.value,
+            story_sub_mode=request.story_sub_mode.value,
             scheduled_start_at=request.scheduled_start_at,
             tts_tier=request.tts_tier.value,
         )
@@ -665,6 +757,7 @@ async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()
 
         # Update the run_result on disk to persist the story_id
         run_result.story_id = story_id
+        run_result.deployment_stage = "uploaded"
         snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
         if snapshot_path.exists():
             pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
@@ -771,6 +864,47 @@ async def get_run_image(run_id: str, filename: str):
     return FileResponse(path)
 
 
+@router.post("/runs/{run_id}/make-live")
+async def make_run_live(run_id: str):
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not run_result.story_id:
+        raise HTTPException(status_code=400, detail="Run has not been uploaded yet.")
+
+    if make_story_live(run_result.story_id, load_settings()):
+        run_result.deployment_stage = "live"
+        snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+        if snapshot_path.exists():
+            pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+            save_run_result(run_result, pipeline)
+        return {"status": "ok", "story_id": run_result.story_id}
+
+    raise HTTPException(status_code=404, detail="Story not found or publish failed.")
+
+
+@router.post("/stories/{story_id}/make-live")
+async def api_make_story_live(story_id: str):
+    if not make_story_live(story_id, load_settings()):
+        raise HTTPException(status_code=404, detail="Story not found or publish failed")
+    return {"status": "ok", "story_id": story_id}
+
+
+@router.get("/stories")
+async def api_list_stories():
+    return list_stories(load_settings())
+
+
+@router.delete("/stories/{story_id}")
+async def api_delete_story(story_id: str):
+    success = delete_story(story_id, load_settings())
+    if not success:
+        raise HTTPException(status_code=404, detail="Story not found or delete failed")
+    return {"status": "success", "story_id": story_id}
+
+
 
 # ---------------------------------------------------------------------------
 # Include the API router
@@ -807,14 +941,3 @@ if __name__ == "__main__":
     # Cloud Run provides the PORT environment variable.
     port = int(os.environ.get("PORT", 8042))
     uvicorn.run("api:app", host="0.0.0.0", port=port, reload=False)
-@router.get("/stories")
-async def api_list_stories():
-    return list_stories(load_settings())
-
-
-@router.delete("/stories/{story_id}")
-async def api_delete_story(story_id: str):
-    success = delete_story(story_id, load_settings())
-    if not success:
-        raise HTTPException(status_code=404, detail="Story not found or delete failed")
-    return {"status": "success", "story_id": story_id}

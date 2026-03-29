@@ -39,6 +39,10 @@ export default function RunDetail() {
     seed_prompt?: string | null
     tags?: string[]
     allowed_languages?: string[]
+    dry_run_stage?: number
+    dry_run_stage_name?: string
+    awaiting_stage_approval?: boolean
+    deployment_stage?: string
   }) | null>(null)
   const [loading, setLoading] = useState(true)
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
@@ -46,9 +50,12 @@ export default function RunDetail() {
   const [retryTarget, setRetryTarget] = useState<{ id: string; name: string } | null>(null)
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
   const [storyMode, setStoryMode] = useState<'live' | 'scheduled' | 'subscription'>('live')
+  const [storySubMode, setStorySubMode] = useState<'default' | 'on_demand'>('default')
   const [scheduledStartAt, setScheduledStartAt] = useState('')
   const [ttsTier, setTtsTier] = useState<'premium' | 'cheap'>('premium')
   const [uploading, setUploading] = useState(false)
+  const [approvingStage, setApprovingStage] = useState(false)
+  const [publishing, setPublishing] = useState(false)
 
   // Load run data on mount / when navigating to a different run
   useEffect(() => {
@@ -174,6 +181,7 @@ export default function RunDetail() {
     try {
       const result = await api.uploadRun(runId, {
         story_mode: storyMode,
+        story_sub_mode: storyMode === 'subscription' ? storySubMode : 'default',
         scheduled_start_at: scheduleIso,
         tts_tier: ttsTier,
       })
@@ -188,10 +196,15 @@ export default function RunDetail() {
     }
   }
 
-  const handleRerun = (seedPrompt: string, tags: string[], allowedLanguages: string[]) => {
+  const handleRerun = (
+    seedPrompt: string,
+    tags: string[],
+    allowedLanguages: string[],
+    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+  ) => {
     setRerunDialogOpen(false)
     if (!runId) return
-    rerunFromRun(runId, seedPrompt || null, tags, allowedLanguages)
+    rerunFromRun(runId, seedPrompt || null, tags, allowedLanguages, options)
     navigate('/runs')
   }
 
@@ -212,11 +225,72 @@ export default function RunDetail() {
     retryBlock(runId, retryTarget.id)
   }
 
+  const handleApproveNextStage = async () => {
+    if (!runId) return
+    setApprovingStage(true)
+    try {
+      const progress = await api.approveNextRunStage(runId)
+      setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Record<string, unknown>) } as RunProgress & {
+        final_output?: unknown
+        headline_image_path?: string | null
+        headline_image_prompt?: string | null
+        seed_prompt?: string | null
+        tags?: string[]
+        allowed_languages?: string[]
+        dry_run_stage?: number
+        dry_run_stage_name?: string
+        awaiting_stage_approval?: boolean
+        deployment_stage?: string
+      } : null))
+      showToast(`Advanced to stage ${progress.dry_run_stage}: ${progress.dry_run_stage_name}`)
+      if (progress.status === 'succeeded' && runId) {
+        const full = await api.getRun(runId)
+        setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunProgress & {
+          final_output?: unknown
+          headline_image_path?: string | null
+          headline_image_prompt?: string | null
+          seed_prompt?: string | null
+          tags?: string[]
+          allowed_languages?: string[]
+          dry_run_stage?: number
+          dry_run_stage_name?: string
+          awaiting_stage_approval?: boolean
+          deployment_stage?: string
+        }))
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to advance stage'
+      showToast(msg, true)
+    } finally {
+      setApprovingStage(false)
+    }
+  }
+
+  const handleMakeLive = async () => {
+    if (!runId) return
+    setPublishing(true)
+    try {
+      await api.makeRunLive(runId)
+      showToast('Story is now live in the app.')
+      setRunData((prev) => (prev ? { ...prev, deployment_stage: 'live' } : null))
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to make story live'
+      showToast(msg, true)
+    } finally {
+      setPublishing(false)
+    }
+  }
+
   // Seed/tags from the stored run progress (present if set when run was created)
   const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
   const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
   const storedAllowedLanguages = (runData as unknown as Record<string, unknown>).allowed_languages as string[] | undefined
   const runTitle = runData.final_title || runData.pipeline_name || 'Untitled Story'
+  const runStage = (runData as unknown as Record<string, unknown>).dry_run_stage as number | undefined
+  const runStageName = (runData as unknown as Record<string, unknown>).dry_run_stage_name as string | undefined
+  const awaitingStageApproval = Boolean((runData as unknown as Record<string, unknown>).awaiting_stage_approval)
+  const deploymentStage = ((runData as unknown as Record<string, unknown>).deployment_stage as string | undefined) ?? 'dry_run'
+  const canUpload = runData.status === 'succeeded' && (runStage ?? 3) >= 3
   const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
@@ -230,9 +304,15 @@ export default function RunDetail() {
     <>
       <div className="flex flex-col h-full">
         {runData.story_id && (
-          <div className="bg-mint/10 text-mint text-center py-1.5 text-xs font-bold uppercase tracking-widest border-b border-mint/20 flex items-center justify-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-mint animate-pulse" />
-            Live on Production (Story ID: {runData.story_id})
+          <div className={`text-center py-1.5 text-xs font-bold uppercase tracking-widest border-b flex items-center justify-center gap-2 ${
+            deploymentStage === 'live'
+              ? 'bg-mint/10 text-mint border-mint/20'
+              : 'bg-amber-300/10 text-amber-300 border-amber-300/20'
+          }`}>
+            <span className={`w-2 h-2 rounded-full ${deploymentStage === 'live' ? 'bg-mint animate-pulse' : 'bg-amber-300'}`} />
+            {deploymentStage === 'live'
+              ? `Live on Production (Story ID: ${runData.story_id})`
+              : `Uploaded (Not Live Yet) — Story ID: ${runData.story_id}`}
           </div>
         )}
         {/* Header */}
@@ -242,6 +322,9 @@ export default function RunDetail() {
               {runTitle}
             </h2>
             <Badge variant={statusVariant()}>{runData.status}</Badge>
+            <Badge variant="default">
+              Stage {runStage ?? 3}: {(runStageName ?? 'multimedia_artifact_generation').replaceAll('_', ' ')}
+            </Badge>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-text-dim">{formatTime(runData.started_at)}</span>
@@ -256,14 +339,40 @@ export default function RunDetail() {
               </button>
             )}
 
+            {runData.status === 'succeeded' && awaitingStageApproval && (
+              <button
+                type="button"
+                onClick={handleApproveNextStage}
+                disabled={approvingStage}
+                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-surface border border-mint/40 text-mint hover:bg-mint/10 transition-colors"
+              >
+                {approvingStage ? 'Advancing...' : 'Approve + Continue Stage'}
+              </button>
+            )}
+
             {runData.status === 'succeeded' && (
               <button
                 type="button"
                 onClick={handleUpload}
-                disabled={uploading}
-                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-mint text-black hover:brightness-110 transition-colors"
+                disabled={uploading || !canUpload}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                  uploading || !canUpload
+                    ? 'bg-surface text-text-dim border border-border cursor-not-allowed opacity-60'
+                    : 'cursor-pointer bg-mint text-black hover:brightness-110'
+                }`}
               >
-                Upload
+                {canUpload ? 'Upload' : 'Complete Stage 3 First'}
+              </button>
+            )}
+
+            {runData.story_id && deploymentStage !== 'live' && (
+              <button
+                type="button"
+                onClick={handleMakeLive}
+                disabled={publishing}
+                className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-amber-300 text-black hover:brightness-110 transition-colors"
+              >
+                {publishing ? 'Publishing...' : 'Make Live'}
               </button>
             )}
 
@@ -377,6 +486,21 @@ export default function RunDetail() {
               <option value="subscription">Subscription (start on follow)</option>
             </select>
           </label>
+
+          {storyMode === 'subscription' && (
+            <label className="flex flex-col gap-1">
+              <span className="text-text-dim text-xs uppercase tracking-wide">Subscription Subtype</span>
+              <select
+                value={storySubMode}
+                onChange={(e) => setStorySubMode(e.target.value as 'default' | 'on_demand')}
+                className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
+                disabled={uploading}
+              >
+                <option value="default">Standard Subscription</option>
+                <option value="on_demand">On-Demand Burst (active-session pacing)</option>
+              </select>
+            </label>
+          )}
 
           {storyMode === 'scheduled' && (
             <label className="flex flex-col gap-1">

@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum StoryLifecycleMode { live, scheduled, subscription }
 
+enum StorySubscriptionSubMode { standard, onDemand }
+
 StoryLifecycleMode _parseStoryMode(Object? raw) {
   final value = (raw as String?)?.toLowerCase().trim();
   switch (value) {
@@ -12,6 +14,18 @@ StoryLifecycleMode _parseStoryMode(Object? raw) {
     case 'live':
     default:
       return StoryLifecycleMode.live;
+  }
+}
+
+StorySubscriptionSubMode _parseStorySubMode(Object? raw) {
+  final value = (raw as String?)?.toLowerCase().trim();
+  switch (value) {
+    case 'on_demand':
+    case 'ondemand':
+      return StorySubscriptionSubMode.onDemand;
+    case 'default':
+    default:
+      return StorySubscriptionSubMode.standard;
   }
 }
 
@@ -30,12 +44,18 @@ class StorySummary {
   final List<Map<String, dynamic>> characters;
   final String? headlineImageUrl;
   final StoryLifecycleMode storyMode;
+  final StorySubscriptionSubMode storySubMode;
   final DateTime? storyStartAt;
   final DateTime? storyEndAt;
   final int storyDurationMinutes;
   final String themeColorHex;
   final String ttsTier;
   final Map<String, String> voiceMap;
+  final bool isPublished;
+  final DateTime? publishedAt;
+  final int onDemandBurstWindowMinutes;
+  final int onDemandSessionDurationMinutes;
+  final int onDemandInactivityResetMinutes;
 
   StorySummary({
     required this.id,
@@ -46,12 +66,18 @@ class StorySummary {
     this.characters = const [],
     this.headlineImageUrl,
     this.storyMode = StoryLifecycleMode.live,
+    this.storySubMode = StorySubscriptionSubMode.standard,
     this.storyStartAt,
     this.storyEndAt,
     this.storyDurationMinutes = 0,
     this.themeColorHex = '#00FF9C',
     this.ttsTier = 'premium',
     this.voiceMap = const {},
+    this.isPublished = true,
+    this.publishedAt,
+    this.onDemandBurstWindowMinutes = 90,
+    this.onDemandSessionDurationMinutes = 9,
+    this.onDemandInactivityResetMinutes = 12,
   });
 
   factory StorySummary.fromFirestore(DocumentSnapshot doc) {
@@ -59,6 +85,10 @@ class StorySummary {
     final createdAt = _parseTimestamp(data['createdAt']) ?? DateTime.now();
     final startAt = _parseTimestamp(data['storyStartAt']);
     final endAt = _parseTimestamp(data['storyEndAt']);
+    final publishedAt = _parseTimestamp(data['publishedAt']);
+    final onDemandConfig = (data['onDemandConfig'] is Map<String, dynamic>)
+        ? data['onDemandConfig'] as Map<String, dynamic>
+        : const <String, dynamic>{};
     return StorySummary(
       id: doc.id,
       title: data['title'] ?? 'Untitled Story',
@@ -68,16 +98,28 @@ class StorySummary {
       characters: List<Map<String, dynamic>>.from(data['characters'] ?? []),
       headlineImageUrl: data['headlineImageUrl'] as String?,
       storyMode: _parseStoryMode(data['storyMode']),
+      storySubMode: _parseStorySubMode(data['storySubMode']),
       storyStartAt: startAt ?? createdAt,
       storyEndAt: endAt,
-      storyDurationMinutes: (data['storyDurationMinutes'] as num?)?.toInt() ?? 0,
+      storyDurationMinutes:
+          (data['storyDurationMinutes'] as num?)?.toInt() ?? 0,
       themeColorHex: (data['themeColorHex'] as String?) ?? '#00FF9C',
       ttsTier: (data['ttsTier'] as String?) ?? 'premium',
       voiceMap: Map<String, String>.from(data['voiceMap'] ?? const {}),
+      isPublished: (data['isPublished'] as bool?) ?? true,
+      publishedAt: publishedAt,
+      onDemandBurstWindowMinutes:
+          (onDemandConfig['burstWindowMinutes'] as num?)?.toInt() ?? 90,
+      onDemandSessionDurationMinutes:
+          (onDemandConfig['sessionDurationMinutes'] as num?)?.toInt() ?? 9,
+      onDemandInactivityResetMinutes:
+          (onDemandConfig['inactivityResetMinutes'] as num?)?.toInt() ?? 12,
     );
   }
 
   bool get isSubscription => storyMode == StoryLifecycleMode.subscription;
+  bool get isOnDemandSubscription =>
+      isSubscription && storySubMode == StorySubscriptionSubMode.onDemand;
 
   bool get isUpcoming {
     if (storyMode != StoryLifecycleMode.scheduled) return false;

@@ -17,15 +17,14 @@ class TimelineScreen extends ConsumerWidget {
     final feedAsync = ref.watch(timelineFeedProvider);
     final hasUpcoming = ref.watch(upcomingItemsProvider).value ?? false;
     final unlockedLocally = ref.watch(unlockedItemsProvider).value ?? {};
+    final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+    final burstStatusAsync = ref.watch(onDemandBurstStatusProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('IN REAL TIME'),
         actions: const [
-          Padding(
-            padding: EdgeInsets.only(right: 16),
-            child: LiveDot(),
-          ),
+          Padding(padding: EdgeInsets.only(right: 16), child: LiveDot()),
         ],
       ),
       body: feedAsync.when(
@@ -37,14 +36,59 @@ class TimelineScreen extends ConsumerWidget {
               subtitle: 'No intercepted data yet. Stand by...',
             );
           }
+          final burstBanner = activeStory?.isOnDemandSubscription == true
+              ? burstStatusAsync.maybeWhen(
+                  data: (status) {
+                    if (status == null) return const SizedBox.shrink();
+                    final nextText = status.nextUnlockAt == null
+                        ? 'This burst is complete.'
+                        : 'Next drop in ${status.nextUnlockAt!.difference(DateTime.now()).inSeconds.clamp(0, 9999)}s';
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentNeon.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppTheme.accentNeon.withOpacity(0.35),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(
+                            Icons.bolt,
+                            color: AppTheme.accentNeon,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Burst Mode: ${status.unlockedInBurst} unlocked, ${status.pendingInBurst} pending. $nextText',
+                              style: const TextStyle(
+                                color: AppTheme.accentNeon,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  orElse: SizedBox.shrink,
+                )
+              : const SizedBox.shrink();
           return ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: items.length + (hasUpcoming ? 1 : 0),
+            itemCount: items.length + (hasUpcoming ? 1 : 0) + 1,
             itemBuilder: (context, index) {
-              if (index == 0 && hasUpcoming) {
+              if (index == 0) {
+                return burstBanner;
+              }
+              final adjusted = index - 1;
+              if (adjusted == 0 && hasUpcoming) {
                 return _LockedCard();
               }
-              final item = items[hasUpcoming ? index - 1 : index];
+              final item = items[hasUpcoming ? adjusted - 1 : adjusted];
               final isUnlockedLocally = unlockedLocally.contains(item.id);
               final isLocked = item.isPasswordLocked && !isUnlockedLocally;
 
@@ -55,13 +99,20 @@ class TimelineScreen extends ConsumerWidget {
             },
           );
         },
-        loading: () => const Center(child: CircularProgressIndicator(color: AppTheme.accentNeon)),
+        loading: () => const Center(
+          child: CircularProgressIndicator(color: AppTheme.accentNeon),
+        ),
         error: (e, _) => Center(child: Text('Error: $e')),
       ),
     );
   }
 
-  Widget _buildCard(BuildContext context, WidgetRef ref, StoryItem item, bool isLocked) {
+  Widget _buildCard(
+    BuildContext context,
+    WidgetRef ref,
+    StoryItem item,
+    bool isLocked,
+  ) {
     final card = switch (item) {
       Journal j => _JournalCard(item: j),
       Chat c => _ChatCard(item: c),
@@ -104,13 +155,36 @@ class TimelineScreen extends ConsumerWidget {
         }
 
         if (!context.mounted) return;
-        
+
         if (item is Chat) {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: item.senderId, title: item.senderId, isGroup: false)));
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatThreadScreen(
+                conversationId: item.senderId,
+                title: item.senderId,
+                isGroup: false,
+              ),
+            ),
+          );
         } else if (item is GroupChatThread) {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => ChatThreadScreen(conversationId: item.id, title: item.groupName, isGroup: true)));
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => ChatThreadScreen(
+                conversationId: item.id,
+                title: item.groupName,
+                isGroup: true,
+              ),
+            ),
+          );
         } else {
-          Navigator.push(context, MaterialPageRoute(builder: (_) => StoryItemDetailScreen(item: item)));
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => StoryItemDetailScreen(item: item),
+            ),
+          );
         }
       },
       child: displayCard,
@@ -120,62 +194,99 @@ class TimelineScreen extends ConsumerWidget {
   Future<bool> _promptPassword(BuildContext context, StoryItem item) async {
     final controller = TextEditingController();
     bool error = false;
-    
+
     return await showDialog<bool>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) {
-        return StatefulBuilder(builder: (ctx, setState) {
-          return AlertDialog(
-            backgroundColor: AppTheme.surfaceLow,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16), side: const BorderSide(color: AppTheme.accentNeon)),
-            title: const Row(
-              children: [
-                 Icon(Icons.lock, color: AppTheme.accentNeon),
-                 SizedBox(width: 8),
-                 Text('ENCRYPTED', style: TextStyle(color: AppTheme.accentNeon, letterSpacing: 2, fontSize: 16)),
-              ],
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('Enter password or PIN to decrypt this file.'),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: controller,
-                  obscureText: true,
-                  autofocus: true,
-                  style: const TextStyle(color: Colors.white, fontFamily: 'monospace', letterSpacing: 8, fontSize: 24),
-                  textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                    filled: true,
-                    fillColor: AppTheme.surface,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.accentNeon)),
-                    errorText: error ? 'INCORRECT PASSWORD' : null,
+          context: context,
+          barrierDismissible: true,
+          builder: (ctx) {
+            return StatefulBuilder(
+              builder: (ctx, setState) {
+                return AlertDialog(
+                  backgroundColor: AppTheme.surfaceLow,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    side: const BorderSide(color: AppTheme.accentNeon),
                   ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('CANCEL', style: TextStyle(color: AppTheme.textMuted))),
-              TextButton(
-                onPressed: () async {
-                  if (controller.text.trim() == item.unlockPassword) {
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('unlocked_${item.id}', true);
-                    if (ctx.mounted) Navigator.pop(ctx, true);
-                  } else {
-                    setState(() => error = true);
-                  }
-                },
-                child: const Text('DECRYPT', style: TextStyle(color: AppTheme.accentNeon, fontWeight: FontWeight.bold)),
-              ),
-            ],
-          );
-        });
-      }
-    ) ?? false;
+                  title: const Row(
+                    children: [
+                      Icon(Icons.lock, color: AppTheme.accentNeon),
+                      SizedBox(width: 8),
+                      Text(
+                        'ENCRYPTED',
+                        style: TextStyle(
+                          color: AppTheme.accentNeon,
+                          letterSpacing: 2,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
+                  content: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('Enter password or PIN to decrypt this file.'),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: controller,
+                        obscureText: true,
+                        autofocus: true,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontFamily: 'monospace',
+                          letterSpacing: 8,
+                          fontSize: 24,
+                        ),
+                        textAlign: TextAlign.center,
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: AppTheme.surface,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: const BorderSide(
+                              color: AppTheme.accentNeon,
+                            ),
+                          ),
+                          errorText: error ? 'INCORRECT PASSWORD' : null,
+                        ),
+                      ),
+                    ],
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text(
+                        'CANCEL',
+                        style: TextStyle(color: AppTheme.textMuted),
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        if (controller.text.trim() == item.unlockPassword) {
+                          final prefs = await SharedPreferences.getInstance();
+                          await prefs.setBool('unlocked_${item.id}', true);
+                          if (ctx.mounted) Navigator.pop(ctx, true);
+                        } else {
+                          setState(() => error = true);
+                        }
+                      },
+                      child: const Text(
+                        'DECRYPT',
+                        style: TextStyle(
+                          color: AppTheme.accentNeon,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ) ??
+        false;
   }
 }
 
@@ -230,7 +341,11 @@ class _JournalCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const TypeBadge(label: 'Journal', color: AppTheme.journalColor, icon: Icons.auto_stories),
+              const TypeBadge(
+                label: 'Journal',
+                color: AppTheme.journalColor,
+                icon: Icons.auto_stories,
+              ),
               const Spacer(),
               TimestampLabel(time: item.unlockTimestamp),
             ],
@@ -271,12 +386,20 @@ class _ChatCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: isMe ? AppTheme.accentNeon.withOpacity(0.06) : AppTheme.surface,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: isMe ? AppTheme.accentNeon.withOpacity(0.15) : Colors.white.withOpacity(0.04)),
+        border: Border.all(
+          color: isMe
+              ? AppTheme.accentNeon.withOpacity(0.15)
+              : Colors.white.withOpacity(0.04),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.chat_bubble, size: 16, color: AppTheme.chatColor.withOpacity(0.6)),
+          Icon(
+            Icons.chat_bubble,
+            size: 16,
+            color: AppTheme.chatColor.withOpacity(0.6),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -284,13 +407,25 @@ class _ChatCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(item.senderId, style: TextStyle(color: AppTheme.chatColor, fontWeight: FontWeight.w600, fontSize: 13)),
+                    Text(
+                      item.senderId,
+                      style: TextStyle(
+                        color: AppTheme.chatColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                      ),
+                    ),
                     const Spacer(),
                     TimestampLabel(time: item.unlockTimestamp, showDate: false),
                   ],
                 ),
                 const SizedBox(height: 4),
-                Text(item.text, style: Theme.of(context).textTheme.bodyMedium, maxLines: 3, overflow: TextOverflow.ellipsis),
+                Text(
+                  item.text,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -317,17 +452,38 @@ class _EmailCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const TypeBadge(label: 'Email', color: AppTheme.emailColor, icon: Icons.email),
+              const TypeBadge(
+                label: 'Email',
+                color: AppTheme.emailColor,
+                icon: Icons.email,
+              ),
               const Spacer(),
               TimestampLabel(time: item.unlockTimestamp, showDate: false),
             ],
           ),
           const SizedBox(height: 10),
-          Text(item.sender, style: TextStyle(color: AppTheme.emailColor, fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(
+            item.sender,
+            style: TextStyle(
+              color: AppTheme.emailColor,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 2),
-          Text(item.subject, style: Theme.of(context).textTheme.headlineSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text(
+            item.subject,
+            style: Theme.of(context).textTheme.headlineSmall,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 4),
-          Text(item.body, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+          Text(
+            item.body,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -354,22 +510,43 @@ class _ReceiptCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const TypeBadge(label: 'Transaction', color: AppTheme.receiptColor, icon: Icons.receipt_long),
+                    const TypeBadge(
+                      label: 'Transaction',
+                      color: AppTheme.receiptColor,
+                      icon: Icons.receipt_long,
+                    ),
                     const Spacer(),
                     TimestampLabel(time: item.unlockTimestamp, showDate: false),
                   ],
                 ),
                 const SizedBox(height: 10),
-                Text(item.merchantName.toUpperCase(), style: const TextStyle(color: AppTheme.textBody, fontWeight: FontWeight.bold, fontSize: 14)),
+                Text(
+                  item.merchantName.toUpperCase(),
+                  style: const TextStyle(
+                    color: AppTheme.textBody,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(item.description, style: Theme.of(context).textTheme.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                Text(
+                  item.description,
+                  style: Theme.of(context).textTheme.bodySmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
           const SizedBox(width: 12),
           Text(
             '\$${item.amount.toStringAsFixed(2)}',
-            style: const TextStyle(color: AppTheme.accentNeon, fontWeight: FontWeight.bold, fontSize: 20, fontFamily: 'monospace'),
+            style: const TextStyle(
+              color: AppTheme.accentNeon,
+              fontWeight: FontWeight.bold,
+              fontSize: 20,
+              fontFamily: 'monospace',
+            ),
           ),
         ],
       ),
@@ -388,19 +565,32 @@ class _VoiceNoteCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: AppTheme.cardDecoration(accentBorder: AppTheme.voiceNoteColor),
+      decoration: AppTheme.cardDecoration(
+        accentBorder: AppTheme.voiceNoteColor,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const TypeBadge(label: 'Voice Note', color: AppTheme.voiceNoteColor, icon: Icons.mic),
+              const TypeBadge(
+                label: 'Voice Note',
+                color: AppTheme.voiceNoteColor,
+                icon: Icons.mic,
+              ),
               const Spacer(),
               TimestampLabel(time: item.unlockTimestamp, showDate: false),
             ],
           ),
           const SizedBox(height: 10),
-          Text(item.speaker, style: TextStyle(color: AppTheme.voiceNoteColor, fontWeight: FontWeight.w600, fontSize: 13)),
+          Text(
+            item.speaker,
+            style: TextStyle(
+              color: AppTheme.voiceNoteColor,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
           const SizedBox(height: 8),
           // Decorative waveform bars
           SizedBox(
@@ -413,7 +603,9 @@ class _VoiceNoteCard extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 1),
                     height: h,
                     decoration: BoxDecoration(
-                      color: AppTheme.voiceNoteColor.withOpacity(0.4 + (i % 3) * 0.15),
+                      color: AppTheme.voiceNoteColor.withOpacity(
+                        0.4 + (i % 3) * 0.15,
+                      ),
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -422,7 +614,12 @@ class _VoiceNoteCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text(item.transcript, style: Theme.of(context).textTheme.bodySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
+          Text(
+            item.transcript,
+            style: Theme.of(context).textTheme.bodySmall,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
@@ -448,13 +645,19 @@ class _SocialPostCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: AppTheme.cardDecoration(accentBorder: AppTheme.socialPostColor),
+      decoration: AppTheme.cardDecoration(
+        accentBorder: AppTheme.socialPostColor,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              TypeBadge(label: item.platform, color: AppTheme.socialPostColor, icon: _platformIcon(item.platform)),
+              TypeBadge(
+                label: item.platform,
+                color: AppTheme.socialPostColor,
+                icon: _platformIcon(item.platform),
+              ),
               const Spacer(),
               TimestampLabel(time: item.unlockTimestamp, showDate: false),
             ],
@@ -465,31 +668,61 @@ class _SocialPostCard extends StatelessWidget {
               CircleAvatar(
                 radius: 14,
                 backgroundColor: AppTheme.socialPostColor.withOpacity(0.15),
-                child: Text(item.author.isNotEmpty ? item.author[0].toUpperCase() : '?',
-                    style: TextStyle(color: AppTheme.socialPostColor, fontSize: 12, fontWeight: FontWeight.bold)),
+                child: Text(
+                  item.author.isNotEmpty ? item.author[0].toUpperCase() : '?',
+                  style: TextStyle(
+                    color: AppTheme.socialPostColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
               const SizedBox(width: 8),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(item.author, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                  Text('@${item.handle}', style: Theme.of(context).textTheme.labelSmall),
+                  Text(
+                    item.author,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 13,
+                    ),
+                  ),
+                  Text(
+                    '@${item.handle}',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
                 ],
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(item.content, style: Theme.of(context).textTheme.bodyMedium, maxLines: 4, overflow: TextOverflow.ellipsis),
+          Text(
+            item.content,
+            style: Theme.of(context).textTheme.bodyMedium,
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 8),
           Row(
             children: [
               Icon(Icons.favorite_border, size: 14, color: AppTheme.textMuted),
               const SizedBox(width: 4),
-              Text('${item.likes}', style: Theme.of(context).textTheme.labelSmall),
+              Text(
+                '${item.likes}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
               const SizedBox(width: 16),
-              Icon(Icons.chat_bubble_outline, size: 14, color: AppTheme.textMuted),
+              Icon(
+                Icons.chat_bubble_outline,
+                size: 14,
+                color: AppTheme.textMuted,
+              ),
               const SizedBox(width: 4),
-              Text('${item.comments}', style: Theme.of(context).textTheme.labelSmall),
+              Text(
+                '${item.comments}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
             ],
           ),
         ],
@@ -515,7 +748,9 @@ class _PhoneCallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: AppTheme.cardDecoration(accentBorder: AppTheme.phoneCallColor),
+      decoration: AppTheme.cardDecoration(
+        accentBorder: AppTheme.phoneCallColor,
+      ),
       child: Row(
         children: [
           Container(
@@ -525,7 +760,11 @@ class _PhoneCallCard extends StatelessWidget {
               color: AppTheme.phoneCallColor.withOpacity(0.1),
               borderRadius: BorderRadius.circular(4),
             ),
-            child: const Icon(Icons.phone, color: AppTheme.phoneCallColor, size: 18),
+            child: const Icon(
+              Icons.phone,
+              color: AppTheme.phoneCallColor,
+              size: 18,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -534,7 +773,11 @@ class _PhoneCallCard extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const TypeBadge(label: 'Call', color: AppTheme.phoneCallColor, icon: Icons.phone),
+                    const TypeBadge(
+                      label: 'Call',
+                      color: AppTheme.phoneCallColor,
+                      icon: Icons.phone,
+                    ),
                     const Spacer(),
                     TimestampLabel(time: item.unlockTimestamp, showDate: false),
                   ],
@@ -542,7 +785,10 @@ class _PhoneCallCard extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   '${item.caller}  →  ${item.receiver}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -571,21 +817,33 @@ class _GroupChatCard extends StatelessWidget {
     final lastMsg = item.messages.isNotEmpty ? item.messages.last : null;
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: AppTheme.cardDecoration(accentBorder: AppTheme.groupChatColor),
+      decoration: AppTheme.cardDecoration(
+        accentBorder: AppTheme.groupChatColor,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              TypeBadge(label: item.platform, color: AppTheme.groupChatColor, icon: Icons.group),
+              TypeBadge(
+                label: item.platform,
+                color: AppTheme.groupChatColor,
+                icon: Icons.group,
+              ),
               const Spacer(),
               TimestampLabel(time: item.unlockTimestamp, showDate: false),
             ],
           ),
           const SizedBox(height: 10),
-          Text(item.groupName, style: Theme.of(context).textTheme.headlineSmall),
+          Text(
+            item.groupName,
+            style: Theme.of(context).textTheme.headlineSmall,
+          ),
           const SizedBox(height: 2),
-          Text('${item.members.length} members  •  ${item.messages.length} messages', style: Theme.of(context).textTheme.labelSmall),
+          Text(
+            '${item.members.length} members  •  ${item.messages.length} messages',
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
           if (lastMsg != null) ...[
             const SizedBox(height: 8),
             Text(

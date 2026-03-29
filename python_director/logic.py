@@ -105,6 +105,35 @@ _IMAGE_PROVIDER_ORDER: list[ProviderType] = [
     ProviderType.OPENAI,
     ProviderType.GEMINI,
 ]
+_DRY_RUN_STAGE_MIN = 1
+_DRY_RUN_STAGE_MAX = 3
+_DRY_RUN_STAGE_NAMES: dict[int, str] = {
+    1: "fundamental_story_generation",
+    2: "story_event_decomposition",
+    3: "multimedia_artifact_generation",
+}
+_STAGE1_BLOCK_TYPES: set[BlockType] = {
+    BlockType.CREATIVE_OUTLINER,
+    BlockType.BRAINSTORM_CRITIC,
+    BlockType.BRAINSTORM_REWRITER,
+    BlockType.PLANNER,
+    BlockType.CRITIC,
+    BlockType.REVISER,
+    BlockType.CONTINUITY_AUDITOR,
+    BlockType.DROP_DIRECTOR,
+    BlockType.COUNCIL_MEMBER,
+    BlockType.COUNCIL_JUDGE,
+    BlockType.VISUAL_BIBLE,
+}
+_STAGE2_BLOCK_TYPES: set[BlockType] = {
+    BlockType.DECOMPOSER,
+    BlockType.GENERATOR,
+}
+_ON_DEMAND_DEFAULT_CONFIG: dict[str, int] = {
+    "burstWindowMinutes": 90,
+    "sessionDurationMinutes": 9,
+    "inactivityResetMinutes": 12,
+}
 
 
 def _normalize_allowed_languages(raw_languages: list[str] | None) -> list[str]:
@@ -138,6 +167,50 @@ def _allowed_languages_instruction(allowed_languages: list[str]) -> str:
         f"- {mix_hint}\n"
         "- Keep platform conventions (chat slang, social tone) while respecting the language constraint."
     )
+
+
+def _normalize_delivery_profile(value: str | None) -> str:
+    normalized = (value or "standard").strip().lower()
+    if normalized in {"on_demand", "ondemand", "subscription_on_demand", "burst"}:
+        return "on_demand"
+    return "standard"
+
+
+def _dry_run_stage_name(stage: int) -> str:
+    return _DRY_RUN_STAGE_NAMES.get(stage, _DRY_RUN_STAGE_NAMES[_DRY_RUN_STAGE_MAX])
+
+
+def _sanitize_target_stage(value: int | None, *, default: int) -> int:
+    if value is None:
+        stage = default
+    else:
+        stage = int(value)
+    if stage < _DRY_RUN_STAGE_MIN:
+        return _DRY_RUN_STAGE_MIN
+    if stage > _DRY_RUN_STAGE_MAX:
+        return _DRY_RUN_STAGE_MAX
+    return stage
+
+
+def _block_stage(block: PipelineBlock) -> int:
+    if block.type in _STAGE1_BLOCK_TYPES:
+        return 1
+    if block.type in _STAGE2_BLOCK_TYPES:
+        return 2
+    return 3
+
+
+def _final_block_id_for_stage(waves: list[list[PipelineBlock]], stage: int) -> str | None:
+    final_block_id: str | None = None
+    for wave in waves:
+        for block in wave:
+            if _block_stage(block) <= stage:
+                final_block_id = block.id
+    return final_block_id
+
+
+def _on_demand_config() -> dict[str, int]:
+    return dict(_ON_DEMAND_DEFAULT_CONFIG)
 
 
 def _provider_has_api_key(provider: ProviderType, settings: AppSettings) -> bool:
@@ -985,18 +1058,25 @@ class PipelineRunner:
         seed_prompt: str | None = None,
         tags: list[str] | None = None,
         allowed_languages: list[str] | None = None,
+        staged_workflow: bool = False,
+        target_dry_run_stage: int | None = None,
+        delivery_profile: str = "standard",
     ) -> RunResult:
         run_id = run_id or f"run_{int(time.time())}"
         started_at = datetime.now(timezone.utc)
         run_dir = RUNS_DIR / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         normalized_languages = _normalize_allowed_languages(allowed_languages)
+        normalized_delivery_profile = _normalize_delivery_profile(delivery_profile)
+        run_staged_workflow = bool(staged_workflow)
+        stage_default = _DRY_RUN_STAGE_MIN if run_staged_workflow else _DRY_RUN_STAGE_MAX
+        requested_stage = _sanitize_target_stage(target_dry_run_stage, default=stage_default)
 
         # Keep the original definition for snapshotting (seed must not be baked in)
         original_definition = definition
 
         # Inject seed prompt/tags/language constraints into brainstorm + generation blocks.
-        if seed_prompt or tags or normalized_languages:
+        if seed_prompt or tags or normalized_languages or normalized_delivery_profile == "on_demand":
             injected_parts: list[str] = []
             if seed_prompt:
                 injected_parts.append(f"STORY SEED (use as creative inspiration):\n{seed_prompt}")
@@ -1005,6 +1085,13 @@ class PipelineRunner:
             language_instruction = _allowed_languages_instruction(normalized_languages)
             if language_instruction:
                 injected_parts.append(language_instruction)
+            if normalized_delivery_profile == "on_demand":
+                injected_parts.append(
+                    "DELIVERY PROFILE: ON-DEMAND BURST SUBSCRIPTION.\n"
+                    "- Build the narrative in compact flurries suitable for active user sessions.\n"
+                    "- Prefer micro-clusters of 3-8 artifacts that unfold across 6-12 in-story minutes.\n"
+                    "- Between clusters, leave a strong hook that motivates return sessions."
+                )
             prefix = "\n\n".join(injected_parts) + "\n\n"
 
             import copy as _copy
@@ -1030,8 +1117,13 @@ class PipelineRunner:
                     )
 
         waves = self._execution_waves(definition)
-        # Pre-compute block_sequence from waves (deterministic, wave order preserved)
-        block_sequence = [b.id for wave in waves for b in wave]
+        selected_waves: list[list[PipelineBlock]] = []
+        for wave in waves:
+            filtered = [block for block in wave if _block_stage(block) <= requested_stage]
+            if filtered:
+                selected_waves.append(filtered)
+        # Pre-compute block_sequence from selected waves (deterministic, wave order preserved)
+        block_sequence = [b.id for wave in selected_waves for b in wave]
 
         progress = RunProgress(
             run_id=run_id,
@@ -1044,6 +1136,12 @@ class PipelineRunner:
             seed_prompt=seed_prompt or None,
             tags=list(tags or []),
             allowed_languages=normalized_languages,
+            dry_run_stage=requested_stage,
+            dry_run_stage_name=_dry_run_stage_name(requested_stage),
+            awaiting_stage_approval=False,
+            staged_workflow=run_staged_workflow,
+            delivery_profile=normalized_delivery_profile,
+            deployment_stage="dry_run",
         )
 
         def _persist_progress():
@@ -1057,7 +1155,7 @@ class PipelineRunner:
             run_id,
             definition.name,
             len(block_sequence),
-            len(waves),
+            len(selected_waves),
             run_dir,
         )
         _persist_progress()
@@ -1069,7 +1167,7 @@ class PipelineRunner:
         lock = threading.Lock()
 
         try:
-            for wave in waves:
+            for wave in selected_waves:
                 if len(wave) == 1:
                     self._run_one_block(
                         wave[0], definition, outputs, run_dir, lock,
@@ -1103,16 +1201,20 @@ class PipelineRunner:
 
             progress.status = RunStatus.SUCCEEDED
             progress.completed_at = datetime.now(timezone.utc).isoformat()
+            progress.awaiting_stage_approval = bool(
+                run_staged_workflow and requested_stage < _DRY_RUN_STAGE_MAX
+            )
         except Exception as exc:
             error_msg = str(exc)
             logger.exception("Run failed run_id=%s", run_id)
             progress.status = RunStatus.FAILED
             progress.error_message = error_msg
             progress.completed_at = datetime.now(timezone.utc).isoformat()
+            progress.awaiting_stage_approval = False
             _persist_progress()
 
-        # Determine final output from the last wave's single block
-        final_block_id = waves[-1][-1].id if waves else None
+        # Determine final output from the highest block completed in the requested stage.
+        final_block_id = _final_block_id_for_stage(waves, requested_stage)
         final_output = _serialize_output(outputs.get(final_block_id)) if final_block_id else None
         final_metrics = _story_metrics(final_output if isinstance(final_output, dict) else None)
 
@@ -1166,6 +1268,12 @@ class PipelineRunner:
             block_traces=traces,
             timeline=progress.timeline,
             stats=progress.stats,
+            dry_run_stage=requested_stage,
+            dry_run_stage_name=_dry_run_stage_name(requested_stage),
+            awaiting_stage_approval=progress.awaiting_stage_approval,
+            staged_workflow=run_staged_workflow,
+            delivery_profile=normalized_delivery_profile,
+            deployment_stage="dry_run",
         )
 
         # Image generation is now handled natively via the Pipeline blocks!
@@ -1186,6 +1294,267 @@ class PipelineRunner:
             raise RuntimeError(progress.error_message)
 
         return result
+
+    def advance_run_stage(
+        self,
+        run_id: str,
+        *,
+        target_dry_run_stage: int | None = None,
+        progress_callback: Any | None = None,
+    ) -> RunProgress:
+        run_dir = RUNS_DIR / run_id
+        progress = load_run_progress(run_id)
+        if progress.status == RunStatus.RUNNING:
+            raise ValueError("Run is currently active. Wait for it to finish before advancing stages.")
+
+        snapshot_path = run_dir / PIPELINE_SNAPSHOT_FILENAME
+        if not snapshot_path.exists():
+            raise FileNotFoundError(f"Pipeline snapshot not found for run '{run_id}'")
+        definition = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+
+        current_stage = _sanitize_target_stage(
+            getattr(progress, "dry_run_stage", _DRY_RUN_STAGE_MAX),
+            default=_DRY_RUN_STAGE_MAX,
+        )
+        if not bool(getattr(progress, "staged_workflow", False)):
+            raise ValueError("This run was not started in staged workflow mode.")
+
+        requested_stage = _sanitize_target_stage(
+            target_dry_run_stage,
+            default=current_stage + 1,
+        )
+        if requested_stage <= current_stage:
+            raise ValueError(
+                f"Requested stage ({requested_stage}) must be greater than current stage ({current_stage})."
+            )
+
+        block_map = {b.id: b for b in definition.blocks if b.enabled}
+
+        outputs: dict[str, Any] = {}
+        for bid, trace in progress.block_traces.items():
+            if trace.status != BlockExecutionStatus.SUCCEEDED:
+                continue
+            json_path = run_dir / f"{bid}.json"
+            txt_path = run_dir / f"{bid}.txt"
+            if json_path.exists():
+                outputs[bid] = json.loads(json_path.read_text(encoding="utf-8"))
+            elif txt_path.exists():
+                outputs[bid] = txt_path.read_text(encoding="utf-8")
+
+        eligible_ids = {
+            bid
+            for bid, block in block_map.items()
+            if _block_stage(block) <= requested_stage
+        }
+        advance_set: set[str] = set()
+        for bid in eligible_ids:
+            trace = progress.block_traces.get(bid)
+            if trace is None or trace.status != BlockExecutionStatus.SUCCEEDED:
+                advance_set.add(bid)
+
+        traces: dict[str, BlockTrace] = dict(progress.block_traces)
+        for bid in advance_set:
+            if bid in progress.block_traces:
+                trace = progress.block_traces[bid]
+                trace.status = BlockExecutionStatus.PENDING
+                trace.output = None
+                trace.error_message = None
+                trace.error_traceback = None
+                trace.started_at = None
+                trace.completed_at = None
+                trace.elapsed_ms = None
+            else:
+                block = block_map[bid]
+                progress.block_traces[bid] = BlockTrace(
+                    block_id=bid,
+                    block_name=block.name,
+                    block_type=block.type,
+                    provider=block.config.provider,
+                    model_name=block.config.model_name or "",
+                    status=BlockExecutionStatus.PENDING,
+                    response_schema_name=block.config.response_schema_name,
+                    temperature=block.config.temperature,
+                    input_blocks=list(block.input_blocks),
+                )
+        traces = dict(progress.block_traces)
+
+        progress.status = RunStatus.RUNNING
+        progress.error_message = None
+        progress.completed_at = None
+        progress.awaiting_stage_approval = False
+
+        def _persist_progress():
+            save_run_progress(progress)
+            if progress_callback:
+                progress_callback(progress)
+
+        _persist_progress()
+
+        completed_deps: set[str] = set(outputs.keys())
+        waves: list[list[PipelineBlock]] = []
+        remaining = set(advance_set)
+        while remaining:
+            wave = [
+                block_map[bid]
+                for bid in sorted(remaining)
+                if all(dep in completed_deps or dep not in block_map for dep in block_map[bid].input_blocks)
+            ]
+            if not wave:
+                raise ValueError("Stage advance has unresolvable dependencies.")
+            for block in wave:
+                completed_deps.add(block.id)
+                remaining.discard(block.id)
+            waves.append(wave)
+
+        provider_summary: Counter[str] = Counter()
+        execution_order: list[str] = []
+        lock = threading.Lock()
+
+        try:
+            for wave in waves:
+                if len(wave) == 1:
+                    self._run_one_block(
+                        wave[0],
+                        definition,
+                        outputs,
+                        run_dir,
+                        lock,
+                        traces,
+                        progress,
+                        _persist_progress,
+                        provider_summary,
+                        execution_order,
+                    )
+                else:
+                    errors: list[tuple[str, BaseException]] = []
+                    with ThreadPoolExecutor(max_workers=len(wave)) as executor:
+                        future_map = {
+                            executor.submit(
+                                self._run_one_block,
+                                block,
+                                definition,
+                                outputs,
+                                run_dir,
+                                lock,
+                                traces,
+                                progress,
+                                _persist_progress,
+                                provider_summary,
+                                execution_order,
+                            ): block
+                            for block in wave
+                        }
+                        for future in as_completed(future_map):
+                            blk = future_map[future]
+                            try:
+                                future.result()
+                            except Exception as exc:
+                                errors.append((blk.id, exc))
+                    if errors:
+                        block_id, exc = errors[0]
+                        raise RuntimeError(f"Stage advance block '{block_id}' failed: {exc}") from exc
+
+            progress.status = RunStatus.SUCCEEDED
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+            progress.dry_run_stage = requested_stage
+            progress.dry_run_stage_name = _dry_run_stage_name(requested_stage)
+            progress.awaiting_stage_approval = requested_stage < _DRY_RUN_STAGE_MAX
+        except Exception as exc:
+            logger.exception("Stage advance failed run_id=%s target_stage=%s", run_id, requested_stage)
+            progress.status = RunStatus.FAILED
+            progress.error_message = str(exc)
+            progress.completed_at = datetime.now(timezone.utc).isoformat()
+            progress.awaiting_stage_approval = False
+            _persist_progress()
+            raise
+
+        all_waves = self._execution_waves(definition)
+        progress.block_sequence = [
+            block.id
+            for wave in all_waves
+            for block in wave
+            if _block_stage(block) <= requested_stage
+        ]
+        progress.block_count = len(progress.block_sequence)
+        final_block_id = _final_block_id_for_stage(all_waves, requested_stage)
+        final_output = _serialize_output(outputs.get(final_block_id)) if final_block_id else None
+        final_metrics = _story_metrics(final_output if isinstance(final_output, dict) else None)
+        progress.final_title = final_output.get("story_title") if isinstance(final_output, dict) else progress.final_title
+        progress.final_metrics = final_metrics
+        progress.timeline = derive_story_timeline(final_output)
+        progress.stats = calculate_run_stats(traces, final_output)
+        _persist_progress()
+
+        try:
+            old_result = load_run_result(run_id)
+            seed_prompt = old_result.seed_prompt
+            run_tags = old_result.tags
+            allowed_languages = old_result.allowed_languages
+            setup_val = old_result.setup
+            characters_val = old_result.characters
+            timestamp = old_result.timestamp
+            story_id = old_result.story_id
+            deployment_stage = old_result.deployment_stage
+            delivery_profile = old_result.delivery_profile
+        except Exception:
+            seed_prompt = progress.seed_prompt
+            run_tags = progress.tags
+            allowed_languages = progress.allowed_languages
+            setup_val = ""
+            characters_val = []
+            timestamp = progress.timestamp
+            story_id = None
+            deployment_stage = progress.deployment_stage
+            delivery_profile = progress.delivery_profile
+
+        if not setup_val or not characters_val:
+            for value in outputs.values():
+                if isinstance(value, dict):
+                    if not characters_val and isinstance(value.get("characters"), list):
+                        characters_val = value["characters"]
+                    if not setup_val and "core_conflict" in value:
+                        setup_val = value["core_conflict"]
+
+        if not provider_summary:
+            provider_summary = Counter(
+                trace.provider.value
+                for trace in traces.values()
+                if trace.status == BlockExecutionStatus.SUCCEEDED
+            )
+
+        result = RunResult(
+            run_id=run_id,
+            timestamp=timestamp,
+            pipeline_name=definition.name,
+            status=progress.status,
+            error_message=progress.error_message,
+            final_title=progress.final_title,
+            block_count=len([t for t in traces.values() if t.status == BlockExecutionStatus.SUCCEEDED]),
+            provider_summary=dict(provider_summary),
+            artifact_counts={"blocks": len(traces), "files": len(list(run_dir.iterdir()))},
+            final_metrics=final_metrics,
+            mode="dry_run",
+            seed_prompt=seed_prompt or None,
+            tags=list(run_tags or []),
+            allowed_languages=list(allowed_languages or []),
+            setup=setup_val,
+            characters=characters_val,
+            outputs={bid: _serialize_output(v) for bid, v in outputs.items()},
+            final_output=final_output,
+            block_sequence=list(progress.block_sequence),
+            block_traces=traces,
+            timeline=progress.timeline,
+            stats=progress.stats,
+            story_id=story_id,
+            dry_run_stage=requested_stage,
+            dry_run_stage_name=_dry_run_stage_name(requested_stage),
+            awaiting_stage_approval=progress.awaiting_stage_approval,
+            staged_workflow=True,
+            delivery_profile=delivery_profile or progress.delivery_profile,
+            deployment_stage=deployment_stage or "dry_run",
+        )
+        save_run_result(result, definition)
+        return progress
 
     def retry_block(
         self,
@@ -1409,6 +1778,12 @@ class PipelineRunner:
                 block_traces=traces,
                 timeline=progress.timeline,
                 stats=progress.stats,
+                dry_run_stage=progress.dry_run_stage,
+                dry_run_stage_name=progress.dry_run_stage_name,
+                awaiting_stage_approval=progress.awaiting_stage_approval,
+                staged_workflow=progress.staged_workflow,
+                delivery_profile=progress.delivery_profile,
+                deployment_stage=progress.deployment_stage,
             )
             
             # Re-generate local block images (if IMAGE_GENERATOR was retried) is handled naturally inside the wave runner now!
@@ -1653,11 +2028,13 @@ def list_stories(settings: AppSettings):
         
         # Safe defaults for older stories
         data.setdefault("storyMode", "live")
+        data.setdefault("storySubMode", "default")
         data.setdefault("storyDurationMinutes", 0)
         data.setdefault("title", "Untitled Story")
+        data.setdefault("isPublished", True)
         
         # Convert datetime objects to ISO strings for JSON serialization
-        for key in ["createdAt", "storyStartAt", "storyEndAt"]:
+        for key in ["createdAt", "storyStartAt", "storyEndAt", "publishedAt"]:
             if key in data and isinstance(data[key], datetime):
                 data[key] = data[key].isoformat()
             elif key not in data:
@@ -1702,12 +2079,41 @@ def delete_story(story_id: str, settings: AppSettings):
     logger.info(f"Deleted story document {story_id}")
     return True
 
+
+def make_story_live(story_id: str, settings: AppSettings) -> bool:
+    """Marks a story as published/available to users."""
+    db, _ = _get_firebase_clients(settings)
+    if db is None:
+        logger.error("Firebase clients not initialized, cannot publish story.")
+        return False
+
+    story_ref = db.collection("stories").document(story_id)
+    snap = story_ref.get()
+    if not snap.exists:
+        logger.info("Story %s not found while publishing.", story_id)
+        return False
+
+    data = snap.to_dict() or {}
+    now = datetime.now(timezone.utc)
+    updates: dict[str, Any] = {
+        "isPublished": True,
+        "publishedAt": now,
+    }
+    # Guardrail: if a live story had no start time, start it when published.
+    if (data.get("storyMode") or "live") == "live" and not data.get("storyStartAt"):
+        updates["storyStartAt"] = now
+
+    story_ref.set(updates, merge=True)
+    logger.info("Published story story_id=%s", story_id)
+    return True
+
 def upload_to_firestore(
     result: RunResult,
     settings: AppSettings,
     pipeline: PipelineDefinition,
     *,
     story_mode: str = "live",
+    story_sub_mode: str = "default",
     scheduled_start_at: datetime | None = None,
     tts_tier: str = "premium",
 ):
@@ -1718,6 +2124,11 @@ def upload_to_firestore(
     story_mode = (story_mode or "live").strip().lower()
     if story_mode not in {"live", "scheduled", "subscription"}:
         raise ValueError(f"Unsupported story_mode '{story_mode}'.")
+    story_sub_mode = (story_sub_mode or "default").strip().lower()
+    if story_sub_mode not in {"default", "on_demand"}:
+        raise ValueError(f"Unsupported story_sub_mode '{story_sub_mode}'.")
+    if story_mode != "subscription":
+        story_sub_mode = "default"
     tts_tier = (tts_tier or "premium").strip().lower()
     if tts_tier not in {"premium", "cheap"}:
         raise ValueError(f"Unsupported tts_tier '{tts_tier}'.")
@@ -1744,18 +2155,6 @@ def upload_to_firestore(
     story_id = f"story_{int(time.time())}"
     story_ref = db.collection("stories").document(story_id)
 
-    # Make sure audio exists for the chosen upload tier and keep deterministic voice mapping.
-    story_data = generate_block_tts(
-        result.run_id,
-        story_data,
-        settings,
-        tts_tier=tts_tier,
-        story_id_seed=story_id,
-        force_regenerate=True,
-        existing_voice_map=story_data.get("voice_map") if isinstance(story_data.get("voice_map"), dict) else None,
-    )
-    result.final_output = story_data
-
     story_start_at = created_at
     if story_mode == "scheduled":
         story_start_at = scheduled_start_utc or created_at
@@ -1767,6 +2166,7 @@ def upload_to_firestore(
         if story_start_at is not None
         else None
     )
+    on_demand_config = _on_demand_config() if story_sub_mode == "on_demand" else None
     theme_color_hex = _derive_theme_color_hex(story_id, str(story_data.get("story_title") or "Untitled"))
     voice_map = story_data.get("voice_map") if isinstance(story_data.get("voice_map"), dict) else {}
 
@@ -1797,12 +2197,16 @@ def upload_to_firestore(
             "headlineImageUrl": headline_url,
             "createdAt": created_at,
             "storyMode": story_mode,
+            "storySubMode": story_sub_mode,
             "storyStartAt": story_start_at,
             "storyEndAt": story_end_at,
             "storyDurationMinutes": story_duration_minutes,
             "themeColorHex": theme_color_hex,
             "ttsTier": tts_tier,
             "voiceMap": voice_map,
+            "onDemandConfig": on_demand_config,
+            "isPublished": False,
+            "publishedAt": None,
         }
     )
 

@@ -30,10 +30,15 @@ export default function RunList() {
     try { return new Date(ts).toLocaleString() } catch { return ts }
   }
 
-  const handleRerun = (seedPrompt: string, tags: string[], allowedLanguages: string[]) => {
+  const handleRerun = (
+    seedPrompt: string,
+    tags: string[],
+    allowedLanguages: string[],
+    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+  ) => {
     if (!rerunTarget) return
     setRerunTarget(null)
-    rerunFromRun(rerunTarget.run_id, seedPrompt || null, tags, allowedLanguages)
+    rerunFromRun(rerunTarget.run_id, seedPrompt || null, tags, allowedLanguages, options)
     // No navigate — active run card appears in sidebar automatically
   }
 
@@ -100,7 +105,8 @@ export default function RunList() {
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-text-dim">{formatTime(run.timestamp)}</span>
                 <div className="flex gap-1">
-                  {run.story_id && <Badge variant="success">LIVE</Badge>}
+                  {run.story_id && run.deployment_stage === 'live' && <Badge variant="success">LIVE</Badge>}
+                  {run.story_id && run.deployment_stage !== 'live' && <Badge variant="warning">UPLOADED</Badge>}
                   <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
                 </div>
               </div>
