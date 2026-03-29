@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import threading
 from pathlib import Path
 from time import perf_counter
@@ -302,8 +303,17 @@ async def generate_random_seed_prompt(
         else ""
     )
 
+    genres = ["thriller", "romance", "mystery", "drama", "true crime", "comedy", "coming-of-age", "suspense"]
+    weights = [25, 20, 20, 15, 5, 5, 5, 5]
+    chosen_genre = random.choices(genres, weights=weights, k=1)[0]
+
     prompt = (
-        "Create one fresh, original found-phone thriller seed idea for a mobile story app. "
+        f"Create one fresh, original {chosen_genre} seed idea for a modern digital-first story. "
+        "The scenario should organically involve characters gossiping, interacting, or exchanging digital artifacts "
+        "(like text messages, photos, voice notes, or emails) to drive the plot forward. "
+        "Do NOT make it a stereotypical 'found-phone' story. "
+        "The story must be grounded in real-world situations (no sci-fi, no fantasy) with strong character dynamics. "
+        "Keep the focus on the drama, conflict, or emotional stakes, rather than over-indexing on the technology itself. "
         "Return a single concise seed prompt (2-4 sentences), no bullets, no JSON, no title."
         f"{tags_line}"
         f"{languages_line}"
@@ -315,8 +325,8 @@ async def generate_random_seed_prompt(
         use_pipeline_default_model=False,
         temperature=1.0,
         system_instruction=(
-            "You are a story concept generator for interactive found-phone thrillers. "
-            "Always produce compact, high-concept prompts with strong conflict and twist potential."
+            "You are an expert story concept generator for modern, realistic narratives. "
+            "Always produce compact, high-concept prompts with strong conflict, compelling character dynamics, and twist potential."
         ),
         prompt_template="[handled directly]",
     )
