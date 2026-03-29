@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 import os
+import threading
 
 from pydantic import BaseModel
 
@@ -13,6 +14,8 @@ else:
     from models import BlockConfig, ProviderType
 
 logger = get_logger("python_director.providers")
+_PROVIDER_LOCK = threading.Lock()
+_PROVIDER_CACHE: dict[ProviderType, AIProvider] = {}
 
 
 class AIProvider(ABC):
@@ -140,6 +143,10 @@ class OpenAIProvider(AIProvider):
         except ImportError as exc:
             raise ImportError("openai is not installed. Run script\\director-install.cmd first.") from exc
         self.client = OpenAI(api_key=api_key, timeout=3600.0)
+        # Pre-load resources to avoid thread-safety issues during lazy imports in parallel waves.
+        _ = self.client.chat
+        _ = self.client.responses
+        _ = self.client.images
         logger.info("OpenAIProvider initialized")
 
     def _is_reasoning_model(self, model_name: str) -> bool:
@@ -235,6 +242,8 @@ class OpenRouterProvider(AIProvider):
                 "X-Title": app_title,
             },
         )
+        # Pre-load resources to avoid thread-safety issues during lazy imports in parallel waves.
+        _ = self.client.chat
         logger.info("OpenRouterProvider initialized")
 
     def generate_content(self, config: BlockConfig, contents: str) -> str:
@@ -401,29 +410,38 @@ class AnthropicProvider(AIProvider):
 
 
 def get_provider(provider_type: ProviderType, api_keys: dict[str, str | None]) -> AIProvider:
-    logger.info("Resolving provider type=%s", provider_type)
-    if provider_type == ProviderType.GEMINI:
-        key = api_keys.get("GEMINI_API_KEY")
-        if not key:
-            raise ValueError("Gemini API key is missing. Add it in Settings before running Gemini blocks.")
-        return GeminiProvider(api_key=key)
+    with _PROVIDER_LOCK:
+        if provider_type in _PROVIDER_CACHE:
+            return _PROVIDER_CACHE[provider_type]
 
-    if provider_type == ProviderType.OPENAI:
-        key = api_keys.get("OPENAI_API_KEY")
-        if not key:
-            raise ValueError("OpenAI API key is missing. Add it in Settings before running OpenAI blocks.")
-        return OpenAIProvider(api_key=key)
+        logger.info("Resolving provider type=%s (first-time initialization)", provider_type)
+        provider: AIProvider
+        if provider_type == ProviderType.GEMINI:
+            key = api_keys.get("GEMINI_API_KEY")
+            if not key:
+                raise ValueError("Gemini API key is missing. Add it in Settings before running Gemini blocks.")
+            provider = GeminiProvider(api_key=key)
 
-    if provider_type == ProviderType.OPENROUTER:
-        key = api_keys.get("OPENROUTER_API_KEY")
-        if not key:
-            raise ValueError("OpenRouter API key is missing. Add it in Settings before running OpenRouter blocks.")
-        return OpenRouterProvider(api_key=key)
+        elif provider_type == ProviderType.OPENAI:
+            key = api_keys.get("OPENAI_API_KEY")
+            if not key:
+                raise ValueError("OpenAI API key is missing. Add it in Settings before running OpenAI blocks.")
+            provider = OpenAIProvider(api_key=key)
 
-    if provider_type == ProviderType.ANTHROPIC:
-        key = api_keys.get("ANTHROPIC_API_KEY")
-        if not key:
-            raise ValueError("Anthropic API key is missing. Add it in Settings before running Anthropic blocks.")
-        return AnthropicProvider(api_key=key)
+        elif provider_type == ProviderType.OPENROUTER:
+            key = api_keys.get("OPENROUTER_API_KEY")
+            if not key:
+                raise ValueError("OpenRouter API key is missing. Add it in Settings before running OpenRouter blocks.")
+            provider = OpenRouterProvider(api_key=key)
 
-    raise ValueError(f"Unsupported provider: {provider_type}")
+        elif provider_type == ProviderType.ANTHROPIC:
+            key = api_keys.get("ANTHROPIC_API_KEY")
+            if not key:
+                raise ValueError("Anthropic API key is missing. Add it in Settings before running Anthropic blocks.")
+            provider = AnthropicProvider(api_key=key)
+
+        else:
+            raise ValueError(f"Unsupported provider: {provider_type}")
+
+        _PROVIDER_CACHE[provider_type] = provider
+        return provider

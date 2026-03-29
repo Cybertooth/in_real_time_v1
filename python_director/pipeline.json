@@ -1,7 +1,7 @@
 {
   "name": "Found Phone Director (Cheap Full)",
   "description": "Cheaper full pipeline profile with lower-cost models and OpenRouter image generation.",
-  "updated_at": "2026-03-29T12:59:45.649981+00:00",
+  "updated_at": "2026-03-29T14:56:35.179820+00:00",
   "default_models": {
     "GEMINI": "gemini-3.1-flash-lite-preview",
     "OPENAI": "gpt-5.4-nano",
@@ -99,7 +99,7 @@
       "name": "Council: OpenRouter Review",
       "description": "Independent brainstorm critique from OpenRouter.",
       "type": "council_member",
-      "enabled": true,
+      "enabled": false,
       "config": {
         "provider": "OPENROUTER",
         "model_name": "moonshotai/kimi-k2.5",
@@ -223,7 +223,7 @@
       "name": "Council: Plan Review (OpenRouter)",
       "description": "Independent StoryPlan critique from OpenRouter.",
       "type": "council_member",
-      "enabled": true,
+      "enabled": false,
       "config": {
         "provider": "OPENROUTER",
         "model_name": "z-ai/glm-4.5-air:free",
@@ -398,8 +398,8 @@
       "type": "image_generator",
       "enabled": true,
       "config": {
-        "provider": "OPENROUTER",
-        "model_name": "bytedance-seed/seedream-4.5",
+        "provider": "GEMINI",
+        "model_name": "gemini-3.1-flash-image-preview",
         "use_pipeline_default_model": false,
         "temperature": 0.7,
         "system_instruction": "N/A",
