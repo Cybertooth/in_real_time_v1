@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -708,3 +709,56 @@ def test_resolve_credentials_path_prefers_python_director_base(tmp_path: Path, m
 
     assert resolved == creds.resolve()
     assert candidates
+
+
+def test_google_oauth_dns_precheck_returns_clear_error(monkeypatch):
+    from python_director import logic as logic_module
+
+    logic_module._assert_google_oauth_dns_reachable.cache_clear()
+
+    def _raise_gai(*_args, **_kwargs):
+        raise socket.gaierror("dns failure")
+
+    monkeypatch.setattr(socket, "getaddrinfo", _raise_gai)
+
+    with pytest.raises(RuntimeError, match="Google OAuth DNS lookup failed"):
+        logic_module._assert_google_oauth_dns_reachable()
+
+    logic_module._assert_google_oauth_dns_reachable.cache_clear()
+
+
+def test_upload_endpoint_returns_503_for_google_dns_failure(monkeypatch):
+    from python_director import api as api_module
+
+    run_result = RunResult(
+        run_id="run_upload_dns",
+        timestamp="2026-03-29T00:00:00Z",
+        pipeline_name="p",
+        status="succeeded",
+        dry_run_stage=3,
+        final_output={"story_title": "DNS Error Story"},
+    )
+
+    monkeypatch.setattr(api_module, "load_run_result", lambda _run_id: run_result)
+    monkeypatch.setattr(
+        api_module,
+        "load_settings",
+        lambda: AppSettings(google_application_credentials="fake-creds.json"),
+    )
+    monkeypatch.setattr(api_module, "load_pipeline", lambda: PipelineDefinition(name="p", blocks=[]))
+    monkeypatch.setattr(
+        api_module,
+        "upload_to_firestore",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError(
+                "Google OAuth DNS lookup failed for 'oauth2.googleapis.com'. "
+                "Check internet connectivity, DNS, VPN/proxy/firewall rules, and retry."
+            )
+        ),
+    )
+
+    with TestClient(api_module.app) as client:
+        resp = client.post("/api/upload/run_upload_dns", json={})
+
+    assert resp.status_code == 503, resp.text
+    assert "oauth2.googleapis.com" in resp.text

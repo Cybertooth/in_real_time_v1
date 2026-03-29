@@ -883,6 +883,9 @@ async def upload_run(run_id: str, request: UploadRunRequest | None = None):
         save_run_result(run_result, pipeline)
     except Exception as exc:
         logger.exception("Upload failed run_id=%s", run_id)
+        message = str(exc)
+        if "oauth2.googleapis.com" in message or "Google OAuth DNS lookup failed" in message:
+            raise HTTPException(status_code=503, detail=message) from exc
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "ok", "story_id": story_id, "deployment_stage": run_result.deployment_stage}
@@ -1018,8 +1021,14 @@ async def api_list_stories():
 
 @router.post("/stories/cleanup")
 async def api_cleanup_stories():
-    summary = cleanup_all_stories(load_settings())
-    return {"status": "ok", **summary}
+    try:
+        summary = cleanup_all_stories(load_settings())
+        return {"status": "ok", **summary}
+    except Exception as exc:
+        message = str(exc)
+        if "oauth2.googleapis.com" in message or "Google OAuth DNS lookup failed" in message:
+            raise HTTPException(status_code=503, detail=message) from exc
+        raise
 
 
 @router.delete("/stories/{story_id}")

@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -168,6 +169,20 @@ def _resolve_credentials_path_with_candidates(path_val: str | None) -> tuple[Pat
             return candidate.resolve(), deduped
 
     return deduped[0].resolve(), deduped
+
+
+@lru_cache(maxsize=1)
+def _assert_google_oauth_dns_reachable() -> None:
+    import socket
+
+    host = "oauth2.googleapis.com"
+    try:
+        socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        raise RuntimeError(
+            f"Google OAuth DNS lookup failed for '{host}'. "
+            "Check internet connectivity, DNS, VPN/proxy/firewall rules, and retry."
+        ) from exc
 
 
 def _normalize_allowed_languages(raw_languages: list[str] | None) -> list[str]:
@@ -2077,6 +2092,8 @@ def _get_firebase_clients(settings: AppSettings):
             attempted,
         )
         return None, None
+
+    _assert_google_oauth_dns_reachable()
 
     resolved_path = str(path)
     cred = credentials.Certificate(resolved_path)
