@@ -136,6 +136,40 @@ _ON_DEMAND_DEFAULT_CONFIG: dict[str, int] = {
 }
 
 
+def _resolve_credentials_path_with_candidates(path_val: str | None) -> tuple[Path | None, list[Path]]:
+    """Resolve Firebase credentials path across common project-relative locations."""
+    if not path_val:
+        return None, []
+
+    raw = Path(path_val).expanduser()
+    candidates: list[Path] = []
+    if raw.is_absolute():
+        candidates.append(raw)
+    else:
+        candidates.extend(
+            [
+                BASE_DIR / raw,      # python_director/<relative>
+                Path.cwd() / raw,    # current process working directory
+                raw,                 # as provided
+            ]
+        )
+
+    seen: set[str] = set()
+    deduped: list[Path] = []
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+
+    for candidate in deduped:
+        if candidate.exists():
+            return candidate.resolve(), deduped
+
+    return deduped[0].resolve(), deduped
+
+
 def _normalize_allowed_languages(raw_languages: list[str] | None) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
@@ -174,6 +208,33 @@ def _normalize_delivery_profile(value: str | None) -> str:
     if normalized in {"on_demand", "ondemand", "subscription_on_demand", "burst"}:
         return "on_demand"
     return "standard"
+
+
+def _normalize_story_publish_settings(
+    story_mode: str | None,
+    story_sub_mode: str | None,
+    scheduled_start_at: datetime | None,
+    tts_tier: str | None,
+) -> tuple[str, str, datetime | None, str]:
+    mode = (story_mode or "live").strip().lower()
+    if mode not in {"live", "scheduled", "subscription"}:
+        mode = "live"
+
+    sub_mode = (story_sub_mode or "default").strip().lower()
+    if sub_mode not in {"default", "on_demand"}:
+        sub_mode = "default"
+    if mode != "subscription":
+        sub_mode = "default"
+
+    normalized_start = _normalize_story_datetime_utc(scheduled_start_at)
+    if mode != "scheduled":
+        normalized_start = None
+
+    tier = (tts_tier or "premium").strip().lower()
+    if tier not in {"premium", "cheap"}:
+        tier = "premium"
+
+    return mode, sub_mode, normalized_start, tier
 
 
 def _dry_run_stage_name(stage: int) -> str:
@@ -976,7 +1037,7 @@ class PipelineRunner:
                     progress.run_id,
                     source_payload,
                     self.settings,
-                    tts_tier="premium",
+                    tts_tier=getattr(progress, "tts_tier", "premium"),
                     story_id_seed=progress.run_id,
                     force_regenerate=False,
                     existing_voice_map=source_payload.get("voice_map") if isinstance(source_payload, dict) else None,
@@ -1061,6 +1122,10 @@ class PipelineRunner:
         staged_workflow: bool = False,
         target_dry_run_stage: int | None = None,
         delivery_profile: str = "standard",
+        story_mode: str = "live",
+        story_sub_mode: str = "default",
+        scheduled_start_at: datetime | None = None,
+        tts_tier: str = "premium",
     ) -> RunResult:
         run_id = run_id or f"run_{int(time.time())}"
         started_at = datetime.now(timezone.utc)
@@ -1068,6 +1133,17 @@ class PipelineRunner:
         run_dir.mkdir(parents=True, exist_ok=True)
         normalized_languages = _normalize_allowed_languages(allowed_languages)
         normalized_delivery_profile = _normalize_delivery_profile(delivery_profile)
+        (
+            normalized_story_mode,
+            normalized_story_sub_mode,
+            normalized_scheduled_start_at,
+            normalized_tts_tier,
+        ) = _normalize_story_publish_settings(
+            story_mode,
+            story_sub_mode,
+            scheduled_start_at,
+            tts_tier,
+        )
         run_staged_workflow = bool(staged_workflow)
         stage_default = _DRY_RUN_STAGE_MIN if run_staged_workflow else _DRY_RUN_STAGE_MAX
         requested_stage = _sanitize_target_stage(target_dry_run_stage, default=stage_default)
@@ -1142,6 +1218,10 @@ class PipelineRunner:
             staged_workflow=run_staged_workflow,
             delivery_profile=normalized_delivery_profile,
             deployment_stage="dry_run",
+            story_mode=normalized_story_mode,
+            story_sub_mode=normalized_story_sub_mode,
+            scheduled_start_at=normalized_scheduled_start_at,
+            tts_tier=normalized_tts_tier,
         )
 
         def _persist_progress():
@@ -1274,6 +1354,10 @@ class PipelineRunner:
             staged_workflow=run_staged_workflow,
             delivery_profile=normalized_delivery_profile,
             deployment_stage="dry_run",
+            story_mode=normalized_story_mode,
+            story_sub_mode=normalized_story_sub_mode,
+            scheduled_start_at=normalized_scheduled_start_at,
+            tts_tier=normalized_tts_tier,
         )
 
         # Image generation is now handled natively via the Pipeline blocks!
@@ -1496,6 +1580,10 @@ class PipelineRunner:
             story_id = old_result.story_id
             deployment_stage = old_result.deployment_stage
             delivery_profile = old_result.delivery_profile
+            story_mode = old_result.story_mode
+            story_sub_mode = old_result.story_sub_mode
+            scheduled_start_at = old_result.scheduled_start_at
+            tts_tier = old_result.tts_tier
         except Exception:
             seed_prompt = progress.seed_prompt
             run_tags = progress.tags
@@ -1506,6 +1594,10 @@ class PipelineRunner:
             story_id = None
             deployment_stage = progress.deployment_stage
             delivery_profile = progress.delivery_profile
+            story_mode = progress.story_mode
+            story_sub_mode = progress.story_sub_mode
+            scheduled_start_at = progress.scheduled_start_at
+            tts_tier = progress.tts_tier
 
         if not setup_val or not characters_val:
             for value in outputs.values():
@@ -1552,6 +1644,10 @@ class PipelineRunner:
             staged_workflow=True,
             delivery_profile=delivery_profile or progress.delivery_profile,
             deployment_stage=deployment_stage or "dry_run",
+            story_mode=story_mode or progress.story_mode,
+            story_sub_mode=story_sub_mode or progress.story_sub_mode,
+            scheduled_start_at=scheduled_start_at or progress.scheduled_start_at,
+            tts_tier=tts_tier or progress.tts_tier,
         )
         save_run_result(result, definition)
         return progress
@@ -1784,6 +1880,10 @@ class PipelineRunner:
                 staged_workflow=progress.staged_workflow,
                 delivery_profile=progress.delivery_profile,
                 deployment_stage=progress.deployment_stage,
+                story_mode=progress.story_mode,
+                story_sub_mode=progress.story_sub_mode,
+                scheduled_start_at=progress.scheduled_start_at,
+                tts_tier=progress.tts_tier,
             )
             
             # Re-generate local block images (if IMAGE_GENERATOR was retried) is handled naturally inside the wave runner now!
@@ -1962,55 +2062,59 @@ def _get_firebase_clients(settings: AppSettings):
     """Helper to initialize and return Firestore and Storage clients."""
     import firebase_admin
     from firebase_admin import credentials, firestore, storage
-    from pathlib import Path
     import json
 
     path_val = settings.google_application_credentials
     if not path_val:
         return None, None
-        
-    path = Path(path_val)
-    # Assuming BASE_DIR is defined elsewhere, if not, this might need adjustment
-    # For now, assuming it's available in the scope where this function would be placed.
-    # If BASE_DIR is not available, path.resolve() might be sufficient if path_val is absolute or relative to CWD.
-    # For robustness, let's assume BASE_DIR is available or path_val is absolute.
-    if not path.is_absolute():
-        # This line assumes BASE_DIR exists in the context. If not, it will cause an error.
-        # For this exercise, I'll assume BASE_DIR is defined globally or imported.
-        # If not, a more robust solution would be to pass BASE_DIR or derive it.
-        # For now, I'll comment out the BASE_DIR part if it's not explicitly provided in the context.
-        # path = (BASE_DIR / path).resolve()
-        path = path.resolve() # Fallback if BASE_DIR is not available
 
-    if not path.exists():
-        logger.warning(f"Firebase credentials not found at {path}")
+    path, candidates = _resolve_credentials_path_with_candidates(path_val)
+    if path is None or not path.exists():
+        attempted = [str(candidate.resolve()) for candidate in candidates]
+        logger.warning(
+            "Firebase credentials not found. configured_path=%s attempted=%s",
+            path_val,
+            attempted,
+        )
         return None, None
 
     resolved_path = str(path)
     cred = credentials.Certificate(resolved_path)
-    bucket_name = (settings.firebase_storage_bucket or "").strip()
-    if not bucket_name:
+    configured_bucket = (settings.firebase_storage_bucket or "").strip()
+    bucket_candidates: list[str] = []
+    if configured_bucket:
+        bucket_candidates = [configured_bucket]
+    else:
         with open(resolved_path, "r", encoding="utf-8") as f:
             sa = json.load(f)
-            project_id = sa.get("project_id")
-        bucket_name = f"{project_id}.appspot.com" # Corrected default bucket name format
+            project_id = (sa.get("project_id") or "").strip()
+        if project_id:
+            bucket_candidates = [
+                f"{project_id}.appspot.com",
+                f"{project_id}.firebasestorage.app",
+            ]
 
     try:
         firebase_admin.get_app()
     except ValueError:
-        firebase_admin.initialize_app(cred, {"storageBucket": bucket_name})
+        init_bucket = bucket_candidates[0] if bucket_candidates else None
+        options = {"storageBucket": init_bucket} if init_bucket else {}
+        firebase_admin.initialize_app(cred, options)
         
     db = firestore.client()
     bucket = None
-    if bucket_name:
+    for bucket_name in bucket_candidates:
         try:
-            bucket = storage.bucket(name=bucket_name)
-            if not bucket.exists():
-                logger.warning(f"Bucket {bucket_name} does not exist")
-                bucket = None
+            candidate = storage.bucket(name=bucket_name)
+            if candidate.exists():
+                bucket = candidate
+                break
+            logger.warning("Bucket %s does not exist", bucket_name)
         except Exception as e:
-            logger.warning(f"Could not get bucket {bucket_name}: {e}")
-            bucket = None
+            logger.warning("Could not get bucket %s: %s", bucket_name, e)
+
+    if bucket is None and bucket_candidates:
+        logger.warning("No accessible storage bucket found from candidates=%s", bucket_candidates)
         
     return db, bucket
 
@@ -2066,18 +2170,53 @@ def delete_story(story_id: str, settings: AppSettings):
         except Exception as e:
             logger.error(f"Failed to delete story assets in storage for {story_id}: {e}")
 
-    # 2. Delete subcollections in Firestore
-    # Note: Firestore subcollections must be deleted manually by deleting all documents
-    # The list of subcollections should be comprehensive based on what's uploaded.
-    for coll_name in ["journals", "chats", "emails", "receipts", "voice_notes", "social_posts", "phone_calls", "group_chats", "gallery"]:
-        sub_coll_docs = story_ref.collection(coll_name).stream()
-        for doc in sub_coll_docs:
-            doc.reference.delete()
+    # 2. Delete subcollections in Firestore (recursive)
+    def _delete_doc_tree(doc_ref):
+        for sub_collection in doc_ref.collections():
+            for child in sub_collection.stream():
+                _delete_doc_tree(child.reference)
+        doc_ref.delete()
+
+    for sub_collection in story_ref.collections():
+        for doc in sub_collection.stream():
+            _delete_doc_tree(doc.reference)
             
     # 3. Delete the parent document
     story_ref.delete()
     logger.info(f"Deleted story document {story_id}")
     return True
+
+
+def cleanup_all_stories(settings: AppSettings) -> dict[str, Any]:
+    """Deletes every story in Firebase and returns cleanup stats."""
+    db, _ = _get_firebase_clients(settings)
+    if db is None:
+        raise RuntimeError("Firebase clients not initialized, cleanup aborted.")
+
+    stories = list_stories(settings)
+    total = len(stories)
+    deleted = 0
+    failed_ids: list[str] = []
+
+    for story in stories:
+        story_id = str(story.get("id") or "").strip()
+        if not story_id:
+            continue
+        try:
+            if delete_story(story_id, settings):
+                deleted += 1
+            else:
+                failed_ids.append(story_id)
+        except Exception:
+            logger.exception("Failed deleting story during cleanup story_id=%s", story_id)
+            failed_ids.append(story_id)
+
+    return {
+        "total": total,
+        "deleted": deleted,
+        "failed": len(failed_ids),
+        "failed_ids": failed_ids,
+    }
 
 
 def make_story_live(story_id: str, settings: AppSettings) -> bool:
@@ -2146,8 +2285,7 @@ def upload_to_firestore(
     
     db, bucket = _get_firebase_clients(settings)
     if db is None:
-        logger.error("Firebase clients not initialized, upload skipped.")
-        return None
+        raise RuntimeError("Firebase clients not initialized, upload aborted.")
 
     import time # Keep time import as it's used for story_id and blob names
 

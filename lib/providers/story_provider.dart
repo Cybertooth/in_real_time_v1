@@ -229,6 +229,12 @@ class ActiveStoryIdNotifier extends StateNotifier<String> {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, id);
   }
+
+  Future<void> clearStoryId() async {
+    state = 'story_latest';
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -248,6 +254,27 @@ final allStoriesProvider = StreamProvider<List<StorySummary>>((ref) {
             .where((story) => story.isPublished)
             .toList(),
       );
+});
+
+final activeStorySyncProvider = Provider<void>((ref) {
+  ref.listen<AsyncValue<List<StorySummary>>>(allStoriesProvider, (previous, next) {
+    next.whenData((stories) {
+      final activeId = ref.read(activeStoryIdProvider);
+      final notifier = ref.read(activeStoryIdProvider.notifier);
+
+      if (stories.isEmpty) {
+        if (activeId != 'story_latest') {
+          unawaited(notifier.clearStoryId());
+        }
+        return;
+      }
+
+      final exists = stories.any((story) => story.id == activeId);
+      if (!exists) {
+        unawaited(notifier.setStoryId(stories.first.id));
+      }
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -540,18 +567,21 @@ final conversationsProvider = Provider<AsyncValue<List<ConversationThread>>>((
   final chats = ref.watch(chatProvider);
   final groups = ref.watch(groupChatProvider);
 
-  if (chats is AsyncLoading || groups is AsyncLoading)
+  if (chats is AsyncLoading || groups is AsyncLoading) {
     return const AsyncValue.loading();
-  if (chats is AsyncError)
+  }
+  if (chats is AsyncError) {
     return AsyncValue.error(
       (chats as AsyncError).error,
       (chats as AsyncError).stackTrace,
     );
-  if (groups is AsyncError)
+  }
+  if (groups is AsyncError) {
     return AsyncValue.error(
       (groups as AsyncError).error,
       (groups as AsyncError).stackTrace,
     );
+  }
 
   final allChatItems = chats.value ?? [];
   final allGroupItems = groups.value ?? [];
@@ -616,8 +646,9 @@ final upcomingItemsProvider = Provider<AsyncValue<bool>>((ref) {
   final journals = ref.watch(_rawJournalProvider);
   final chats = ref.watch(_rawChatProvider);
 
-  if (journals is AsyncLoading || chats is AsyncLoading)
+  if (journals is AsyncLoading || chats is AsyncLoading) {
     return const AsyncValue.loading();
+  }
 
   final now = DateTime.now();
   final jLocked =
@@ -664,10 +695,12 @@ final readingProgressProvider = Provider<AsyncValue<double>>((ref) {
   final phone = ref.watch(_rawPhoneCallProvider);
   final group = ref.watch(_rawGroupChatProvider);
 
-  if (journals is AsyncLoading || chats is AsyncLoading)
+  if (journals is AsyncLoading || chats is AsyncLoading) {
     return const AsyncValue.loading();
-  if (journals.hasError)
+  }
+  if (journals.hasError) {
     return AsyncValue.error(journals.error!, journals.stackTrace!);
+  }
 
   int total = 0;
   int unlocked = 0;

@@ -10,6 +10,7 @@ export default function SettingsDialog() {
   const setSettings = useStore((s) => s.setSettings)
   const showToast = useStore((s) => s.showToast)
   const loadStudio = useStore((s) => s.loadStudio)
+  const loadStories = useStore((s) => s.loadStories)
 
   const dialogRef = useRef<HTMLDialogElement>(null)
 
@@ -54,16 +55,25 @@ export default function SettingsDialog() {
   const handleFreshStart = async () => {
     if (
       !window.confirm(
-        'This will clear all local data and reset the pipeline. Continue?',
+        'This will clear local Studio data, reset the pipeline, and delete all Firebase stories/assets. Continue?',
       )
     )
       return
     try {
       localStorage.clear()
+      const cleanup = await api.cleanupStories()
       await api.resetPipeline('full_fledged')
       setSettingsOpen(false)
       loadStudio()
-      showToast('Fresh start complete')
+      loadStories()
+      if (cleanup.failed > 0) {
+        showToast(
+          `Fresh start partial: deleted ${cleanup.deleted}/${cleanup.total}, failed ${cleanup.failed}`,
+          true,
+        )
+      } else {
+        showToast(`Fresh start complete (${cleanup.deleted}/${cleanup.total} Firebase stories deleted)`)
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to reset'
       showToast(msg, true)

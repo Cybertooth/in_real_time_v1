@@ -2,6 +2,18 @@ import { useState, useEffect, useRef } from 'react'
 import type { KeyboardEvent } from 'react'
 import * as api from '../../api'
 
+function toLocalDateTimeInput(value: string | null | undefined): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const yyyy = d.getFullYear()
+  const mm = `${d.getMonth() + 1}`.padStart(2, '0')
+  const dd = `${d.getDate()}`.padStart(2, '0')
+  const hh = `${d.getHours()}`.padStart(2, '0')
+  const min = `${d.getMinutes()}`.padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}T${hh}:${min}`
+}
+
 interface RunDialogProps {
   open: boolean
   onClose: () => void
@@ -9,12 +21,23 @@ interface RunDialogProps {
     seedPrompt: string,
     tags: string[],
     allowedLanguages: string[],
-    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+    options: {
+      stagedWorkflow: boolean
+      deliveryProfile: 'standard' | 'on_demand'
+      storyMode: 'live' | 'scheduled' | 'subscription'
+      storySubMode: 'default' | 'on_demand'
+      scheduledStartAt: string | null
+      ttsTier: 'premium' | 'cheap'
+    },
   ) => void
   initialSeedPrompt?: string
   initialTags?: string[]
   initialAllowedLanguages?: string[]
   initialMode?: 'same' | 'new'
+  initialStoryMode?: 'live' | 'scheduled' | 'subscription'
+  initialStorySubMode?: 'default' | 'on_demand'
+  initialScheduledStartAt?: string | null
+  initialTtsTier?: 'premium' | 'cheap'
   title?: string
   submitLabel?: string
 }
@@ -27,6 +50,10 @@ export default function RunDialog({
   initialTags = [],
   initialAllowedLanguages = [],
   initialMode,
+  initialStoryMode = 'live',
+  initialStorySubMode = 'default',
+  initialScheduledStartAt = null,
+  initialTtsTier = 'premium',
   title = 'Start Dry Run',
   submitLabel = 'Start Run',
 }: RunDialogProps) {
@@ -42,6 +69,11 @@ export default function RunDialog({
   const [mode, setMode] = useState<'same' | 'new'>(initialMode ?? 'same')
   const [stagedWorkflow, setStagedWorkflow] = useState(true)
   const [deliveryProfile, setDeliveryProfile] = useState<'standard' | 'on_demand'>('standard')
+  const [storyMode, setStoryMode] = useState<'live' | 'scheduled' | 'subscription'>(initialStoryMode)
+  const [storySubMode, setStorySubMode] = useState<'default' | 'on_demand'>(initialStorySubMode)
+  const [scheduledStartAt, setScheduledStartAt] = useState(toLocalDateTimeInput(initialScheduledStartAt))
+  const [ttsTier, setTtsTier] = useState<'premium' | 'cheap'>(initialTtsTier)
+  const [configError, setConfigError] = useState<string | null>(null)
   // Show mode toggle only for retries (when a previous seed prompt exists)
   const isRetry = Boolean(initialSeedPrompt)
 
@@ -57,8 +89,13 @@ export default function RunDialog({
       setLanguageInput('')
       setGeneratingSeed(false)
       setSeedGenError(null)
+      setConfigError(null)
       setStagedWorkflow(true)
       setDeliveryProfile('standard')
+      setStoryMode(initialStoryMode)
+      setStorySubMode(initialStorySubMode)
+      setScheduledStartAt(toLocalDateTimeInput(initialScheduledStartAt))
+      setTtsTier(initialTtsTier)
       dialogRef.current?.showModal()
       if (openMode === 'new') {
         setTimeout(() => textareaRef.current?.focus(), 50)
@@ -119,13 +156,41 @@ export default function RunDialog({
   }
 
   const handleStart = () => {
-    onStart(seedPrompt.trim(), tags, allowedLanguages, { stagedWorkflow, deliveryProfile })
+    setConfigError(null)
+    let scheduleIso: string | null = null
+    if (storyMode === 'scheduled') {
+      if (!scheduledStartAt) {
+        setConfigError('Scheduled stories require a start date/time.')
+        return
+      }
+      const parsed = new Date(scheduledStartAt)
+      if (Number.isNaN(parsed.getTime())) {
+        setConfigError('Invalid scheduled date/time.')
+        return
+      }
+      scheduleIso = parsed.toISOString()
+    }
+
+    const resolvedDeliveryProfile =
+      storyMode === 'subscription' && storySubMode === 'on_demand'
+        ? 'on_demand'
+        : deliveryProfile
+
+    onStart(seedPrompt.trim(), tags, allowedLanguages, {
+      stagedWorkflow,
+      deliveryProfile: resolvedDeliveryProfile,
+      storyMode,
+      storySubMode: storyMode === 'subscription' ? storySubMode : 'default',
+      scheduledStartAt: scheduleIso,
+      ttsTier,
+    })
     setSeedPrompt('')
     setTags([])
     setAllowedLanguages([])
     setTagInput('')
     setLanguageInput('')
     setSeedGenError(null)
+    setConfigError(null)
   }
 
   return (
@@ -291,7 +356,14 @@ export default function RunDialog({
           </span>
           <select
             value={deliveryProfile}
-            onChange={(e) => setDeliveryProfile(e.target.value as 'standard' | 'on_demand')}
+            onChange={(e) => {
+              const value = e.target.value as 'standard' | 'on_demand'
+              setDeliveryProfile(value)
+              if (value === 'on_demand') {
+                setStoryMode('subscription')
+                setStorySubMode('on_demand')
+              }
+            }}
             className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
           >
             <option value="standard">Standard Realtime</option>
@@ -301,6 +373,79 @@ export default function RunDialog({
             Adds generation guidance for bursty session-based pacing when using subscription on-demand stories.
           </p>
         </label>
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+            Story Lifecycle (Used on Upload)
+          </span>
+          <select
+            value={storyMode}
+            onChange={(e) => {
+              const value = e.target.value as 'live' | 'scheduled' | 'subscription'
+              setStoryMode(value)
+              if (value !== 'subscription') setStorySubMode('default')
+            }}
+            className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
+          >
+            <option value="live">Live (publish for everyone now)</option>
+            <option value="scheduled">Scheduled (future start)</option>
+            <option value="subscription">Subscription (starts per follower)</option>
+          </select>
+        </label>
+
+        {storyMode === 'subscription' && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+              Subscription Subtype
+            </span>
+            <select
+              value={storySubMode}
+              onChange={(e) => {
+                const value = e.target.value as 'default' | 'on_demand'
+                setStorySubMode(value)
+                if (value === 'on_demand') {
+                  setDeliveryProfile('on_demand')
+                }
+              }}
+              className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
+            >
+              <option value="default">Standard</option>
+              <option value="on_demand">On-Demand Burst</option>
+            </select>
+          </label>
+        )}
+
+        {storyMode === 'scheduled' && (
+          <label className="flex flex-col gap-1.5">
+            <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+              Scheduled Start (Local Time)
+            </span>
+            <input
+              type="datetime-local"
+              value={scheduledStartAt}
+              onChange={(e) => setScheduledStartAt(e.target.value)}
+              className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm w-full focus:border-mint outline-none"
+            />
+          </label>
+        )}
+
+        <label className="flex flex-col gap-1.5">
+          <span className="text-text-dim text-xs font-semibold uppercase tracking-wide">
+            TTS Tier (Used During Dry-Run)
+          </span>
+          <select
+            value={ttsTier}
+            onChange={(e) => setTtsTier(e.target.value as 'premium' | 'cheap')}
+            className="bg-[#111] border border-border rounded-lg px-3 py-2 text-text text-sm"
+          >
+            <option value="premium">Premium</option>
+            <option value="cheap">Cheap</option>
+          </select>
+        </label>
+
+        {configError && (
+          <p className="text-danger text-xs">{configError}</p>
+        )}
 
         <div className="flex items-center gap-2 mt-1">
           <button

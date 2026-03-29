@@ -5,9 +5,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
 from python_director.defaults import get_default_pipeline, get_pipeline_reset_template, get_reset_template_catalog
-from python_director.logic import PipelineRunner, compare_final_outputs, generate_block_tts
+from python_director.logic import (
+    PipelineRunner,
+    compare_final_outputs,
+    generate_block_tts,
+    upload_to_firestore,
+    cleanup_all_stories,
+)
 from python_director.models import (
     AppSettings,
     BlockConfig,
@@ -492,3 +499,212 @@ def test_generate_block_tts_assigns_deterministic_voice_map(tmp_path: Path, monk
     assert first["voice_notes"][0]["voice_id"] == first["voice_map"]["Alex"]
     assert first["voice_notes"][1]["voice_id"] == first["voice_map"]["Jordan"]
     assert first["voice_notes"][0]["local_audio_path"].endswith(".mp3")
+
+
+def test_api_staged_and_one_shot_flows(tmp_path: Path, monkeypatch):
+    from python_director import api as api_module
+    from python_director import logic as logic_module
+    from python_director import storage as storage_module
+
+    class StageAwareFakeProvider(FakeProvider):
+        def generate_content(self, config, contents):
+            if "p2" in contents:
+                return {
+                    "story_title": "Synthetic Story",
+                    "journals": [],
+                    "chats": [],
+                    "emails": [],
+                    "receipts": [],
+                    "voice_notes": [],
+                    "social_posts": [],
+                    "phone_calls": [],
+                    "group_chats": [],
+                }
+            return super().generate_content(config, contents)
+
+    monkeypatch.setattr(storage_module, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(logic_module, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(api_module, "RUNS_DIR", tmp_path)
+    monkeypatch.setattr(logic_module, "get_provider", lambda *_args, **_kwargs: StageAwareFakeProvider())
+    monkeypatch.setattr(
+        api_module,
+        "load_settings",
+        lambda: AppSettings(gemini_api_key="test", openai_api_key="test", openrouter_api_key="test"),
+    )
+
+    pipeline = PipelineDefinition(
+        name="api-smoke",
+        blocks=[
+            _block("stage1", block_type=BlockType.CREATIVE_OUTLINER, prompt="p1"),
+            _block("stage2", block_type=BlockType.GENERATOR, prompt="p2 {{stage1}}", inputs=["stage1"]),
+            _block(
+                "stage3",
+                block_type=BlockType.IMAGE_PROMPT_DIRECTOR,
+                prompt="p3 {{stage2}}",
+                inputs=["stage2"],
+            ),
+        ],
+    )
+
+    def _wait_done(client: TestClient, run_id: str, attempts: int = 100) -> dict:
+        last: dict = {}
+        for _ in range(attempts):
+            resp = client.get(f"/api/runs/{run_id}/status")
+            assert resp.status_code == 200, resp.text
+            last = resp.json()
+            if last["status"] in {"succeeded", "failed"}:
+                return last
+        return last
+
+    with TestClient(api_module.app) as client:
+        start_staged = client.post(
+            "/api/runs/start",
+            json={
+                "pipeline": pipeline.model_dump(mode="json"),
+                "persist_pipeline": False,
+                "staged_workflow": True,
+            },
+        )
+        assert start_staged.status_code == 200, start_staged.text
+        staged_run_id = start_staged.json()["run_id"]
+
+        stage1 = _wait_done(client, staged_run_id)
+        assert stage1["status"] == "succeeded"
+        assert stage1["dry_run_stage"] == 1
+        assert stage1["awaiting_stage_approval"] is True
+
+        approve_2 = client.post(f"/api/runs/{staged_run_id}/approve-next-stage", json={})
+        assert approve_2.status_code == 200, approve_2.text
+        assert approve_2.json()["status"] == "queued"
+
+        stage2 = _wait_done(client, staged_run_id)
+        assert stage2["status"] == "succeeded"
+        assert stage2["dry_run_stage"] == 2
+        assert stage2["awaiting_stage_approval"] is True
+
+        approve_3 = client.post(f"/api/runs/{staged_run_id}/approve-next-stage", json={})
+        assert approve_3.status_code == 200, approve_3.text
+        assert approve_3.json()["status"] == "queued"
+
+        stage3 = _wait_done(client, staged_run_id)
+        assert stage3["status"] == "succeeded"
+        assert stage3["dry_run_stage"] == 3
+        assert stage3["awaiting_stage_approval"] is False
+
+        start_full = client.post(
+            "/api/runs/start",
+            json={
+                "pipeline": pipeline.model_dump(mode="json"),
+                "persist_pipeline": False,
+                "staged_workflow": False,
+            },
+        )
+        assert start_full.status_code == 200, start_full.text
+        full_run_id = start_full.json()["run_id"]
+
+        full_done = _wait_done(client, full_run_id)
+        assert full_done["status"] == "succeeded"
+        assert full_done["dry_run_stage"] == 3
+        assert full_done["awaiting_stage_approval"] is False
+
+
+def test_upload_to_firestore_raises_when_firebase_not_initialized(monkeypatch):
+    from python_director import logic
+
+    monkeypatch.setattr(logic, "_get_firebase_clients", lambda _settings: (None, None))
+
+    result = RunResult(
+        run_id="run_no_firebase",
+        timestamp="2026-01-01T00:00:00Z",
+        pipeline_name="p",
+        final_output={"story_title": "No Firebase"},
+    )
+    pipeline = PipelineDefinition(name="p", blocks=[])
+
+    with pytest.raises(RuntimeError, match="Firebase clients not initialized"):
+        upload_to_firestore(result, AppSettings(), pipeline)
+
+
+def test_cleanup_all_stories_reports_failures(monkeypatch):
+    from python_director import logic
+
+    monkeypatch.setattr(logic, "_get_firebase_clients", lambda _settings: (object(), object()))
+    monkeypatch.setattr(
+        logic,
+        "list_stories",
+        lambda _settings: [
+            {"id": "story_1", "title": "One"},
+            {"id": "story_2", "title": "Two"},
+            {"id": "story_3", "title": "Three"},
+        ],
+    )
+
+    def _delete(story_id: str, _settings: AppSettings):
+        return story_id != "story_2"
+
+    monkeypatch.setattr(logic, "delete_story", _delete)
+
+    summary = cleanup_all_stories(AppSettings())
+    assert summary["total"] == 3
+    assert summary["deleted"] == 2
+    assert summary["failed"] == 1
+    assert summary["failed_ids"] == ["story_2"]
+
+
+def test_upload_endpoint_marks_scheduled_story_as_published(monkeypatch):
+    from python_director import api as api_module
+
+    run_result = RunResult(
+        run_id="run_upload_scheduled",
+        timestamp="2026-03-29T00:00:00Z",
+        pipeline_name="p",
+        status="succeeded",
+        dry_run_stage=3,
+        final_output={"story_title": "Scheduled Story"},
+    )
+
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(api_module, "load_run_result", lambda _run_id: run_result)
+    monkeypatch.setattr(
+        api_module,
+        "load_settings",
+        lambda: AppSettings(google_application_credentials="fake-creds.json"),
+    )
+    monkeypatch.setattr(api_module, "upload_to_firestore", lambda *_args, **_kwargs: "story_123")
+    monkeypatch.setattr(api_module, "make_story_live", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        api_module,
+        "save_run_result",
+        lambda result, _pipeline: captured.update({"deployment_stage": result.deployment_stage}),
+    )
+    monkeypatch.setattr(api_module, "load_pipeline", lambda: PipelineDefinition(name="p", blocks=[]))
+
+    with TestClient(api_module.app) as client:
+        resp = client.post(
+            "/api/upload/run_upload_scheduled",
+            json={
+                "story_mode": "scheduled",
+                "scheduled_start_at": "2026-04-01T10:00:00Z",
+                "tts_tier": "cheap",
+            },
+        )
+
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["story_id"] == "story_123"
+    assert payload["deployment_stage"] == "published"
+    assert captured["deployment_stage"] == "published"
+
+
+def test_resolve_credentials_path_prefers_python_director_base(tmp_path: Path, monkeypatch):
+    from python_director import logic as logic_module
+
+    creds = tmp_path / "serviceAccountKey.json"
+    creds.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(logic_module, "BASE_DIR", tmp_path)
+    resolved, candidates = logic_module._resolve_credentials_path_with_candidates("serviceAccountKey.json")
+
+    assert resolved == creds.resolve()
+    assert candidates

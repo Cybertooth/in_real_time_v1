@@ -361,6 +361,10 @@ def run_progress_from_result(run_result: RunResult) -> RunProgress:
         staged_workflow=run_result.staged_workflow,
         delivery_profile=run_result.delivery_profile,
         deployment_stage=run_result.deployment_stage,
+        story_mode=run_result.story_mode,
+        story_sub_mode=run_result.story_sub_mode,
+        scheduled_start_at=run_result.scheduled_start_at,
+        tts_tier=run_result.tts_tier,
     )
 
 
@@ -390,6 +394,10 @@ def _summary_from_run_progress(run_progress: RunProgress) -> RunSummary:
         staged_workflow=run_progress.staged_workflow,
         delivery_profile=run_progress.delivery_profile,
         deployment_stage=run_progress.deployment_stage,
+        story_mode=run_progress.story_mode,
+        story_sub_mode=run_progress.story_sub_mode,
+        scheduled_start_at=run_progress.scheduled_start_at,
+        tts_tier=run_progress.tts_tier,
     )
 
 
@@ -444,6 +452,10 @@ def list_run_summaries() -> list[RunSummary]:
                     staged_workflow=run_result.staged_workflow,
                     delivery_profile=run_result.delivery_profile,
                     deployment_stage=run_result.deployment_stage,
+                    story_mode=run_result.story_mode,
+                    story_sub_mode=run_result.story_sub_mode,
+                    scheduled_start_at=run_result.scheduled_start_at,
+                    tts_tier=run_result.tts_tier,
                 )
             )
             continue

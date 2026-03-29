@@ -210,6 +210,10 @@ class RunSummary(BaseModel):
     staged_workflow: bool = False
     delivery_profile: str = "standard"
     deployment_stage: str = "dry_run"
+    story_mode: StoryMode = StoryMode.LIVE
+    story_sub_mode: StorySubMode = StorySubMode.DEFAULT
+    scheduled_start_at: Optional[datetime] = None
+    tts_tier: TTSTier = TTSTier.PREMIUM
 
 
 class RunResult(RunSummary):
@@ -250,6 +254,10 @@ class RunProgress(BaseModel):
     staged_workflow: bool = False
     delivery_profile: str = "standard"
     deployment_stage: str = "dry_run"
+    story_mode: StoryMode = StoryMode.LIVE
+    story_sub_mode: StorySubMode = StorySubMode.DEFAULT
+    scheduled_start_at: Optional[datetime] = None
+    tts_tier: TTSTier = TTSTier.PREMIUM
 
 
 class RunPipelineRequest(BaseModel):
@@ -262,6 +270,20 @@ class RunPipelineRequest(BaseModel):
     staged_workflow: bool = True
     target_dry_run_stage: Optional[int] = None
     delivery_profile: str = "standard"
+    story_mode: StoryMode = StoryMode.LIVE
+    story_sub_mode: StorySubMode = StorySubMode.DEFAULT
+    scheduled_start_at: Optional[datetime] = None
+    tts_tier: TTSTier = TTSTier.PREMIUM
+
+    @model_validator(mode="after")
+    def _validate_story_configuration(self) -> "RunPipelineRequest":
+        if self.story_mode == StoryMode.SCHEDULED and self.scheduled_start_at is None:
+            raise ValueError("scheduled_start_at is required when story_mode is 'scheduled'.")
+        if self.story_mode != StoryMode.SCHEDULED:
+            self.scheduled_start_at = None
+        if self.story_mode != StoryMode.SUBSCRIPTION:
+            self.story_sub_mode = StorySubMode.DEFAULT
+        return self
 
 
 class UploadRunRequest(BaseModel):
@@ -313,6 +335,10 @@ class RerunRequest(BaseModel):
     staged_workflow: bool | None = None
     target_dry_run_stage: Optional[int] = None
     delivery_profile: Optional[str] = None
+    story_mode: StoryMode | None = None
+    story_sub_mode: StorySubMode | None = None
+    scheduled_start_at: Optional[datetime] = None
+    tts_tier: TTSTier | None = None
 
 
 class RandomSeedPromptRequest(BaseModel):

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'timeline_screen.dart';
 import 'story_gallery_screen.dart';
 import 'settings_screen.dart';
+import '../providers/story_provider.dart';
 
 import 'hub_screen.dart';
 
@@ -31,6 +32,7 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(activeStorySyncProvider);
     final accent = Theme.of(context).colorScheme.primary;
     return Scaffold(
       body: IndexedStack(
@@ -39,7 +41,9 @@ class _MainNavigationState extends ConsumerState<MainNavigation> {
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.04))),
+          border: Border(
+            top: BorderSide(color: Colors.white.withValues(alpha: 0.04)),
+          ),
         ),
         child: BottomNavigationBar(
           currentIndex: _selectedIndex,

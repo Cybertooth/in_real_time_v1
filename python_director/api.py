@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 import threading
+from datetime import datetime
 from pathlib import Path
 from time import perf_counter
 
@@ -20,6 +21,7 @@ if __package__:
         generate_image_with_fallback,
         list_stories,
         delete_story,
+        cleanup_all_stories,
         make_story_live,
     )
     from .log_utils import get_logger
@@ -54,6 +56,7 @@ if __package__:
         list_named_pipelines,
         load_named_pipeline,
         load_pipeline,
+        load_run_progress,
         load_run_result,
         load_settings,
         save_named_pipeline,
@@ -73,6 +76,7 @@ else:
         generate_image_with_fallback,
         list_stories,
         delete_story,
+        cleanup_all_stories,
         make_story_live,
     )
     from log_utils import get_logger
@@ -107,6 +111,7 @@ else:
         list_named_pipelines,
         load_named_pipeline,
         load_pipeline,
+        load_run_progress,
         load_run_result,
         save_run_result,
         load_settings,
@@ -405,6 +410,10 @@ async def run_pipeline(request: RunPipelineRequest = RunPipelineRequest()):
             staged_workflow=request.staged_workflow,
             target_dry_run_stage=request.target_dry_run_stage,
             delivery_profile=request.delivery_profile,
+            story_mode=request.story_mode.value,
+            story_sub_mode=request.story_sub_mode.value,
+            scheduled_start_at=request.scheduled_start_at,
+            tts_tier=request.tts_tier.value,
         )
         logger.info(
             "Run finished run_id=%s blocks=%s final_title=%s",
@@ -428,6 +437,10 @@ def _bg_run_pipeline(
     staged_workflow: bool = True,
     target_dry_run_stage: int | None = None,
     delivery_profile: str = "standard",
+    story_mode: str = "live",
+    story_sub_mode: str = "default",
+    scheduled_start_at: datetime | None = None,
+    tts_tier: str = "premium",
 ):
     runner = PipelineRunner(settings)
 
@@ -445,6 +458,10 @@ def _bg_run_pipeline(
             staged_workflow=staged_workflow,
             target_dry_run_stage=target_dry_run_stage,
             delivery_profile=delivery_profile,
+            story_mode=story_mode,
+            story_sub_mode=story_sub_mode,
+            scheduled_start_at=scheduled_start_at,
+            tts_tier=tts_tier,
         )
     except Exception:
         # runner already logs and updates progress status to FAILED
@@ -486,6 +503,10 @@ async def start_run(
         dry_run_stage_name="fundamental_story_generation" if request.staged_workflow else "multimedia_artifact_generation",
         staged_workflow=request.staged_workflow,
         delivery_profile=request.delivery_profile,
+        story_mode=request.story_mode,
+        story_sub_mode=request.story_sub_mode,
+        scheduled_start_at=request.scheduled_start_at,
+        tts_tier=request.tts_tier,
     )
     active_runs[run_id] = initial_progress
 
@@ -497,6 +518,10 @@ async def start_run(
         request.staged_workflow,
         request.target_dry_run_stage,
         request.delivery_profile,
+        request.story_mode.value,
+        request.story_sub_mode.value,
+        request.scheduled_start_at,
+        request.tts_tier.value,
     )
 
     return initial_progress
@@ -539,6 +564,10 @@ async def get_run_status(run_id: str):
             staged_workflow=result.staged_workflow,
             delivery_profile=result.delivery_profile,
             deployment_stage=result.deployment_stage,
+            story_mode=result.story_mode,
+            story_sub_mode=result.story_sub_mode,
+            scheduled_start_at=result.scheduled_start_at,
+            tts_tier=result.tts_tier,
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found.")
@@ -552,33 +581,26 @@ async def approve_next_stage(
 ):
     logger.info("Stage approval requested run_id=%s target_stage=%s", run_id, request.target_dry_run_stage)
 
-    if run_id in active_runs and active_runs[run_id].status == RunStatus.RUNNING:
+    if run_id in active_runs and active_runs[run_id].status in {RunStatus.RUNNING, RunStatus.QUEUED}:
         raise HTTPException(status_code=409, detail="Run is already active. Wait for it to finish.")
 
-    settings = load_settings()
-    runner = PipelineRunner(settings)
-
-    def _progress_callback(p: RunProgress):
-        active_runs[run_id] = p
-
     try:
-        progress = runner.advance_run_stage(
-            run_id,
-            target_dry_run_stage=request.target_dry_run_stage,
-            progress_callback=_progress_callback,
-        )
-        active_runs[run_id] = progress
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        current = load_run_progress(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    def _cleanup():
-        import time
+    current.status = RunStatus.QUEUED
+    current.error_message = None
+    current.awaiting_stage_approval = False
+    active_runs[run_id] = current
 
-        time.sleep(60)
-        active_runs.pop(run_id, None)
-
-    background_tasks.add_task(_cleanup)
-    return progress
+    background_tasks.add_task(
+        _bg_advance_run_stage,
+        run_id,
+        request.target_dry_run_stage,
+        load_settings(),
+    )
+    return current
 
 
 @router.post("/runs/{run_id}/rerun")
@@ -612,21 +634,39 @@ async def rerun_run(
                 else original.staged_workflow
             )
             delivery_profile = request.delivery_profile or original.delivery_profile
+            story_mode = request.story_mode or original.story_mode
+            story_sub_mode = request.story_sub_mode or original.story_sub_mode
+            scheduled_start_at = request.scheduled_start_at or original.scheduled_start_at
+            tts_tier = request.tts_tier or original.tts_tier
         except FileNotFoundError:
             seed_prompt = None
             tags = []
             allowed_languages = request.allowed_languages or []
             staged_workflow = request.staged_workflow if request.staged_workflow is not None else True
             delivery_profile = request.delivery_profile or "standard"
+            story_mode = request.story_mode or "live"
+            story_sub_mode = request.story_sub_mode or "default"
+            scheduled_start_at = request.scheduled_start_at
+            tts_tier = request.tts_tier or "premium"
     else:
         seed_prompt = request.seed_prompt
         tags = request.tags
         allowed_languages = request.allowed_languages or []
         staged_workflow = request.staged_workflow if request.staged_workflow is not None else True
         delivery_profile = request.delivery_profile or "standard"
+        story_mode = request.story_mode or "live"
+        story_sub_mode = request.story_sub_mode or "default"
+        scheduled_start_at = request.scheduled_start_at
+        tts_tier = request.tts_tier or "premium"
 
     settings = load_settings()
     new_run_id = f"run_{int(perf_counter() * 1000)}"
+    story_mode_value = story_mode.value if hasattr(story_mode, "value") else str(story_mode)
+    if story_mode_value == "scheduled" and scheduled_start_at is None:
+        raise HTTPException(
+            status_code=400,
+            detail="scheduled_start_at is required when story_mode is 'scheduled'.",
+        )
 
     initial_progress = RunProgress(
         run_id=new_run_id,
@@ -642,6 +682,10 @@ async def rerun_run(
         dry_run_stage_name="fundamental_story_generation" if staged_workflow else "multimedia_artifact_generation",
         staged_workflow=staged_workflow,
         delivery_profile=delivery_profile,
+        story_mode=story_mode_value,
+        story_sub_mode=story_sub_mode.value if hasattr(story_sub_mode, "value") else str(story_sub_mode),
+        scheduled_start_at=scheduled_start_at,
+        tts_tier=tts_tier.value if hasattr(tts_tier, "value") else str(tts_tier),
     )
     active_runs[new_run_id] = initial_progress
 
@@ -656,6 +700,10 @@ async def rerun_run(
         staged_workflow,
         request.target_dry_run_stage,
         delivery_profile,
+        story_mode_value,
+        story_sub_mode.value if hasattr(story_sub_mode, "value") else str(story_sub_mode),
+        scheduled_start_at,
+        tts_tier.value if hasattr(tts_tier, "value") else str(tts_tier),
     )
     logger.info("Re-run started new_run_id=%s from_run_id=%s", new_run_id, run_id)
     return initial_progress
@@ -676,6 +724,35 @@ def _bg_retry_block(run_id: str, block_id: str, settings: AppSettings):
             import time
             time.sleep(60)
             active_runs.pop(run_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
+
+
+def _bg_advance_run_stage(
+    run_id: str,
+    target_dry_run_stage: int | None,
+    settings: AppSettings,
+):
+    runner = PipelineRunner(settings)
+
+    def _progress_callback(p: RunProgress):
+        active_runs[run_id] = p
+
+    try:
+        runner.advance_run_stage(
+            run_id,
+            target_dry_run_stage=target_dry_run_stage,
+            progress_callback=_progress_callback,
+        )
+    except Exception:
+        # runner already updates status to FAILED where possible
+        pass
+    finally:
+        def _cleanup():
+            import time
+
+            time.sleep(60)
+            active_runs.pop(run_id, None)
+
         threading.Thread(target=_cleanup, daemon=True).start()
 
 
@@ -724,15 +801,7 @@ async def compare_runs(request: CompareRunsRequest):
 
 
 @router.post("/upload/{run_id}")
-async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()):
-    logger.info(
-        "Upload requested run_id=%s mode=%s sub_mode=%s tts_tier=%s scheduled_start_at=%s",
-        run_id,
-        request.story_mode.value,
-        request.story_sub_mode.value,
-        request.tts_tier.value,
-        request.scheduled_start_at,
-    )
+async def upload_run(run_id: str, request: UploadRunRequest | None = None):
     try:
         run_result = load_run_result(run_id)
     except FileNotFoundError as exc:
@@ -758,6 +827,24 @@ async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()
         )
 
     try:
+        resolved_request = request or UploadRunRequest(
+            story_mode=getattr(run_result, "story_mode", "live"),
+            story_sub_mode=getattr(run_result, "story_sub_mode", "default"),
+            scheduled_start_at=getattr(run_result, "scheduled_start_at", None),
+            tts_tier=getattr(run_result, "tts_tier", "premium"),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    logger.info(
+        "Upload requested run_id=%s mode=%s sub_mode=%s tts_tier=%s scheduled_start_at=%s",
+        run_id,
+        resolved_request.story_mode.value,
+        resolved_request.story_sub_mode.value,
+        resolved_request.tts_tier.value,
+        resolved_request.scheduled_start_at,
+    )
+
+    try:
         snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
         if snapshot_path.exists():
             pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
@@ -767,25 +854,38 @@ async def upload_run(run_id: str, request: UploadRunRequest = UploadRunRequest()
             run_result,
             settings,
             pipeline,
-            story_mode=request.story_mode.value,
-            story_sub_mode=request.story_sub_mode.value,
-            scheduled_start_at=request.scheduled_start_at,
-            tts_tier=request.tts_tier.value,
+            story_mode=resolved_request.story_mode.value,
+            story_sub_mode=resolved_request.story_sub_mode.value,
+            scheduled_start_at=resolved_request.scheduled_start_at,
+            tts_tier=resolved_request.tts_tier.value,
         )
+        if not story_id:
+            raise RuntimeError("Upload did not return a story id.")
         logger.info("Upload completed run_id=%s story_id=%s", run_id, story_id)
 
         # Update the run_result on disk to persist the story_id
         run_result.story_id = story_id
+        run_result.story_mode = resolved_request.story_mode
+        run_result.story_sub_mode = resolved_request.story_sub_mode
+        run_result.scheduled_start_at = resolved_request.scheduled_start_at
+        run_result.tts_tier = resolved_request.tts_tier
         run_result.deployment_stage = "uploaded"
+        if make_story_live(story_id, settings):
+            if resolved_request.story_mode.value == "live":
+                run_result.deployment_stage = "live"
+            else:
+                run_result.deployment_stage = "published"
         snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
         if snapshot_path.exists():
             pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
-            save_run_result(run_result, pipeline)
+        else:
+            pipeline = load_pipeline()
+        save_run_result(run_result, pipeline)
     except Exception as exc:
         logger.exception("Upload failed run_id=%s", run_id)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    return {"status": "ok", "story_id": story_id}
+    return {"status": "ok", "story_id": story_id, "deployment_stage": run_result.deployment_stage}
 
 @router.post("/runs/{run_id}/regenerate-image")
 async def regenerate_image(run_id: str, req: RegenerateImageRequest):
@@ -914,6 +1014,12 @@ async def api_make_story_live(story_id: str):
 @router.get("/stories")
 async def api_list_stories():
     return list_stories(load_settings())
+
+
+@router.post("/stories/cleanup")
+async def api_cleanup_stories():
+    summary = cleanup_all_stories(load_settings())
+    return {"status": "ok", **summary}
 
 
 @router.delete("/stories/{story_id}")

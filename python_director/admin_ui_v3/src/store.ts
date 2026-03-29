@@ -81,6 +81,10 @@ interface StudioState {
     options?: {
       stagedWorkflow?: boolean
       deliveryProfile?: 'standard' | 'on_demand'
+      storyMode?: 'live' | 'scheduled' | 'subscription'
+      storySubMode?: 'default' | 'on_demand'
+      scheduledStartAt?: string | null
+      ttsTier?: 'premium' | 'cheap'
     },
   ) => Promise<void>
   rerunFromRun: (
@@ -91,8 +95,13 @@ interface StudioState {
     options?: {
       stagedWorkflow?: boolean
       deliveryProfile?: 'standard' | 'on_demand'
+      storyMode?: 'live' | 'scheduled' | 'subscription'
+      storySubMode?: 'default' | 'on_demand'
+      scheduledStartAt?: string | null
+      ttsTier?: 'premium' | 'cheap'
     },
   ) => Promise<void>
+  advanceRunStage: (runId: string, targetDryRunStage?: number) => Promise<RunProgress | null>
   retryBlock: (runId: string, blockId: string) => Promise<void>
   deleteRun: (runId: string) => Promise<void>
   stopPolling: () => void
@@ -129,6 +138,10 @@ function progressToSummary(p: RunProgress): RunSummary {
     staged_workflow: p.staged_workflow ?? false,
     delivery_profile: p.delivery_profile ?? 'standard',
     deployment_stage: p.deployment_stage ?? 'dry_run',
+    story_mode: p.story_mode ?? 'live',
+    story_sub_mode: p.story_sub_mode ?? 'default',
+    scheduled_start_at: p.scheduled_start_at ?? null,
+    tts_tier: p.tts_tier ?? 'premium',
   }
 }
 
@@ -443,7 +456,14 @@ export const useStore = create<StudioState>((set, get) => {
       seedPrompt?: string,
       tags?: string[],
       allowedLanguages?: string[],
-      options?: { stagedWorkflow?: boolean; deliveryProfile?: 'standard' | 'on_demand' },
+      options?: {
+        stagedWorkflow?: boolean
+        deliveryProfile?: 'standard' | 'on_demand'
+        storyMode?: 'live' | 'scheduled' | 'subscription'
+        storySubMode?: 'default' | 'on_demand'
+        scheduledStartAt?: string | null
+        ttsTier?: 'premium' | 'cheap'
+      },
     ) => {
       const { pipeline } = get()
       if (!pipeline) return
@@ -452,6 +472,10 @@ export const useStore = create<StudioState>((set, get) => {
         const progress = await api.startRun(pipeline, seedPrompt, tags, allowedLanguages, {
           staged_workflow: options?.stagedWorkflow ?? true,
           delivery_profile: options?.deliveryProfile ?? 'standard',
+          story_mode: options?.storyMode ?? 'live',
+          story_sub_mode: options?.storySubMode ?? 'default',
+          scheduled_start_at: options?.scheduledStartAt ?? null,
+          tts_tier: options?.ttsTier ?? 'premium',
         })
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Run completed successfully', 'Run failed')
@@ -467,12 +491,30 @@ export const useStore = create<StudioState>((set, get) => {
         const progress = await api.rerunRun(runId, seedPrompt, tags, allowedLanguages, {
           staged_workflow: options?.stagedWorkflow,
           delivery_profile: options?.deliveryProfile,
+          story_mode: options?.storyMode,
+          story_sub_mode: options?.storySubMode,
+          scheduled_start_at: options?.scheduledStartAt ?? undefined,
+          tts_tier: options?.ttsTier,
         })
         set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
         _startPolling(progress.run_id, 'Re-run completed successfully', 'Re-run failed')
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to start re-run'
         get().showToast(msg, true)
+      }
+    },
+
+    advanceRunStage: async (runId, targetDryRunStage) => {
+      get().stopPolling()
+      try {
+        const progress = await api.approveNextRunStage(runId, targetDryRunStage)
+        set({ activeRunId: runId, liveRun: progress, pollInterval: 1500 })
+        _startPolling(runId, 'Stage advanced successfully', 'Stage advance failed')
+        return progress
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to advance stage'
+        get().showToast(msg, true)
+        return null
       }
     },
 

@@ -103,6 +103,10 @@ export function startRun(
     staged_workflow?: boolean
     target_dry_run_stage?: number
     delivery_profile?: 'standard' | 'on_demand'
+    story_mode?: 'live' | 'scheduled' | 'subscription'
+    story_sub_mode?: 'default' | 'on_demand'
+    scheduled_start_at?: string | null
+    tts_tier?: 'premium' | 'cheap'
   },
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { pipeline }
@@ -112,6 +116,10 @@ export function startRun(
   if (options?.staged_workflow !== undefined) body.staged_workflow = options.staged_workflow
   if (options?.target_dry_run_stage !== undefined) body.target_dry_run_stage = options.target_dry_run_stage
   if (options?.delivery_profile) body.delivery_profile = options.delivery_profile
+  if (options?.story_mode) body.story_mode = options.story_mode
+  if (options?.story_sub_mode) body.story_sub_mode = options.story_sub_mode
+  if (options?.scheduled_start_at) body.scheduled_start_at = options.scheduled_start_at
+  if (options?.tts_tier) body.tts_tier = options.tts_tier
   return request<RunProgress>('/api/runs/start', { method: 'POST', ...json(body) })
 }
 
@@ -152,22 +160,26 @@ export function compareRuns(
 
 export function uploadRun(
   runId: string,
-  payload: {
+  payload?: {
     story_mode: 'live' | 'scheduled' | 'subscription'
     story_sub_mode?: 'default' | 'on_demand'
     scheduled_start_at?: string | null
     tts_tier: 'premium' | 'cheap'
   },
-): Promise<{ status: string; story_id: string }> {
-  const body: Record<string, unknown> = {
-    story_mode: payload.story_mode,
-    story_sub_mode: payload.story_sub_mode ?? 'default',
-    tts_tier: payload.tts_tier,
+): Promise<{ status: string; story_id: string; deployment_stage: string }> {
+  const init: RequestInit = { method: 'POST' }
+  if (payload) {
+    const body: Record<string, unknown> = {
+      story_mode: payload.story_mode,
+      story_sub_mode: payload.story_sub_mode ?? 'default',
+      tts_tier: payload.tts_tier,
+    }
+    if (payload.scheduled_start_at) body.scheduled_start_at = payload.scheduled_start_at
+    Object.assign(init, json(body))
   }
-  if (payload.scheduled_start_at) body.scheduled_start_at = payload.scheduled_start_at
-  return request<{ status: string; story_id: string }>(
+  return request<{ status: string; story_id: string; deployment_stage: string }>(
     `/api/upload/${encodeURIComponent(runId)}`,
-    { method: 'POST', ...json(body) },
+    init,
   )
 }
 
@@ -199,6 +211,10 @@ export function rerunRun(
     staged_workflow?: boolean
     target_dry_run_stage?: number
     delivery_profile?: 'standard' | 'on_demand'
+    story_mode?: 'live' | 'scheduled' | 'subscription'
+    story_sub_mode?: 'default' | 'on_demand'
+    scheduled_start_at?: string | null
+    tts_tier?: 'premium' | 'cheap'
   },
 ): Promise<RunProgress> {
   const body: Record<string, unknown> = { use_original_seed: seedPrompt === undefined }
@@ -208,6 +224,10 @@ export function rerunRun(
   if (options?.staged_workflow !== undefined) body.staged_workflow = options.staged_workflow
   if (options?.target_dry_run_stage !== undefined) body.target_dry_run_stage = options.target_dry_run_stage
   if (options?.delivery_profile) body.delivery_profile = options.delivery_profile
+  if (options?.story_mode) body.story_mode = options.story_mode
+  if (options?.story_sub_mode) body.story_sub_mode = options.story_sub_mode
+  if (options?.scheduled_start_at) body.scheduled_start_at = options.scheduled_start_at
+  if (options?.tts_tier) body.tts_tier = options.tts_tier
   return request<RunProgress>(`/api/runs/${encodeURIComponent(runId)}/rerun`, {
     method: 'POST',
     ...json(body),
@@ -252,4 +272,14 @@ export function deleteStory(storyId: string): Promise<{ status: string; story_id
     `/api/stories/${encodeURIComponent(storyId)}`,
     { method: 'DELETE' },
   )
+}
+
+export function cleanupStories(): Promise<{
+  status: string
+  total: number
+  deleted: number
+  failed: number
+  failed_ids: string[]
+}> {
+  return request('/api/stories/cleanup', { method: 'POST' })
 }

@@ -140,6 +140,10 @@ export interface RunSummary {
   staged_workflow: boolean
   delivery_profile: string
   deployment_stage: string
+  story_mode: 'live' | 'scheduled' | 'subscription'
+  story_sub_mode: 'default' | 'on_demand'
+  scheduled_start_at: string | null
+  tts_tier: 'premium' | 'cheap'
 }
 
 export interface RunProgress {
@@ -169,6 +173,10 @@ export interface RunProgress {
   staged_workflow: boolean
   delivery_profile: string
   deployment_stage: string
+  story_mode: 'live' | 'scheduled' | 'subscription'
+  story_sub_mode: 'default' | 'on_demand'
+  scheduled_start_at: string | null
+  tts_tier: 'premium' | 'cheap'
 }
 
 export interface RunResult extends RunSummary {

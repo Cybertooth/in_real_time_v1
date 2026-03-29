@@ -22,7 +22,14 @@ export default function TopBar() {
     seedPrompt: string,
     tags: string[],
     allowedLanguages: string[],
-    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+    options: {
+      stagedWorkflow: boolean
+      deliveryProfile: 'standard' | 'on_demand'
+      storyMode: 'live' | 'scheduled' | 'subscription'
+      storySubMode: 'default' | 'on_demand'
+      scheduledStartAt: string | null
+      ttsTier: 'premium' | 'cheap'
+    },
   ) => {
     setRunDialogOpen(false)
     startRun(

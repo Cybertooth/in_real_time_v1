@@ -34,7 +34,14 @@ export default function RunList() {
     seedPrompt: string,
     tags: string[],
     allowedLanguages: string[],
-    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+    options: {
+      stagedWorkflow: boolean
+      deliveryProfile: 'standard' | 'on_demand'
+      storyMode: 'live' | 'scheduled' | 'subscription'
+      storySubMode: 'default' | 'on_demand'
+      scheduledStartAt: string | null
+      ttsTier: 'premium' | 'cheap'
+    },
   ) => {
     if (!rerunTarget) return
     setRerunTarget(null)
@@ -168,6 +175,10 @@ export default function RunList() {
         initialSeedPrompt={rerunTarget?.seed_prompt ?? ''}
         initialTags={rerunTarget?.tags ?? []}
         initialAllowedLanguages={rerunTarget?.allowed_languages ?? []}
+        initialStoryMode={rerunTarget?.story_mode ?? 'live'}
+        initialStorySubMode={rerunTarget?.story_sub_mode ?? 'default'}
+        initialScheduledStartAt={rerunTarget?.scheduled_start_at ?? null}
+        initialTtsTier={rerunTarget?.tts_tier ?? 'premium'}
         initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"

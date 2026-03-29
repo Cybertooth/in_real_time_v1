@@ -29,6 +29,7 @@ export default function RunDetail() {
   // Null for all other runs, so non-active RunDetail instances never re-render mid-poll.
   const liveRun = useStore((s) => s.liveRun?.run_id === runId ? s.liveRun : null)
   const rerunFromRun = useStore((s) => s.rerunFromRun)
+  const advanceRunStage = useStore((s) => s.advanceRunStage)
   const retryBlock = useStore((s) => s.retryBlock)
   const deleteRun = useStore((s) => s.deleteRun)
 
@@ -49,10 +50,6 @@ export default function RunDetail() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [retryTarget, setRetryTarget] = useState<{ id: string; name: string } | null>(null)
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false)
-  const [storyMode, setStoryMode] = useState<'live' | 'scheduled' | 'subscription'>('live')
-  const [storySubMode, setStorySubMode] = useState<'default' | 'on_demand'>('default')
-  const [scheduledStartAt, setScheduledStartAt] = useState('')
-  const [ttsTier, setTtsTier] = useState<'premium' | 'cheap'>('premium')
   const [uploading, setUploading] = useState(false)
   const [approvingStage, setApprovingStage] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -163,30 +160,25 @@ export default function RunDetail() {
 
   const handleUploadConfirm = async () => {
     if (!runId) return
-    let scheduleIso: string | null = null
-    if (storyMode === 'scheduled') {
-      if (!scheduledStartAt) {
-        showToast('Select a scheduled start datetime.', true)
-        return
-      }
-      const localDate = new Date(scheduledStartAt)
-      if (Number.isNaN(localDate.getTime())) {
-        showToast('Invalid scheduled datetime.', true)
-        return
-      }
-      scheduleIso = localDate.toISOString()
-    }
-
     setUploading(true)
     try {
-      const result = await api.uploadRun(runId, {
-        story_mode: storyMode,
-        story_sub_mode: storyMode === 'subscription' ? storySubMode : 'default',
-        scheduled_start_at: scheduleIso,
-        tts_tier: ttsTier,
-      })
-      showToast(`Uploaded! Story ID: ${result.story_id}`)
-      setRunData((prev) => (prev ? { ...prev, story_id: result.story_id } : null))
+      const result = await api.uploadRun(runId)
+      if (!result.story_id) {
+        throw new Error('Upload completed without a story ID. Check Firebase settings and server logs.')
+      }
+      const deployment = result.deployment_stage ?? 'uploaded'
+      showToast(
+        deployment === 'live'
+          ? `Uploaded and published! Story ID: ${result.story_id}`
+          : deployment === 'published'
+            ? `Uploaded and published (not live yet). Story ID: ${result.story_id}`
+          : `Uploaded! Story ID: ${result.story_id}`,
+      )
+      setRunData((prev) => (
+        prev
+          ? { ...prev, story_id: result.story_id, deployment_stage: result.deployment_stage ?? prev.deployment_stage }
+          : null
+      ))
       setUploadDialogOpen(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Upload failed'
@@ -200,7 +192,14 @@ export default function RunDetail() {
     seedPrompt: string,
     tags: string[],
     allowedLanguages: string[],
-    options: { stagedWorkflow: boolean; deliveryProfile: 'standard' | 'on_demand' },
+    options: {
+      stagedWorkflow: boolean
+      deliveryProfile: 'standard' | 'on_demand'
+      storyMode: 'live' | 'scheduled' | 'subscription'
+      storySubMode: 'default' | 'on_demand'
+      scheduledStartAt: string | null
+      ttsTier: 'premium' | 'cheap'
+    },
   ) => {
     setRerunDialogOpen(false)
     if (!runId) return
@@ -229,7 +228,10 @@ export default function RunDetail() {
     if (!runId) return
     setApprovingStage(true)
     try {
-      const progress = await api.approveNextRunStage(runId)
+      const progress = await advanceRunStage(runId)
+      if (!progress) {
+        return
+      }
       setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Record<string, unknown>) } as RunProgress & {
         final_output?: unknown
         headline_image_path?: string | null
@@ -242,22 +244,7 @@ export default function RunDetail() {
         awaiting_stage_approval?: boolean
         deployment_stage?: string
       } : null))
-      showToast(`Advanced to stage ${progress.dry_run_stage}: ${progress.dry_run_stage_name}`)
-      if (progress.status === 'succeeded' && runId) {
-        const full = await api.getRun(runId)
-        setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunProgress & {
-          final_output?: unknown
-          headline_image_path?: string | null
-          headline_image_prompt?: string | null
-          seed_prompt?: string | null
-          tags?: string[]
-          allowed_languages?: string[]
-          dry_run_stage?: number
-          dry_run_stage_name?: string
-          awaiting_stage_approval?: boolean
-          deployment_stage?: string
-        }))
-      }
+      showToast('Stage approved. Continuing pipeline...')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to advance stage'
       showToast(msg, true)
@@ -285,6 +272,10 @@ export default function RunDetail() {
   const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
   const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
   const storedAllowedLanguages = (runData as unknown as Record<string, unknown>).allowed_languages as string[] | undefined
+  const storedStoryMode = ((runData as unknown as Record<string, unknown>).story_mode as 'live' | 'scheduled' | 'subscription' | undefined) ?? 'live'
+  const storedStorySubMode = ((runData as unknown as Record<string, unknown>).story_sub_mode as 'default' | 'on_demand' | undefined) ?? 'default'
+  const storedScheduledStartAt = (runData as unknown as Record<string, unknown>).scheduled_start_at as string | null | undefined
+  const storedTtsTier = ((runData as unknown as Record<string, unknown>).tts_tier as 'premium' | 'cheap' | undefined) ?? 'premium'
   const runTitle = runData.final_title || runData.pipeline_name || 'Untitled Story'
   const runStage = (runData as unknown as Record<string, unknown>).dry_run_stage as number | undefined
   const runStageName = (runData as unknown as Record<string, unknown>).dry_run_stage_name as string | undefined
@@ -292,6 +283,10 @@ export default function RunDetail() {
   const deploymentStage = ((runData as unknown as Record<string, unknown>).deployment_stage as string | undefined) ?? 'dry_run'
   const canUpload = runData.status === 'succeeded' && (runStage ?? 3) >= 3
   const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
+  const scheduleLabel =
+    storedStoryMode === 'scheduled' && storedScheduledStartAt
+      ? formatTime(storedScheduledStartAt)
+      : 'N/A'
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -307,12 +302,24 @@ export default function RunDetail() {
           <div className={`text-center py-1.5 text-xs font-bold uppercase tracking-widest border-b flex items-center justify-center gap-2 ${
             deploymentStage === 'live'
               ? 'bg-mint/10 text-mint border-mint/20'
+              : deploymentStage === 'published'
+                ? 'bg-blue-300/10 text-blue-300 border-blue-300/20'
               : 'bg-amber-300/10 text-amber-300 border-amber-300/20'
           }`}>
-            <span className={`w-2 h-2 rounded-full ${deploymentStage === 'live' ? 'bg-mint animate-pulse' : 'bg-amber-300'}`} />
+            <span
+              className={`w-2 h-2 rounded-full ${
+                deploymentStage === 'live'
+                  ? 'bg-mint animate-pulse'
+                  : deploymentStage === 'published'
+                    ? 'bg-blue-300'
+                    : 'bg-amber-300'
+              }`}
+            />
             {deploymentStage === 'live'
               ? `Live on Production (Story ID: ${runData.story_id})`
-              : `Uploaded (Not Live Yet) — Story ID: ${runData.story_id}`}
+              : deploymentStage === 'published'
+                ? `Published (Activation Based on Story Mode) — Story ID: ${runData.story_id}`
+                : `Uploaded (Not Live Yet) — Story ID: ${runData.story_id}`}
           </div>
         )}
         {/* Header */}
@@ -365,7 +372,7 @@ export default function RunDetail() {
               </button>
             )}
 
-            {runData.story_id && deploymentStage !== 'live' && (
+            {runData.story_id && deploymentStage === 'uploaded' && (
               <button
                 type="button"
                 onClick={handleMakeLive}
@@ -435,6 +442,10 @@ export default function RunDetail() {
         initialSeedPrompt={storedSeed ?? ''}
         initialTags={storedTags ?? []}
         initialAllowedLanguages={storedAllowedLanguages ?? []}
+        initialStoryMode={storedStoryMode}
+        initialStorySubMode={storedStorySubMode}
+        initialScheduledStartAt={storedScheduledStartAt ?? null}
+        initialTtsTier={storedTtsTier}
         initialMode="same"
         title="Re-run Pipeline"
         submitLabel="Start Re-run"
@@ -466,67 +477,23 @@ export default function RunDetail() {
       <ConfirmDialog
         open={uploadDialogOpen}
         title="Upload Story"
-        description="Choose story lifecycle and TTS profile for production upload."
+        description="Upload using lifecycle/audio settings already selected during dry-run."
         confirmLabel={uploading ? 'Uploading...' : 'Upload Story'}
         confirmVariant="primary"
         onConfirm={handleUploadConfirm}
         onCancel={() => !uploading && setUploadDialogOpen(false)}
       >
         <div className="flex flex-col gap-3 text-sm">
-          <label className="flex flex-col gap-1">
-            <span className="text-text-dim text-xs uppercase tracking-wide">Story Mode</span>
-            <select
-              value={storyMode}
-              onChange={(e) => setStoryMode(e.target.value as 'live' | 'scheduled' | 'subscription')}
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
-              disabled={uploading}
-            >
-              <option value="live">Live (global start)</option>
-              <option value="scheduled">Scheduled (future start)</option>
-              <option value="subscription">Subscription (start on follow)</option>
-            </select>
-          </label>
-
-          {storyMode === 'subscription' && (
-            <label className="flex flex-col gap-1">
-              <span className="text-text-dim text-xs uppercase tracking-wide">Subscription Subtype</span>
-              <select
-                value={storySubMode}
-                onChange={(e) => setStorySubMode(e.target.value as 'default' | 'on_demand')}
-                className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
-                disabled={uploading}
-              >
-                <option value="default">Standard Subscription</option>
-                <option value="on_demand">On-Demand Burst (active-session pacing)</option>
-              </select>
-            </label>
-          )}
-
-          {storyMode === 'scheduled' && (
-            <label className="flex flex-col gap-1">
-              <span className="text-text-dim text-xs uppercase tracking-wide">Scheduled Start (Local Time)</span>
-              <input
-                type="datetime-local"
-                value={scheduledStartAt}
-                onChange={(e) => setScheduledStartAt(e.target.value)}
-                className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
-                disabled={uploading}
-              />
-            </label>
-          )}
-
-          <label className="flex flex-col gap-1">
-            <span className="text-text-dim text-xs uppercase tracking-wide">TTS Tier</span>
-            <select
-              value={ttsTier}
-              onChange={(e) => setTtsTier(e.target.value as 'premium' | 'cheap')}
-              className="bg-surface border border-border rounded-lg px-3 py-2 text-text"
-              disabled={uploading}
-            >
-              <option value="premium">Premium</option>
-              <option value="cheap">Cheap</option>
-            </select>
-          </label>
+          <div className="grid grid-cols-[140px_1fr] gap-2 text-xs text-text-dim">
+            <span className="uppercase tracking-wide">Story Mode</span>
+            <span className="text-text">{storedStoryMode}</span>
+            <span className="uppercase tracking-wide">Story Subtype</span>
+            <span className="text-text">{storedStorySubMode}</span>
+            <span className="uppercase tracking-wide">Scheduled Start</span>
+            <span className="text-text">{scheduleLabel}</span>
+            <span className="uppercase tracking-wide">TTS Tier</span>
+            <span className="text-text">{storedTtsTier}</span>
+          </div>
 
           <div className="flex items-center gap-2 text-xs text-text-dim">
             <span className="uppercase tracking-wide">Theme Preview</span>
