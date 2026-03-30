@@ -137,6 +137,18 @@ class SettingsPayload(BaseModel):
     status: SettingsStatus
 
 
+class SchedulerConfig(BaseModel):
+    enabled: bool = False
+    frequency_days: int = 1
+    time_of_day: str = "00:00"  # UTC HH:MM
+    last_run_at: Optional[str] = None
+    keep_count: int = 5
+    default_tags: list[str] = Field(default_factory=list)
+    default_languages: list[str] = Field(default_factory=list)
+    delivery_profile: str = "standard"
+    tts_tier: TTSTier = TTSTier.PREMIUM
+
+
 class ArtifactFile(BaseModel):
     name: str
     relative_path: str
@@ -397,6 +409,7 @@ class StudioBootstrap(BaseModel):
     pipeline: PipelineDefinition
     pipeline_catalog: list[PipelineCatalogItem] = Field(default_factory=list)
     settings: SettingsPayload
+    scheduler_config: SchedulerConfig
     run_summaries: list[RunSummary]
     schemas: list[str]
     block_types: list[BlockType]

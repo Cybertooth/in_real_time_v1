@@ -62,6 +62,9 @@ export default function TopBar() {
           <NavLink to="/deployments" className={navLinkClass}>
             Deployments
           </NavLink>
+          <NavLink to="/schedule" className={navLinkClass}>
+            Schedule
+          </NavLink>
         </nav>
 
         {/* Right: Actions */}

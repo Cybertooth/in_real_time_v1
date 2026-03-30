@@ -63,6 +63,18 @@ export interface SettingsStatus {
   google_credentials_configured: boolean
 }
 
+export interface SchedulerConfig {
+  enabled: boolean
+  frequency_days: number
+  time_of_day: string
+  last_run_at: string | null
+  keep_count: number
+  default_tags: string[]
+  default_languages: string[]
+  delivery_profile: string
+  tts_tier: 'premium' | 'cheap'
+}
+
 export interface SettingsPayload {
   settings: AppSettings
   status: SettingsStatus
@@ -262,6 +274,7 @@ export interface StudioBootstrap {
   pipeline: PipelineDefinition
   pipeline_catalog: PipelineCatalogItem[]
   settings: SettingsPayload
+  scheduler_config: SchedulerConfig
   run_summaries: RunSummary[]
   schemas: string[]
   block_types: BlockType[]

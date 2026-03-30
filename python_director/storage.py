@@ -30,6 +30,7 @@ if __package__:
         SettingsPayload,
         SettingsStatus,
         StudioBootstrap,
+        SchedulerConfig,
         SCHEMA_MAP,
     )
 else:
@@ -53,6 +54,7 @@ else:
         SettingsPayload,
         SettingsStatus,
         StudioBootstrap,
+        SchedulerConfig,
         SCHEMA_MAP,
     )
 
@@ -63,6 +65,7 @@ RUNS_DIR = BASE_DIR / "temp_artifacts"
 SNAPSHOTS_DIR = BASE_DIR / "snapshots"
 PIPELINES_DIR = BASE_DIR / "pipelines"
 ENV_FILE = BASE_DIR / ".env"
+SCHEDULER_FILE = BASE_DIR / "scheduler_config.json"
 
 load_dotenv(ENV_FILE)
 logger = get_logger("python_director.storage")
@@ -269,6 +272,25 @@ def get_settings_payload() -> SettingsPayload:
             google_credentials_configured=bool(settings.google_application_credentials),
         ),
     )
+
+
+def load_scheduler_config() -> "SchedulerConfig":
+    payload: dict[str, Any] = {}
+    if SCHEDULER_FILE.exists():
+        logger.info("Loading scheduler config from %s", SCHEDULER_FILE)
+        try:
+            payload = json.loads(SCHEDULER_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            logger.exception("Scheduler config invalid JSON; archiving and falling back to default")
+            _archive_invalid_file(SCHEDULER_FILE, "scheduler_parse_error")
+            payload = {}
+    return SchedulerConfig.model_validate(payload)
+
+
+def save_scheduler_config(config: "SchedulerConfig") -> "SchedulerConfig":
+    _write_json(SCHEDULER_FILE, config.model_dump(mode="json"))
+    logger.info("Saved scheduler config enabled=%s frequency=%s time=%s", config.enabled, config.frequency_days, config.time_of_day)
+    return config
 
 
 def snapshot_pipeline(pipeline, label: str | None = None) -> Path:
@@ -500,6 +522,7 @@ def build_studio_bootstrap() -> StudioBootstrap:
         pipeline=load_pipeline(),
         pipeline_catalog=list_named_pipelines(),
         settings=get_settings_payload(),
+        scheduler_config=load_scheduler_config(),
         run_summaries=list_run_summaries(),
         schemas=list(SCHEMA_MAP.keys()),
         block_types=[template.type for template in get_block_templates()],

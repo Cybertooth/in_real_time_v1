@@ -44,6 +44,7 @@ if __package__:
         RunProgress,
         RunStatus,
         RegenerateImageRequest,
+        SchedulerConfig,
     )
     from .providers import get_provider
     from .storage import (
@@ -65,6 +66,8 @@ if __package__:
         save_settings,
         snapshot_pipeline,
         PIPELINE_SNAPSHOT_FILENAME,
+        load_scheduler_config,
+        save_scheduler_config,
     )
 else:
     from defaults import get_pipeline_reset_template
@@ -99,6 +102,7 @@ else:
         RunProgress,
         RunStatus,
         RegenerateImageRequest,
+        SchedulerConfig,
     )
     from providers import get_provider
     from storage import (
@@ -120,6 +124,8 @@ else:
         save_settings,
         snapshot_pipeline,
         PIPELINE_SNAPSHOT_FILENAME,
+        load_scheduler_config,
+        save_scheduler_config,
     )
 
 app = FastAPI(title="Python Director Studio API")
@@ -275,6 +281,130 @@ async def update_settings(settings: AppSettings):
     )
     save_settings(settings)
     return get_settings_payload()
+
+
+@router.get("/scheduler")
+async def get_scheduler_config():
+    logger.info("Fetching scheduler config")
+    return load_scheduler_config()
+
+
+@router.put("/scheduler")
+async def update_scheduler_config(config: SchedulerConfig):
+    logger.info("Updating scheduler config enabled=%s", config.enabled)
+    return save_scheduler_config(config)
+
+
+@router.post("/scheduler/run-now")
+async def trigger_scheduler_run_now(background_tasks: BackgroundTasks):
+    """Manually trigger an automated run, ignoring the time and frequency checks."""
+    config = load_scheduler_config()
+    settings = load_settings()
+    if not settings.gemini_api_key:
+        raise HTTPException(status_code=400, detail="Gemini API Key missing.")
+
+    new_run_id = f"run_{int(perf_counter() * 1000)}"
+    logger.info("Manual scheduler run started %s", new_run_id)
+
+    # Use pipeline default or whatever is currently saved
+    pipeline = load_pipeline()
+
+    initial_progress = RunProgress(
+        run_id=new_run_id,
+        timestamp=str(new_run_id),
+        pipeline_name=pipeline.name,
+        status=RunStatus.QUEUED,
+        tags=config.default_tags,
+        allowed_languages=config.default_languages,
+        block_count=len([b for b in pipeline.blocks if b.enabled]),
+        block_sequence=[b.id for b in pipeline.blocks if b.enabled],
+        dry_run_stage=3,
+        dry_run_stage_name="multimedia_artifact_generation",
+        staged_workflow=False,
+        delivery_profile=config.delivery_profile,
+        story_mode="scheduled",
+        story_sub_mode="default",
+        tts_tier=config.tts_tier.value,
+    )
+    active_runs[new_run_id] = initial_progress
+
+    # Update last_run_at early
+    config.last_run_at = datetime.now(timezone.utc).isoformat()
+    save_scheduler_config(config)
+
+    background_tasks.add_task(
+        _bg_run_pipeline,
+        new_run_id,
+        pipeline,
+        settings,
+        None,  # seed_prompt
+        config.default_tags,
+        config.default_languages,
+        False,  # staged_workflow
+        None,   # target_dry_run_stage
+        config.delivery_profile,
+        "scheduled",
+        "default",
+        None,   # scheduled_start_at
+        config.tts_tier.value,
+    )
+    return initial_progress
+
+
+@router.post("/scheduler/tick")
+async def scheduler_tick(background_tasks: BackgroundTasks):
+    """Called by Cloud Scheduler or a cron job. Runs the pipeline if the schedule dictates it."""
+    config = load_scheduler_config()
+    if not config.enabled:
+        return {"status": "skipped", "reason": "disabled"}
+
+    now_utc = datetime.now(timezone.utc)
+    target_hour = 0
+    target_min = 0
+    try:
+        if ":" in config.time_of_day:
+            h, m = config.time_of_day.split(":", 1)
+            target_hour = int(h)
+            target_min = int(m)
+    except Exception:
+        pass
+
+    # Check time of day (roughly matches hour, cron might fire slightly off)
+    # If the hour doesn't match, or it's not time yet, skip.
+    if now_utc.hour != target_hour:
+        return {"status": "skipped", "reason": f"not target hour ({target_hour})"}
+
+    if config.last_run_at:
+        try:
+            last_run = datetime.fromisoformat(config.last_run_at)
+            days_elapsed = (now_utc - last_run).days
+            if days_elapsed < config.frequency_days:
+                return {"status": "skipped", "reason": "too soon"}
+        except ValueError:
+            pass
+
+    return await trigger_scheduler_run_now(background_tasks)
+
+
+def _bg_prune_scheduled_runs(settings: AppSettings, keep_count: int):
+    """Keeps the latest 'keep_count' scheduled stories, deleting the rest."""
+    logger.info("Pruning scheduled stories, keeping count=%s", keep_count)
+    try:
+        all_stories = list_stories(settings)
+        scheduled_stories = [s for s in all_stories if s.get("storyMode") == "scheduled"]
+        
+        # list_stories already returns descending by createdAt, so just take from keep_count onwards
+        to_delete = scheduled_stories[keep_count:]
+        for s in to_delete:
+            s_id = s.get("id")
+            if s_id:
+                try:
+                    delete_story(s_id, settings)
+                    logger.info("Pruned old scheduled story: %s", s_id)
+                except Exception as e:
+                    logger.error("Error pruning story %s: %s", s_id, e)
+    except Exception as e:
+        logger.error("Failed to prune scheduled runs: %s", e)
 
 
 @router.post("/seed-prompt/random")
@@ -463,6 +593,18 @@ def _bg_run_pipeline(
             scheduled_start_at=scheduled_start_at,
             tts_tier=tts_tier,
         )
+        
+        # If this was a fully automated 'scheduled' run, prune the old ones
+        if story_mode == "scheduled" and progress_callback is not None:
+            try:
+                # Load fresh config since it might have changed during the lengthy run
+                from logic import AppSettings
+                from storage import load_scheduler_config
+                config = load_scheduler_config()
+                _bg_prune_scheduled_runs(settings, config.keep_count)
+            except Exception as e:
+                logger.error("Error invoking prune routine: %s", e)
+                
     except Exception:
         # runner already logs and updates progress status to FAILED
         pass

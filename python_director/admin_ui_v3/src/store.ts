@@ -14,6 +14,7 @@ import type {
   BlockType,
   StudioBootstrap,
   Story,
+  SchedulerConfig,
 } from './types'
 
 interface Toast {
@@ -25,6 +26,7 @@ export interface StudioData {
   pipeline: PipelineDefinition
   pipelineCatalog: PipelineCatalogItem[]
   settings: SettingsPayload
+  schedulerConfig: SchedulerConfig
   runSummaries: RunSummary[]
   schemas: string[]
   blockTypes: BlockType[]
@@ -40,6 +42,7 @@ interface StudioState {
   pipeline: PipelineDefinition | null
   pipelineCatalog: PipelineCatalogItem[]
   settings: SettingsPayload | null
+  schedulerConfig: SchedulerConfig | null
   runSummaries: RunSummary[]
   schemas: string[]
   blockTypes: BlockType[]
@@ -112,6 +115,8 @@ interface StudioState {
   updatePipelineMeta: (updates: Partial<PipelineDefinition>) => void
   loadStories: () => Promise<void>
   undeployStory: (storyId: string) => Promise<void>
+  updateSchedulerConfig: (config: SchedulerConfig) => Promise<void>
+  triggerSchedulerRunNow: () => Promise<void>
 }
 
 function progressToSummary(p: RunProgress): RunSummary {
@@ -216,6 +221,7 @@ export const useStore = create<StudioState>((set, get) => {
     pipeline: null,
     pipelineCatalog: [],
     settings: null,
+    schedulerConfig: null,
     runSummaries: [],
     schemas: [],
     blockTypes: [],
@@ -245,6 +251,7 @@ export const useStore = create<StudioState>((set, get) => {
           pipeline: data.pipeline,
           pipelineCatalog: data.pipeline_catalog,
           settings: data.settings,
+          schedulerConfig: data.scheduler_config,
           runSummaries: data.run_summaries,
           schemas: data.schemas,
           blockTypes: data.block_types,
@@ -258,6 +265,7 @@ export const useStore = create<StudioState>((set, get) => {
           pipeline: data.pipeline,
           pipelineCatalog: data.pipeline_catalog,
           settings: data.settings,
+          schedulerConfig: data.scheduler_config,
           runSummaries: data.run_summaries,
           schemas: data.schemas,
           blockTypes: data.block_types,
@@ -577,6 +585,30 @@ export const useStore = create<StudioState>((set, get) => {
         get().showToast('Story undeployed successfully')
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Failed to undeploy story'
+        get().showToast(msg, true)
+      }
+    },
+
+    updateSchedulerConfig: async (config: SchedulerConfig) => {
+      try {
+        const newConfig = await api.updateSchedulerConfig(config)
+        set({ schedulerConfig: newConfig })
+        get().showToast('Scheduler configuration saved')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to update scheduler config'
+        get().showToast(msg, true)
+      }
+    },
+
+    triggerSchedulerRunNow: async () => {
+      get().stopPolling()
+      try {
+        const progress = await api.triggerSchedulerRunNow()
+        set({ activeRunId: progress.run_id, liveRun: progress, pollInterval: 1500 })
+        _startPolling(progress.run_id, 'Manual scheduled run completed', 'Scheduled run failed')
+        get().showToast('Triggered scheduled run manually')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Failed to trigger run'
         get().showToast(msg, true)
       }
     },

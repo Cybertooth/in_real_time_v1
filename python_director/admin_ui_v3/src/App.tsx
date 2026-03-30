@@ -9,6 +9,7 @@ import EditorView from './views/EditorView'
 import RunsView from './views/RunsView'
 import CompareView from './views/CompareView'
 import DeploymentsView from './views/DeploymentsView'
+import ScheduleView from './views/ScheduleView'
 
 export default function App() {
   const loadStudio = useStore(s => s.loadStudio)
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/runs/*" element={<RunsView />} />
             <Route path="/compare" element={<CompareView />} />
             <Route path="/deployments" element={<DeploymentsView />} />
+            <Route path="/schedule" element={<ScheduleView />} />
             <Route path="*" element={<Navigate to="/editor" replace />} />
           </Routes>
         </main>

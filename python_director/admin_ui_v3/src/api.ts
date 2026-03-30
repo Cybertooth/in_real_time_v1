@@ -8,6 +8,7 @@ import type {
   RunResult,
   RunComparison,
   Story,
+  SchedulerConfig,
 } from './types'
 
 export class ApiError extends Error {
@@ -92,6 +93,14 @@ export function deleteNamedPipeline(
 
 export function saveSettings(settings: AppSettings): Promise<SettingsPayload> {
   return request<SettingsPayload>('/api/settings', { method: 'PUT', ...json(settings) })
+}
+
+export function updateSchedulerConfig(config: SchedulerConfig): Promise<SchedulerConfig> {
+  return request<SchedulerConfig>('/api/scheduler', { method: 'PUT', ...json(config) })
+}
+
+export function triggerSchedulerRunNow(): Promise<RunProgress> {
+  return request<RunProgress>('/api/scheduler/run-now', { method: 'POST' })
 }
 
 export function startRun(
