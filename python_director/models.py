@@ -122,6 +122,7 @@ class AppSettings(BaseModel):
     openrouter_api_key: Optional[str] = None
     google_application_credentials: Optional[str] = None
     firebase_storage_bucket: Optional[str] = None
+    scheduler_shared_secret: Optional[str] = None
 
 
 class SettingsStatus(BaseModel):

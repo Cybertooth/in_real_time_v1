@@ -10,14 +10,17 @@ Write-Host "Deploying $SERVICE_NAME to Google Cloud Run in project $PROJECT_ID (
 # Navigate to the python_director directory
 Push-Location "$PSScriptRoot\..\python_director"
 
-$ENV_FILE = ".env"
+$SETTINGS_FILE = "settings.local.json"
 $SCHEDULER_SHARED_SECRET = $null
 
-if (Test-Path $ENV_FILE) {
-    $content = Get-Content $ENV_FILE
-    $secretLine = $content | Where-Object { $_ -match "^SCHEDULER_SHARED_SECRET=(.*)" }
-    if ($secretLine) {
-        $SCHEDULER_SHARED_SECRET = $matches[1].Trim()
+if (Test-Path $SETTINGS_FILE) {
+    try {
+        $settingsJson = Get-Content $SETTINGS_FILE | ConvertFrom-Json
+        if ($settingsJson -and $settingsJson.scheduler_shared_secret) {
+            $SCHEDULER_SHARED_SECRET = $settingsJson.scheduler_shared_secret.Trim()
+        }
+    } catch {
+        Write-Warning "Could not parse $SETTINGS_FILE"
     }
 }
 
@@ -26,8 +29,22 @@ if (-not $SCHEDULER_SHARED_SECRET) {
     $bytes = New-Object byte[] 16
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $SCHEDULER_SHARED_SECRET = -join ($bytes | ForEach-Object { "{0:x2}" -f $_ })
-    Add-Content -Path $ENV_FILE -Value "`nSCHEDULER_SHARED_SECRET=$SCHEDULER_SHARED_SECRET"
-    Write-Host "Saved new secret to .env file." -ForegroundColor Green
+    
+    $settingsData = @{}
+    if (Test-Path $SETTINGS_FILE) {
+        try {
+            $existing = Get-Content $SETTINGS_FILE | ConvertFrom-Json
+            if ($existing) {
+                $existing.PSObject.Properties | ForEach-Object {
+                    $settingsData[$_.Name] = $_.Value
+                }
+            }
+        } catch {}
+    }
+    
+    $settingsData["scheduler_shared_secret"] = $SCHEDULER_SHARED_SECRET
+    $settingsData | ConvertTo-Json -Depth 5 | Set-Content $SETTINGS_FILE
+    Write-Host "Saved new secret to settings.local.json file." -ForegroundColor Green
 }
 
 try {

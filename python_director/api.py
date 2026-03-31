@@ -202,7 +202,8 @@ def _verify_scheduler_tick_auth(request: Request) -> None:
     - X-Scheduler-Secret header
     - Authorization: Bearer <secret>
     """
-    expected = (os.getenv("SCHEDULER_SHARED_SECRET") or "").strip()
+    settings = load_settings()
+    expected = (settings.scheduler_shared_secret or os.getenv("SCHEDULER_SHARED_SECRET") or "").strip()
     if not expected:
         return
 
