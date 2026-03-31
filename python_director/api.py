@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import random
 import threading
-from datetime import datetime
+import hmac
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 
@@ -62,6 +64,7 @@ if __package__:
         load_settings,
         save_named_pipeline,
         save_pipeline,
+        save_run_progress,
         save_run_result,
         save_settings,
         snapshot_pipeline,
@@ -121,6 +124,7 @@ else:
         load_settings,
         save_named_pipeline,
         save_pipeline,
+        save_run_progress,
         save_settings,
         snapshot_pipeline,
         PIPELINE_SNAPSHOT_FILENAME,
@@ -178,6 +182,37 @@ async def health():
 # API Router (all data endpoints under /api/ prefix)
 # ---------------------------------------------------------------------------
 router = APIRouter(prefix="/api")
+
+
+def _resolve_scheduler_pipeline(config: SchedulerConfig) -> PipelineDefinition:
+    template_key = (config.template_key or "").strip()
+    if template_key == "__active__":
+        return load_pipeline()
+    try:
+        return get_pipeline_reset_template(template_key)
+    except Exception:
+        logger.warning("Unknown scheduler template_key=%s. Falling back to active pipeline.", template_key)
+        return load_pipeline()
+
+
+def _verify_scheduler_tick_auth(request: Request) -> None:
+    """
+    Optional auth gate for Cloud Scheduler calls.
+    If SCHEDULER_SHARED_SECRET is set, require it via either:
+    - X-Scheduler-Secret header
+    - Authorization: Bearer <secret>
+    """
+    expected = (os.getenv("SCHEDULER_SHARED_SECRET") or "").strip()
+    if not expected:
+        return
+
+    bearer = request.headers.get("Authorization", "")
+    bearer_token = ""
+    if bearer.lower().startswith("bearer "):
+        bearer_token = bearer[7:].strip()
+    provided = (request.headers.get("X-Scheduler-Secret") or bearer_token or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=401, detail="Invalid scheduler authentication secret.")
 
 
 @router.get("/studio")
@@ -306,8 +341,8 @@ async def trigger_scheduler_run_now(background_tasks: BackgroundTasks):
     new_run_id = f"run_{int(perf_counter() * 1000)}"
     logger.info("Manual scheduler run started %s", new_run_id)
 
-    # Use pipeline default or whatever is currently saved
-    pipeline = load_pipeline()
+    # Resolve scheduler-selected template (or active pipeline).
+    pipeline = _resolve_scheduler_pipeline(config)
 
     initial_progress = RunProgress(
         run_id=new_run_id,
@@ -328,10 +363,6 @@ async def trigger_scheduler_run_now(background_tasks: BackgroundTasks):
     )
     active_runs[new_run_id] = initial_progress
 
-    # Update last_run_at early
-    config.last_run_at = datetime.now(timezone.utc).isoformat()
-    save_scheduler_config(config)
-
     background_tasks.add_task(
         _bg_run_pipeline,
         new_run_id,
@@ -347,13 +378,16 @@ async def trigger_scheduler_run_now(background_tasks: BackgroundTasks):
         "default",
         None,   # scheduled_start_at
         config.tts_tier.value,
+        True,   # auto_deploy
+        "scheduler",
     )
     return initial_progress
 
 
 @router.post("/scheduler/tick")
-async def scheduler_tick(background_tasks: BackgroundTasks):
+async def scheduler_tick(background_tasks: BackgroundTasks, request: Request):
     """Called by Cloud Scheduler or a cron job. Runs the pipeline if the schedule dictates it."""
+    _verify_scheduler_tick_auth(request)
     config = load_scheduler_config()
     if not config.enabled:
         return {"status": "skipped", "reason": "disabled"}
@@ -369,10 +403,11 @@ async def scheduler_tick(background_tasks: BackgroundTasks):
     except Exception:
         pass
 
-    # Check time of day (roughly matches hour, cron might fire slightly off)
-    # If the hour doesn't match, or it's not time yet, skip.
+    # Require an exact UTC HH:MM match.
     if now_utc.hour != target_hour:
         return {"status": "skipped", "reason": f"not target hour ({target_hour})"}
+    if now_utc.minute != target_min:
+        return {"status": "skipped", "reason": f"not target minute ({target_min:02d})"}
 
     if config.last_run_at:
         try:
@@ -387,20 +422,20 @@ async def scheduler_tick(background_tasks: BackgroundTasks):
 
 
 def _bg_prune_scheduled_runs(settings: AppSettings, keep_count: int):
-    """Keeps the latest 'keep_count' scheduled stories, deleting the rest."""
-    logger.info("Pruning scheduled stories, keeping count=%s", keep_count)
+    """Keeps the latest auto-deployed stories, deleting older auto-deployed ones."""
+    logger.info("Pruning auto-deployed stories, keeping count=%s", keep_count)
     try:
         all_stories = list_stories(settings)
-        scheduled_stories = [s for s in all_stories if s.get("storyMode") == "scheduled"]
+        auto_deployed_stories = [s for s in all_stories if bool(s.get("autoDeployed"))]
         
         # list_stories already returns descending by createdAt, so just take from keep_count onwards
-        to_delete = scheduled_stories[keep_count:]
+        to_delete = auto_deployed_stories[max(keep_count, 0):]
         for s in to_delete:
             s_id = s.get("id")
             if s_id:
                 try:
                     delete_story(s_id, settings)
-                    logger.info("Pruned old scheduled story: %s", s_id)
+                    logger.info("Pruned old auto-deployed story: %s", s_id)
                 except Exception as e:
                     logger.error("Error pruning story %s: %s", s_id, e)
     except Exception as e:
@@ -571,6 +606,8 @@ def _bg_run_pipeline(
     story_sub_mode: str = "default",
     scheduled_start_at: datetime | None = None,
     tts_tier: str = "premium",
+    auto_deploy: bool = False,
+    auto_deploy_source: str = "manual",
 ):
     runner = PipelineRunner(settings)
 
@@ -578,7 +615,7 @@ def _bg_run_pipeline(
         active_runs[run_id] = p
 
     try:
-        runner.run_pipeline(
+        result = runner.run_pipeline(
             pipeline,
             run_id=run_id,
             progress_callback=_progress_callback,
@@ -593,21 +630,62 @@ def _bg_run_pipeline(
             scheduled_start_at=scheduled_start_at,
             tts_tier=tts_tier,
         )
-        
-        # If this was a fully automated 'scheduled' run, prune the old ones
-        if story_mode == "scheduled" and progress_callback is not None:
-            try:
-                # Load fresh config since it might have changed during the lengthy run
-                from logic import AppSettings
-                from storage import load_scheduler_config
-                config = load_scheduler_config()
-                _bg_prune_scheduled_runs(settings, config.keep_count)
-            except Exception as e:
-                logger.error("Error invoking prune routine: %s", e)
+
+        if auto_deploy:
+            resolved_mode = (story_mode or "live").strip().lower()
+            resolved_sub_mode = (story_sub_mode or "default").strip().lower()
+            resolved_scheduled_start = scheduled_start_at
+            if resolved_mode == "scheduled" and resolved_scheduled_start is None:
+                resolved_scheduled_start = datetime.now(timezone.utc)
+
+            story_id = upload_to_firestore(
+                result,
+                settings,
+                pipeline,
+                story_mode=resolved_mode,
+                story_sub_mode=resolved_sub_mode,
+                scheduled_start_at=resolved_scheduled_start,
+                tts_tier=tts_tier,
+                auto_deployed=True,
+                auto_deploy_source=auto_deploy_source,
+            )
+            published = make_story_live(story_id, settings)
+            deployment_stage = "uploaded"
+            if published:
+                deployment_stage = "live" if resolved_mode == "live" else "published"
+
+            result.story_id = story_id
+            result.story_mode = resolved_mode
+            result.story_sub_mode = resolved_sub_mode
+            result.scheduled_start_at = resolved_scheduled_start
+            result.tts_tier = tts_tier
+            result.deployment_stage = deployment_stage
+            save_run_result(result, pipeline)
+
+            progress = active_runs.get(run_id)
+            if progress is not None:
+                progress.story_id = story_id
+                progress.story_mode = resolved_mode
+                progress.story_sub_mode = resolved_sub_mode
+                progress.scheduled_start_at = resolved_scheduled_start
+                progress.tts_tier = tts_tier
+                progress.deployment_stage = deployment_stage
+                save_run_progress(progress)
+
+            config = load_scheduler_config()
+            config.last_run_at = datetime.now(timezone.utc).isoformat()
+            save_scheduler_config(config)
+            _bg_prune_scheduled_runs(settings, config.keep_count)
                 
-    except Exception:
-        # runner already logs and updates progress status to FAILED
-        pass
+    except Exception as exc:
+        logger.exception("Background run failed run_id=%s", run_id)
+        if auto_deploy:
+            progress = active_runs.get(run_id)
+            if progress is not None:
+                progress.status = RunStatus.FAILED
+                progress.error_message = f"Auto-deploy failed: {exc}"
+                progress.deployment_stage = "deploy_failed"
+                save_run_progress(progress)
     finally:
         # Schedule cleanup after 60 seconds
         def _cleanup():

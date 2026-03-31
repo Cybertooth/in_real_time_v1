@@ -143,10 +143,40 @@ class SchedulerConfig(BaseModel):
     time_of_day: str = "00:00"  # UTC HH:MM
     last_run_at: Optional[str] = None
     keep_count: int = 5
+    template_key: str = "__active__"
     default_tags: list[str] = Field(default_factory=list)
     default_languages: list[str] = Field(default_factory=list)
     delivery_profile: str = "standard"
     tts_tier: TTSTier = TTSTier.PREMIUM
+
+    @model_validator(mode="after")
+    def _validate_scheduler_settings(self) -> "SchedulerConfig":
+        if self.frequency_days < 1:
+            raise ValueError("frequency_days must be >= 1.")
+        if self.keep_count < 1:
+            raise ValueError("keep_count must be >= 1.")
+
+        parts = self.time_of_day.split(":")
+        if len(parts) != 2:
+            raise ValueError("time_of_day must be in HH:MM format (UTC).")
+        try:
+            hour = int(parts[0])
+            minute = int(parts[1])
+        except ValueError as exc:
+            raise ValueError("time_of_day must be in HH:MM format (UTC).") from exc
+        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+            raise ValueError("time_of_day must be in HH:MM format (UTC).")
+
+        delivery = (self.delivery_profile or "").strip().lower()
+        if delivery not in {"standard", "on_demand"}:
+            raise ValueError("delivery_profile must be one of: standard, on_demand.")
+        self.delivery_profile = delivery
+
+        key = (self.template_key or "").strip()
+        if not key:
+            raise ValueError("template_key must be a non-empty string.")
+        self.template_key = key
+        return self
 
 
 class ArtifactFile(BaseModel):

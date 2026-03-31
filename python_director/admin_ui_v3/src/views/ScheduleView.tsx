@@ -4,6 +4,7 @@ import type { SchedulerConfig } from '../types'
 
 export default function ScheduleView() {
   const schedulerConfig = useStore(s => s.schedulerConfig)
+  const resetTemplates = useStore(s => s.resetTemplates)
   const updateSchedulerConfig = useStore(s => s.updateSchedulerConfig)
   const triggerSchedulerRunNow = useStore(s => s.triggerSchedulerRunNow)
 
@@ -41,7 +42,7 @@ export default function ScheduleView() {
         <h1 className="text-2xl font-bold tracking-tight mb-2">Automated Deployment Schedule</h1>
         <p className="text-text-dim">
           Configure when the system should automatically generate and deploy a new story.
-          This relies on Google Cloud Scheduler triggering the /tick endpoint periodically.
+          This relies on Google Cloud Scheduler triggering the `/api/scheduler/tick` endpoint periodically.
         </p>
       </div>
 
@@ -63,6 +64,21 @@ export default function ScheduleView() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold text-text-dim">Pipeline Template</label>
+            <select
+              value={form.template_key}
+              onChange={(e) => handleChange('template_key', e.target.value)}
+              className="bg-[rgba(0,0,0,0.2)] border border-border rounded-lg px-3 py-2 text-sm focus:border-mint focus:outline-none transition-colors"
+            >
+              <option value="__active__">Use Active Pipeline</option>
+              {resetTemplates.map((template) => (
+                <option key={template.key} value={template.key}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="flex flex-col gap-2">
             <label className="text-sm font-semibold text-text-dim">Frequency (Days)</label>
             <input
@@ -96,9 +112,9 @@ export default function ScheduleView() {
               onChange={(e) => handleChange('keep_count', parseInt(e.target.value) || 5)}
               className="bg-[rgba(0,0,0,0.2)] border border-border rounded-lg px-3 py-1 w-20 text-sm focus:border-mint focus:outline-none transition-colors text-center"
             />
-            <span className="text-sm">scheduled stories online.</span>
+            <span className="text-sm">auto-deployed stories online.</span>
           </div>
-          <p className="text-xs text-text-dim mt-1">Older scheduled stories and their assets will be permanently deleted automatically.</p>
+          <p className="text-xs text-text-dim mt-1">Older auto-deployed stories and their assets will be permanently deleted automatically.</p>
         </div>
       </div>
 

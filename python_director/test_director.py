@@ -24,9 +24,11 @@ from python_director.models import (
     PipelineBlock,
     PipelineDefinition,
     ProviderType,
+    RunProgress,
     RunResult,
     StoryMode,
     StorySubMode,
+    SchedulerConfig,
     TTSTier,
     UploadRunRequest,
 )
@@ -762,3 +764,161 @@ def test_upload_endpoint_returns_503_for_google_dns_failure(monkeypatch):
 
     assert resp.status_code == 503, resp.text
     assert "oauth2.googleapis.com" in resp.text
+
+
+def test_scheduler_tick_respects_target_minute(monkeypatch):
+    from python_director import api as api_module
+
+    class _FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 3, 30, 9, 15, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(api_module, "_verify_scheduler_tick_auth", lambda _request: None)
+    monkeypatch.setattr(
+        api_module,
+        "load_scheduler_config",
+        lambda: SchedulerConfig(enabled=True, frequency_days=1, time_of_day="09:30"),
+    )
+    monkeypatch.setattr(api_module, "datetime", _FixedDateTime)
+
+    with TestClient(api_module.app) as client:
+        resp = client.post("/api/scheduler/tick")
+
+    assert resp.status_code == 200, resp.text
+    payload = resp.json()
+    assert payload["status"] == "skipped"
+    assert "target minute" in payload["reason"]
+
+
+def test_prune_keeps_only_latest_auto_deployed(monkeypatch):
+    from python_director import api as api_module
+
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        api_module,
+        "list_stories",
+        lambda _settings: [
+            {"id": "story_new_auto", "autoDeployed": True},
+            {"id": "story_manual", "autoDeployed": False},
+            {"id": "story_mid_auto", "autoDeployed": True},
+            {"id": "story_old_auto", "autoDeployed": True},
+        ],
+    )
+    monkeypatch.setattr(
+        api_module,
+        "delete_story",
+        lambda story_id, _settings: deleted.append(story_id) or True,
+    )
+
+    api_module._bg_prune_scheduled_runs(AppSettings(), keep_count=2)
+    assert deleted == ["story_old_auto"]
+
+
+def test_scheduler_run_now_uses_template_and_enables_auto_deploy(monkeypatch):
+    from python_director import api as api_module
+
+    api_module.active_runs.clear()
+    captured: dict[str, object] = {}
+
+    scheduler_cfg = SchedulerConfig(
+        enabled=True,
+        frequency_days=1,
+        time_of_day="10:00",
+        template_key="cheap_short",
+        default_tags=["daily"],
+        default_languages=["en"],
+    )
+    monkeypatch.setattr(api_module, "load_scheduler_config", lambda: scheduler_cfg)
+    monkeypatch.setattr(api_module, "load_settings", lambda: AppSettings(gemini_api_key="x"))
+    monkeypatch.setattr(
+        api_module,
+        "get_pipeline_reset_template",
+        lambda key: PipelineDefinition(name=f"template::{key}", blocks=[]),
+    )
+
+    def _fake_bg(*args):
+        # args: ... tts_tier, auto_deploy, auto_deploy_source
+        captured["pipeline_name"] = args[1].name
+        captured["auto_deploy"] = args[-2]
+        captured["auto_deploy_source"] = args[-1]
+
+    monkeypatch.setattr(api_module, "_bg_run_pipeline", _fake_bg)
+
+    with TestClient(api_module.app) as client:
+        resp = client.post("/api/scheduler/run-now")
+
+    assert resp.status_code == 200, resp.text
+    assert captured["pipeline_name"] == "template::cheap_short"
+    assert captured["auto_deploy"] is True
+    assert captured["auto_deploy_source"] == "scheduler"
+
+
+def test_bg_run_pipeline_auto_deploy_updates_story_and_scheduler(monkeypatch):
+    from python_director import api as api_module
+
+    class _FakeRunner:
+        def __init__(self, _settings):
+            pass
+
+        def run_pipeline(self, _pipeline, run_id, **_kwargs):
+            return RunResult(
+                run_id=run_id,
+                timestamp="2026-03-30T00:00:00Z",
+                pipeline_name="p",
+                status="succeeded",
+                final_output={"story_title": "Auto Story"},
+            )
+
+    cfg = SchedulerConfig(enabled=True, frequency_days=1, time_of_day="10:00", keep_count=3)
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(api_module, "PipelineRunner", _FakeRunner)
+    monkeypatch.setattr(
+        api_module,
+        "upload_to_firestore",
+        lambda *_args, **kwargs: captured.update({"upload_kwargs": kwargs}) or "story_auto_1",
+    )
+    monkeypatch.setattr(api_module, "make_story_live", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        api_module,
+        "save_run_result",
+        lambda result, _pipeline: captured.update({"deployment_stage": result.deployment_stage, "story_id": result.story_id}),
+    )
+    monkeypatch.setattr(api_module, "save_run_progress", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(api_module, "load_scheduler_config", lambda: cfg)
+    monkeypatch.setattr(
+        api_module,
+        "save_scheduler_config",
+        lambda config: captured.update({"last_run_at": config.last_run_at}) or config,
+    )
+    monkeypatch.setattr(
+        api_module,
+        "_bg_prune_scheduled_runs",
+        lambda _settings, keep_count: captured.update({"prune_keep_count": keep_count}),
+    )
+
+    run_id = "run_auto_1"
+    api_module.active_runs[run_id] = RunProgress(
+        run_id=run_id,
+        timestamp="2026-03-30T00:00:00Z",
+        pipeline_name="p",
+        status="running",
+        block_count=0,
+    )
+    api_module._bg_run_pipeline(
+        run_id=run_id,
+        pipeline=PipelineDefinition(name="p", blocks=[]),
+        settings=AppSettings(),
+        story_mode="scheduled",
+        tts_tier="premium",
+        auto_deploy=True,
+        auto_deploy_source="scheduler",
+    )
+
+    assert captured["story_id"] == "story_auto_1"
+    assert captured["deployment_stage"] == "published"
+    assert captured["prune_keep_count"] == 3
+    assert captured["last_run_at"] is not None
+    assert captured["upload_kwargs"]["auto_deployed"] is True
+    assert captured["upload_kwargs"]["auto_deploy_source"] == "scheduler"

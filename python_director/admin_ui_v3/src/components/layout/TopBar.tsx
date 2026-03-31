@@ -63,7 +63,7 @@ export default function TopBar() {
             Deployments
           </NavLink>
           <NavLink to="/schedule" className={navLinkClass}>
-            Schedule
+            Auto Deploy
           </NavLink>
         </nav>
 

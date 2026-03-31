@@ -2153,6 +2153,8 @@ def list_stories(settings: AppSettings):
         data.setdefault("storyDurationMinutes", 0)
         data.setdefault("title", "Untitled Story")
         data.setdefault("isPublished", True)
+        data.setdefault("autoDeployed", False)
+        data.setdefault("autoDeploySource", None)
         
         # Convert datetime objects to ISO strings for JSON serialization
         for key in ["createdAt", "storyStartAt", "storyEndAt", "publishedAt"]:
@@ -2272,6 +2274,8 @@ def upload_to_firestore(
     story_sub_mode: str = "default",
     scheduled_start_at: datetime | None = None,
     tts_tier: str = "premium",
+    auto_deployed: bool = False,
+    auto_deploy_source: str | None = None,
 ):
     story_data = result.final_output
     if not isinstance(story_data, dict):
@@ -2362,6 +2366,9 @@ def upload_to_firestore(
             "onDemandConfig": on_demand_config,
             "isPublished": False,
             "publishedAt": None,
+            "autoDeployed": bool(auto_deployed),
+            "autoDeploySource": (auto_deploy_source or "").strip() or None,
+            "autoDeployedAt": created_at if auto_deployed else None,
         }
     )
 

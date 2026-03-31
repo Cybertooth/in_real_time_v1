@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "frequency_days": 1,
+  "time_of_day": "00:00",
+  "last_run_at": null,
+  "keep_count": 10,
+  "template_key": "__active__",
+  "default_tags": [
+    "thriller",
+    "crime",
+    "drama",
+    "humour",
+    "conflict",
+    "dialogue",
+    "action"
+  ],
+  "default_languages": [
+    "en",
+    "hi",
+    "bn"
+  ],
+  "delivery_profile": "on_demand",
+  "tts_tier": "premium"
+}

@@ -69,6 +69,7 @@ export interface SchedulerConfig {
   time_of_day: string
   last_run_at: string | null
   keep_count: number
+  template_key: string
   default_tags: string[]
   default_languages: string[]
   delivery_profile: string
