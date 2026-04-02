@@ -83,6 +83,21 @@ export default function DeploymentsView() {
                   <p className="text-xs text-text-dim font-mono">{story.id}</p>
                 </div>
 
+                {/* Packaging info */}
+                {story.hookLine && (
+                  <p className="text-xs text-text italic leading-relaxed">&ldquo;{story.hookLine}&rdquo;</p>
+                )}
+                {story.promiseLine && (
+                  <p className="text-[11px] text-text-dim leading-relaxed">{story.promiseLine}</p>
+                )}
+                {story.toneTags && story.toneTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {story.toneTags.map((tag) => (
+                      <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-mint/10 text-mint/70">{tag}</span>
+                    ))}
+                  </div>
+                )}
+
                 <div className="flex flex-col gap-1 text-xs text-text-dim mt-auto">
                   <div className="flex justify-between items-center">
                     <span>Deployed</span>

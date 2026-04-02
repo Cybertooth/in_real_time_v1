@@ -284,6 +284,20 @@ export interface StudioBootstrap {
   provider_models: Record<string, string[]>
 }
 
+export interface HeroArtifactPreview {
+  title: string
+  body: string
+}
+
+export interface StoryPackaging {
+  hook_line: string
+  promise_line: string
+  hero_artifact_type: string
+  hero_artifact_preview: HeroArtifactPreview | null
+  tone_tags: string[]
+  audience_hook_type: string
+}
+
 export interface Story {
   id: string
   title: string
@@ -294,4 +308,10 @@ export interface Story {
   storyDurationMinutes: number
   isPublished?: boolean
   publishedAt?: string | null
+  hookLine?: string | null
+  promiseLine?: string | null
+  toneTags?: string[]
+  audienceHookType?: string | null
+  heroArtifactType?: string | null
+  heroArtifactPreview?: HeroArtifactPreview | null
 }

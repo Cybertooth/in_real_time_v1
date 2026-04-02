@@ -9,6 +9,7 @@ import type {
   RunComparison,
   Story,
   SchedulerConfig,
+  StoryPackaging,
 } from './types'
 
 export class ApiError extends Error {
@@ -174,6 +175,7 @@ export function uploadRun(
     story_sub_mode?: 'default' | 'on_demand'
     scheduled_start_at?: string | null
     tts_tier: 'premium' | 'cheap'
+    packaging?: StoryPackaging | null
   },
 ): Promise<{ status: string; story_id: string; deployment_stage: string }> {
   const init: RequestInit = { method: 'POST' }
@@ -184,6 +186,7 @@ export function uploadRun(
       tts_tier: payload.tts_tier,
     }
     if (payload.scheduled_start_at) body.scheduled_start_at = payload.scheduled_start_at
+    if (payload.packaging) body.packaging = payload.packaging
     Object.assign(init, json(body))
   }
   return request<{ status: string; story_id: string; deployment_stage: string }>(
@@ -291,4 +294,21 @@ export function cleanupStories(): Promise<{
   failed_ids: string[]
 }> {
   return request('/api/stories/cleanup', { method: 'POST' })
+}
+
+export function getPackaging(runId: string): Promise<StoryPackaging> {
+  return request<StoryPackaging>(`/api/runs/${encodeURIComponent(runId)}/packaging`)
+}
+
+export function generatePackaging(runId: string): Promise<StoryPackaging> {
+  return request<StoryPackaging>(`/api/runs/${encodeURIComponent(runId)}/packaging/generate`, {
+    method: 'POST',
+  })
+}
+
+export function updatePackaging(runId: string, packaging: StoryPackaging): Promise<StoryPackaging> {
+  return request<StoryPackaging>(`/api/runs/${encodeURIComponent(runId)}/packaging`, {
+    method: 'PUT',
+    ...json(packaging),
+  })
 }

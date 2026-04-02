@@ -21,6 +21,7 @@ if __package__:
         upload_to_firestore,
         derive_story_timeline,
         generate_image_with_fallback,
+        generate_story_packaging,
         list_stories,
         delete_story,
         cleanup_all_stories,
@@ -47,6 +48,7 @@ if __package__:
         RunStatus,
         RegenerateImageRequest,
         SchedulerConfig,
+        StoryPackaging,
     )
     from .providers import get_provider
     from .storage import (
@@ -80,6 +82,7 @@ else:
         upload_to_firestore,
         derive_story_timeline,
         generate_image_with_fallback,
+        generate_story_packaging,
         list_stories,
         delete_story,
         cleanup_all_stories,
@@ -106,6 +109,7 @@ else:
         RunStatus,
         RegenerateImageRequest,
         SchedulerConfig,
+        StoryPackaging,
     )
     from providers import get_provider
     from storage import (
@@ -1079,6 +1083,7 @@ async def upload_run(run_id: str, request: UploadRunRequest | None = None):
             story_sub_mode=resolved_request.story_sub_mode.value,
             scheduled_start_at=resolved_request.scheduled_start_at,
             tts_tier=resolved_request.tts_tier.value,
+            packaging=resolved_request.packaging,
         )
         if not story_id:
             raise RuntimeError("Upload did not return a story id.")
@@ -1110,6 +1115,64 @@ async def upload_run(run_id: str, request: UploadRunRequest | None = None):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {"status": "ok", "story_id": story_id, "deployment_stage": run_result.deployment_stage}
+
+
+@router.post("/runs/{run_id}/packaging/generate")
+async def generate_packaging(run_id: str):
+    """Generate story packaging metadata for a completed run."""
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not isinstance(run_result.final_output, dict):
+        raise HTTPException(status_code=400, detail="Run has no structured final artifact.")
+
+    settings = load_settings()
+    snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+    if snapshot_path.exists():
+        pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+    else:
+        pipeline = load_pipeline()
+
+    packaging = generate_story_packaging(run_result, settings, pipeline)
+    # Persist on the run result
+    run_result.packaging = packaging
+    save_run_result(run_result, pipeline)
+    return packaging.model_dump()
+
+
+@router.put("/runs/{run_id}/packaging")
+async def update_packaging(run_id: str, packaging: StoryPackaging):
+    """Update/edit story packaging metadata for a run."""
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    run_result.packaging = packaging
+    snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+    if snapshot_path.exists():
+        pipeline = PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+    else:
+        pipeline = load_pipeline()
+    save_run_result(run_result, pipeline)
+    return packaging.model_dump()
+
+
+@router.get("/runs/{run_id}/packaging")
+async def get_packaging(run_id: str):
+    """Get current packaging metadata for a run."""
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    packaging = run_result.packaging
+    if packaging is None:
+        return StoryPackaging().model_dump()
+    return packaging.model_dump()
+
 
 @router.post("/runs/{run_id}/regenerate-image")
 async def regenerate_image(run_id: str, req: RegenerateImageRequest):

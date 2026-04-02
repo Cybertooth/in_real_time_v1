@@ -257,6 +257,7 @@ class RunSummary(BaseModel):
     story_sub_mode: StorySubMode = StorySubMode.DEFAULT
     scheduled_start_at: Optional[datetime] = None
     tts_tier: TTSTier = TTSTier.PREMIUM
+    packaging: Optional[StoryPackaging] = None
 
 
 class RunResult(RunSummary):
@@ -329,11 +330,36 @@ class RunPipelineRequest(BaseModel):
         return self
 
 
+class HeroArtifactPreview(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+class StoryPackaging(BaseModel):
+    hook_line: str = ""
+    promise_line: str = ""
+    hero_artifact_type: str = ""
+    hero_artifact_preview: Optional[HeroArtifactPreview] = None
+    tone_tags: list[str] = Field(default_factory=list)
+    audience_hook_type: str = ""
+
+    @model_validator(mode="after")
+    def _validate_packaging(self) -> "StoryPackaging":
+        if self.hook_line and len(self.hook_line) > 140:
+            self.hook_line = self.hook_line[:140]
+        if self.promise_line and len(self.promise_line) > 140:
+            self.promise_line = self.promise_line[:140]
+        if len(self.tone_tags) > 4:
+            self.tone_tags = self.tone_tags[:4]
+        return self
+
+
 class UploadRunRequest(BaseModel):
     story_mode: StoryMode = StoryMode.LIVE
     story_sub_mode: StorySubMode = StorySubMode.DEFAULT
     scheduled_start_at: Optional[datetime] = None
     tts_tier: TTSTier = TTSTier.PREMIUM
+    packaging: Optional[StoryPackaging] = None
 
     @model_validator(mode="after")
     def _validate_schedule_requirements(self) -> "UploadRunRequest":
@@ -704,4 +730,5 @@ __all__ = [
     "SocialPost", "PhoneCallLine", "PhoneCall", "GroupChatMessage", "GroupChatThread",
     "GalleryPhoto", "CharacterVisual", "LocationVisual", "PlannedShot", "VisualBible",
     "ArtifactImagePatch", "StoryGeneratedImagePatch",
+    "HeroArtifactPreview", "StoryPackaging",
 ]

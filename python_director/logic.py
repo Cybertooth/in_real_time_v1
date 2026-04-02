@@ -33,6 +33,9 @@ if __package__:
         RunTimelineEntry,
         SCHEMA_MAP,
         StoryGeneratedImagePatch,
+        StoryPackaging,
+        HeroArtifactPreview,
+        BlockConfig,
     )
     from .providers import get_provider
     from .storage import (
@@ -64,6 +67,9 @@ else:
         RunTimelineEntry,
         SCHEMA_MAP,
         StoryGeneratedImagePatch,
+        StoryPackaging,
+        HeroArtifactPreview,
+        BlockConfig,
     )
     from providers import get_provider
     from storage import (
@@ -2265,6 +2271,138 @@ def make_story_live(story_id: str, settings: AppSettings) -> bool:
     logger.info("Published story story_id=%s", story_id)
     return True
 
+def generate_story_packaging(
+    result: RunResult,
+    settings: AppSettings,
+    pipeline: PipelineDefinition,
+) -> StoryPackaging:
+    """Generate story packaging metadata from a completed run using a cheap LLM pass."""
+    story_data = result.final_output
+    if not isinstance(story_data, dict):
+        logger.warning("Cannot generate packaging: final_output is not a dict")
+        return StoryPackaging()
+
+    title = story_data.get("story_title", "Untitled")
+    setup = result.setup or ""
+    characters = [
+        f"{c.name}: {c.background}" for c in (result.characters or [])
+    ]
+
+    # Gather artifact samples for context
+    chats = story_data.get("chats", [])
+    journals = story_data.get("journals", [])
+    emails = story_data.get("emails", [])
+    voice_notes = story_data.get("voice_notes", [])
+    social_posts = story_data.get("social_posts", [])
+
+    artifact_samples = []
+    for chat in chats[:3]:
+        text = chat.get("text", "") if isinstance(chat, dict) else ""
+        if text:
+            artifact_samples.append(f"[chat] {text[:120]}")
+    for j in journals[:2]:
+        body = j.get("body", "") if isinstance(j, dict) else ""
+        if body:
+            artifact_samples.append(f"[journal] {body[:120]}")
+    for e in emails[:2]:
+        subj = e.get("subject", "") if isinstance(e, dict) else ""
+        if subj:
+            artifact_samples.append(f"[email] {subj}")
+    for vn in voice_notes[:1]:
+        t = vn.get("transcript", "") if isinstance(vn, dict) else ""
+        if t:
+            artifact_samples.append(f"[voice_note] {t[:120]}")
+    for sp in social_posts[:1]:
+        c = sp.get("content", "") if isinstance(sp, dict) else ""
+        if c:
+            artifact_samples.append(f"[social_post] {c[:120]}")
+
+    # Determine hero artifact type
+    artifact_type_counts = {
+        "chat": len(chats),
+        "journal": len(journals),
+        "email": len(emails),
+        "voice_note": len(voice_notes),
+        "social_post": len(social_posts),
+    }
+    hero_type = max(artifact_type_counts, key=artifact_type_counts.get) if any(artifact_type_counts.values()) else "chat"
+
+    prompt = f"""You are a story marketing copywriter for a real-time epistolary thriller app.
+
+Given this story, generate compelling packaging to hook new readers.
+
+STORY TITLE: {title}
+SETUP: {setup}
+CHARACTERS: {', '.join(characters[:4]) if characters else 'Unknown'}
+SAMPLE ARTIFACTS:
+{chr(10).join(artifact_samples[:8])}
+
+Generate a JSON object with these fields:
+- "hook_line": One sentence (max 140 chars) that makes someone NEED to know what happens. Be specific, not generic. Avoid vague genre cliches like "A thrilling mystery unfolds..." or "A suspenseful tale of secrets...".
+- "promise_line": One sentence (max 140 chars) describing what the reader will experience/discover. Use "you" to address the reader directly.
+- "tone_tags": Array of 2-4 single-word mood tags (e.g. "obsessive", "romantic", "dangerous", "paranoid").
+- "audience_hook_type": A hyphenated genre-mood label (e.g. "twisted-romance", "paranoid-thriller", "family-secrets").
+- "hero_artifact_title": A short title for the most compelling artifact preview.
+- "hero_artifact_body": One punchy line from or about the most compelling artifact (max 80 chars).
+
+Return ONLY valid JSON, no markdown fences."""
+
+    api_keys = {
+        "GEMINI": settings.gemini_api_key,
+        "OPENAI": settings.openai_api_key,
+        "ANTHROPIC": settings.anthropic_api_key,
+        "OPENROUTER": settings.openrouter_api_key,
+    }
+
+    # Use the cheapest available provider
+    provider_type = ProviderType.GEMINI
+    default_model = pipeline.default_models.get(ProviderType.GEMINI.value, "gemini-2.5-flash")
+    if not api_keys.get("GEMINI"):
+        provider_type = ProviderType.OPENAI
+        default_model = pipeline.default_models.get(ProviderType.OPENAI.value, "gpt-5.4-mini")
+
+    try:
+        provider = get_provider(provider_type, api_keys)
+        config = BlockConfig(
+            provider=provider_type,
+            model_name=default_model,
+            temperature=0.8,
+            system_instruction="You are a story marketing copywriter. Return only valid JSON.",
+            prompt_template="{input}",
+        )
+        raw = provider.generate_content(config, prompt)
+        # Parse the JSON response
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        data = json.loads(cleaned)
+
+        hero_preview = None
+        if data.get("hero_artifact_title") or data.get("hero_artifact_body"):
+            hero_preview = HeroArtifactPreview(
+                title=data.get("hero_artifact_title", ""),
+                body=data.get("hero_artifact_body", ""),
+            )
+
+        return StoryPackaging(
+            hook_line=data.get("hook_line", "")[:140],
+            promise_line=data.get("promise_line", "")[:140],
+            hero_artifact_type=hero_type,
+            hero_artifact_preview=hero_preview,
+            tone_tags=data.get("tone_tags", [])[:4],
+            audience_hook_type=data.get("audience_hook_type", ""),
+        )
+    except Exception as exc:
+        logger.error("Packaging generation failed: %s", exc)
+        return StoryPackaging(
+            hook_line=f"{title[:100]} — a story told through the artifacts left behind.",
+            promise_line="Piece together the truth from messages, journals, and receipts.",
+            hero_artifact_type=hero_type,
+            tone_tags=["suspense"],
+            audience_hook_type="found-phone-thriller",
+        )
+
+
 def upload_to_firestore(
     result: RunResult,
     settings: AppSettings,
@@ -2276,6 +2414,7 @@ def upload_to_firestore(
     tts_tier: str = "premium",
     auto_deployed: bool = False,
     auto_deploy_source: str | None = None,
+    packaging: StoryPackaging | None = None,
 ):
     story_data = result.final_output
     if not isinstance(story_data, dict):
@@ -2346,6 +2485,30 @@ def upload_to_firestore(
         except Exception as e:
             logger.error("Headline image upload failed: %s", e)
 
+    # Generate packaging if not provided; use existing from run result as fallback
+    if packaging is None:
+        packaging = getattr(result, "packaging", None)
+    if packaging is None or not packaging.hook_line:
+        try:
+            packaging = generate_story_packaging(result, settings, pipeline)
+        except Exception as exc:
+            logger.error("Auto-packaging generation failed during upload: %s", exc)
+            packaging = StoryPackaging()
+
+    packaging_doc = {}
+    if packaging and packaging.hook_line:
+        packaging_doc = {
+            "hookLine": packaging.hook_line,
+            "promiseLine": packaging.promise_line,
+            "heroArtifactType": packaging.hero_artifact_type,
+            "heroArtifactPreview": (
+                {"title": packaging.hero_artifact_preview.title, "body": packaging.hero_artifact_preview.body}
+                if packaging.hero_artifact_preview else None
+            ),
+            "toneTags": packaging.tone_tags,
+            "audienceHookType": packaging.audience_hook_type,
+        }
+
     story_ref.set(
         {
             "title": story_data.get("story_title", "Untitled"),
@@ -2369,6 +2532,7 @@ def upload_to_firestore(
             "autoDeployed": bool(auto_deployed),
             "autoDeploySource": (auto_deploy_source or "").strip() or None,
             "autoDeployedAt": created_at if auto_deployed else None,
+            **packaging_doc,
         }
     )
 
