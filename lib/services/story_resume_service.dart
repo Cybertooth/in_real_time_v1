@@ -58,7 +58,7 @@ class StoryResumeService {
   /// Gets when the catch-up capsule was last shown.
   Future<DateTime?> getLastCatchUpSeenAt(String storyId) async {
     final prefs = await SharedPreferences.getInstance();
-    final isoString = prefs.getString('$_lastSeenAtPrefix$storyId');
+    final isoString = prefs.getString('$_lastCatchUpSeenAtPrefix$storyId');
     if (isoString == null) return null;
     return DateTime.tryParse(isoString);
   }

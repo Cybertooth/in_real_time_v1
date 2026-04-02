@@ -8,6 +8,7 @@ class OnboardingBingeService {
   static const _bingeCompletedPrefix = 'story_binge_completed_';
   static const _bingeLastSeenItemPrefix = 'story_binge_last_seen_';
   static const _bingeProgressPrefix = 'story_binge_progress_';
+  static const _bingeSeenItemsPrefix = 'story_binge_seen_items_';
 
   static const int defaultBingeArtifactCount = 12;
 
@@ -31,7 +32,9 @@ class OnboardingBingeService {
   Future<void> startBinge(String storyId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('$_bingeStartedPrefix$storyId', true);
+    await prefs.remove('$_bingeCompletedPrefix$storyId');
     await prefs.setInt('$_bingeProgressPrefix$storyId', 0);
+    await prefs.setStringList('$_bingeSeenItemsPrefix$storyId', <String>[]);
   }
 
   /// Marks a binge as completed for a story.
@@ -53,7 +56,31 @@ class OnboardingBingeService {
   /// Gets the current binge progress (number of items viewed).
   Future<int> getBingeProgress(String storyId) async {
     final prefs = await SharedPreferences.getInstance();
+    final seenItems = prefs.getStringList('$_bingeSeenItemsPrefix$storyId');
+    if (seenItems != null) {
+      return seenItems.length;
+    }
     return prefs.getInt('$_bingeProgressPrefix$storyId') ?? 0;
+  }
+
+  /// Records a newly viewed binge item and returns true only when
+  /// the item had not already been counted.
+  Future<bool> recordViewedItem(String storyId, String itemId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_bingeSeenItemsPrefix$storyId';
+    final seenItems = List<String>.from(prefs.getStringList(key) ?? const []);
+    if (seenItems.contains(itemId)) {
+      return false;
+    }
+
+    seenItems.add(itemId);
+    await prefs.setStringList(key, seenItems);
+    await prefs.setInt('$_bingeProgressPrefix$storyId', seenItems.length);
+    await prefs.setString(
+      '$_bingeLastSeenItemPrefix$storyId',
+      DateTime.now().toIso8601String(),
+    );
+    return true;
   }
 
   /// Checks if the user has reached the binge boundary.
@@ -80,6 +107,7 @@ class OnboardingBingeService {
     await prefs.remove('$_bingeCompletedPrefix$storyId');
     await prefs.remove('$_bingeLastSeenItemPrefix$storyId');
     await prefs.remove('$_bingeProgressPrefix$storyId');
+    await prefs.remove('$_bingeSeenItemsPrefix$storyId');
   }
 
   /// Checks if an item should be unlocked during binge mode.

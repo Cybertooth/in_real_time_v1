@@ -100,7 +100,7 @@ export default function RunDetail() {
       setLoading(false)
       if (liveRun.status === 'succeeded' && runId) {
         api.getRun(runId).then((full) => {
-          setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunDetailData))
+          setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Partial<RunDetailData>) } as RunDetailData))
         }).catch(() => {
           // no-op; status fallback still works
         })
@@ -126,6 +126,7 @@ export default function RunDetail() {
 
   const isActive = runData.status === 'running' || runData.status === 'queued'
   const isFinished = runData.status === 'succeeded' || runData.status === 'failed'
+  const runDataRecord = runData as unknown as Record<string, unknown>
 
   const statusVariant = () => {
     switch (runData.status) {
@@ -150,9 +151,9 @@ export default function RunDetail() {
     setUploading(true)
     try {
       const result = await api.uploadRun(runId, currentPackaging ? {
-        story_mode: (runData as Record<string, unknown>).story_mode as 'live' | 'scheduled' | 'subscription' ?? 'live',
-        story_sub_mode: (runData as Record<string, unknown>).story_sub_mode as 'default' | 'on_demand' ?? 'default',
-        tts_tier: (runData as Record<string, unknown>).tts_tier as 'premium' | 'cheap' ?? 'premium',
+        story_mode: (runDataRecord.story_mode as 'live' | 'scheduled' | 'subscription' | undefined) ?? 'live',
+        story_sub_mode: (runDataRecord.story_sub_mode as 'default' | 'on_demand' | undefined) ?? 'default',
+        tts_tier: (runDataRecord.tts_tier as 'premium' | 'cheap' | undefined) ?? 'premium',
         packaging: currentPackaging,
       } : undefined)
       if (!result.story_id) {
@@ -224,7 +225,7 @@ export default function RunDetail() {
       if (!progress) {
         return
       }
-      setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Record<string, unknown>) } as RunDetailData : null))
+      setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Partial<RunDetailData>) } as RunDetailData : null))
       showToast('Stage approved. Continuing pipeline...')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to advance stage'
@@ -250,27 +251,27 @@ export default function RunDetail() {
   }
 
   // Seed/tags from the stored run progress (present if set when run was created)
-  const storedSeed = (runData as unknown as Record<string, unknown>).seed_prompt as string | null | undefined
-  const storedTags = (runData as unknown as Record<string, unknown>).tags as string[] | undefined
-  const storedAllowedLanguages = (runData as unknown as Record<string, unknown>).allowed_languages as string[] | undefined
-  const storedStoryMode = ((runData as unknown as Record<string, unknown>).story_mode as 'live' | 'scheduled' | 'subscription' | undefined) ?? 'live'
-  const storedStorySubMode = ((runData as unknown as Record<string, unknown>).story_sub_mode as 'default' | 'on_demand' | undefined) ?? 'default'
-  const storedScheduledStartAt = (runData as unknown as Record<string, unknown>).scheduled_start_at as string | null | undefined
-  const storedTtsTier = ((runData as unknown as Record<string, unknown>).tts_tier as 'premium' | 'cheap' | undefined) ?? 'premium'
+  const storedSeed = runDataRecord.seed_prompt as string | null | undefined
+  const storedTags = runDataRecord.tags as string[] | undefined
+  const storedAllowedLanguages = runDataRecord.allowed_languages as string[] | undefined
+  const storedStoryMode = (runDataRecord.story_mode as 'live' | 'scheduled' | 'subscription' | undefined) ?? 'live'
+  const storedStorySubMode = (runDataRecord.story_sub_mode as 'default' | 'on_demand' | undefined) ?? 'default'
+  const storedScheduledStartAt = runDataRecord.scheduled_start_at as string | null | undefined
+  const storedTtsTier = (runDataRecord.tts_tier as 'premium' | 'cheap' | undefined) ?? 'premium'
   const runTitle = runData.final_title || runData.pipeline_name || 'Untitled Story'
-  const runStage = (runData as unknown as Record<string, unknown>).dry_run_stage as number | undefined
-  const runStageName = (runData as unknown as Record<string, unknown>).dry_run_stage_name as string | undefined
-  const awaitingStageApproval = Boolean((runData as unknown as Record<string, unknown>).awaiting_stage_approval)
-  const deploymentStage = ((runData as unknown as Record<string, unknown>).deployment_stage as string | undefined) ?? 'dry_run'
+  const runStage = runDataRecord.dry_run_stage as number | undefined
+  const runStageName = runDataRecord.dry_run_stage_name as string | undefined
+  const awaitingStageApproval = Boolean(runDataRecord.awaiting_stage_approval)
+  const deploymentStage = (runDataRecord.deployment_stage as string | undefined) ?? 'dry_run'
   const canUpload = runData.status === 'succeeded' && (runStage ?? 3) >= 3
-  const canEvaluate = runData.status === 'succeeded' && typeof (runData as Record<string, unknown>).final_output === 'object'
+  const canEvaluate = runData.status === 'succeeded' && !!runData.final_output && typeof runData.final_output === 'object'
   const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
   const scheduleLabel =
     storedStoryMode === 'scheduled' && storedScheduledStartAt
       ? formatTime(storedScheduledStartAt)
       : 'N/A'
-  const hookReport = (runData as Record<string, unknown>).hook_simulation as HookSimulationReport | null | undefined
-  const qaReport = (runData as Record<string, unknown>).qa_report as StoryQAReport | null | undefined
+  const hookReport = runDataRecord.hook_simulation as HookSimulationReport | null | undefined
+  const qaReport = runDataRecord.qa_report as StoryQAReport | null | undefined
   const handleReviewUpdate = (patch: Partial<RunDetailData>) => {
     setRunData((prev) => (prev ? { ...prev, ...patch } : prev))
   }
@@ -390,8 +391,6 @@ export default function RunDetail() {
           <NavLink to={`/runs/${runId}/images`} className={navLinkClass}>Images</NavLink>
           {isFinished && <NavLink to={`/runs/${runId}/packaging`} className={navLinkClass}>Packaging</NavLink>}
           <NavLink to={`/runs/${runId}/review`} className={navLinkClass}>Review</NavLink>
-          {isFinished && <NavLink to={`/runs/${runId}/packaging`} className={navLinkClass}>Packaging</NavLink>}
-          <NavLink to={`/runs/${runId}/review`} className={navLinkClass}>Review</NavLink>
         </nav>
 
         {/* Content */}
@@ -414,9 +413,9 @@ export default function RunDetail() {
               element={
                 <ImagesView
                   runId={runId!}
-                  finalOutput={(runData as unknown as Record<string, unknown>).final_output as Record<string, unknown> | null}
-                  headlineImagePath={(runData as unknown as Record<string, unknown>).headline_image_path as string | null}
-                  headlineImagePrompt={(runData as unknown as Record<string, unknown>).headline_image_prompt as string | null}
+                  finalOutput={runDataRecord.final_output as Record<string, unknown> | null}
+                  headlineImagePath={runDataRecord.headline_image_path as string | null}
+                  headlineImagePrompt={runDataRecord.headline_image_prompt as string | null}
                 />
               }
             />
@@ -427,6 +426,7 @@ export default function RunDetail() {
                   <StoryPackagingEditor
                     runId={runId!}
                     onPackagingChange={setCurrentPackaging}
+                    onToast={showToast}
                   />
                 </div>
               }

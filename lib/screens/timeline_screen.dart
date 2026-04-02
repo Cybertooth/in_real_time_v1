@@ -6,6 +6,7 @@ import '../models/story_summary.dart';
 import '../models/story_catchup_summary.dart';
 import '../providers/story_provider.dart';
 import '../services/onboarding_binge_service.dart';
+import '../services/onboarding_service.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
 import '../widgets/binge_progress_banner.dart';
@@ -23,6 +24,8 @@ class TimelineScreen extends ConsumerStatefulWidget {
 }
 
 class _TimelineScreenState extends ConsumerState<TimelineScreen> {
+  String? _lastBingeBootstrapStoryId;
+
   @override
   void initState() {
     super.initState();
@@ -35,7 +38,7 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final feedAsync = ref.watch(timelineFeedProvider);
+    final feedAsync = ref.watch(bingeAwareTimelineProvider);
     final hasUpcoming = ref.watch(upcomingItemsProvider).value ?? false;
     final unlockedLocally = ref.watch(unlockedItemsProvider).value ?? {};
     final activeStory = ref.watch(activeStoryProvider).valueOrNull;
@@ -43,8 +46,17 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
     final bingeActiveAsync = ref.watch(bingeActiveProvider);
     final bingeProgressAsync = ref.watch(bingeProgressProvider);
     final bingeBoundaryReachedAsync = ref.watch(bingeBoundaryReachedProvider);
+    final nextUnlockAfterBingeAsync = ref.watch(nextUnlockAfterBingeProvider);
     final shouldShowCatchUpAsync = ref.watch(shouldShowCatchUpProvider);
     final catchUpSummaryAsync = ref.watch(catchUpSummaryProvider);
+    final visibleItemCount = feedAsync.valueOrNull?.length ?? 0;
+
+    if (activeStory != null && _lastBingeBootstrapStoryId != activeStory.id) {
+      _lastBingeBootstrapStoryId = activeStory.id;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _ensureInitialBingeForStory(activeStory, visibleItemCount);
+      });
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -70,6 +82,7 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
             bingeActiveAsync: bingeActiveAsync,
             bingeProgressAsync: bingeProgressAsync,
             bingeBoundaryReachedAsync: bingeBoundaryReachedAsync,
+            nextUnlockAfterBingeAsync: nextUnlockAfterBingeAsync,
             shouldShowCatchUpAsync: shouldShowCatchUpAsync,
             catchUpSummaryAsync: catchUpSummaryAsync,
             items: items,
@@ -114,6 +127,7 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
     required AsyncValue<bool> bingeActiveAsync,
     required AsyncValue<int> bingeProgressAsync,
     required AsyncValue<bool> bingeBoundaryReachedAsync,
+    required AsyncValue<DateTime?> nextUnlockAfterBingeAsync,
     required AsyncValue<bool> shouldShowCatchUpAsync,
     required AsyncValue<StoryCatchUpSummary> catchUpSummaryAsync,
     required List<StoryItem> items,
@@ -129,8 +143,8 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
         widgets.add(
           CatchUpCapsule(
             summary: summary,
-            onReadRecap: () => _onReadRecap(context, summary),
-            onJumpIn: () => _onJumpIn(context, ref, summary),
+            onReadRecap: () => _onReadRecap(context, ref, summary),
+            onJumpIn: () => _onJumpIn(context, ref, summary, items),
             onSkip: () => _onSkipCatchUp(ref),
           ),
         );
@@ -144,24 +158,21 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
 
     if (bingeActive && !bingeBoundaryReached) {
       final progress = bingeProgressAsync.valueOrNull ?? 0;
+      final bingeTarget = activeStory?.onboardingBingeArtifactCount ?? OnboardingBingeService.defaultBingeArtifactCount;
       widgets.add(
         BingeProgressBanner(
           currentCount: progress,
-          totalCount: OnboardingBingeService.defaultBingeArtifactCount,
-          onDismiss: () {
-            // Dismiss action if needed
-          },
+          totalCount: bingeTarget,
         ),
       );
     }
 
     // 3. Live wall card (when binge boundary is reached)
     if (bingeActive && bingeBoundaryReached) {
-      final nextUnlock = _findNextUnlockTime(items);
+      final nextUnlock = nextUnlockAfterBingeAsync.valueOrNull;
       widgets.add(
         LiveWallCard(
           nextUnlockAt: nextUnlock,
-          onEnableReminders: () => _onEnableReminders(context),
           onContinue: () => _onCompleteBinge(ref, storyId),
         ),
       );
@@ -179,10 +190,10 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
             margin: const EdgeInsets.only(bottom: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppTheme.accentNeon.withOpacity(0.08),
+              color: AppTheme.accentNeon.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: AppTheme.accentNeon.withOpacity(0.35),
+                color: AppTheme.accentNeon.withValues(alpha: 0.35),
               ),
             ),
             child: Row(
@@ -214,64 +225,155 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
     return widgets;
   }
 
-  DateTime? _findNextUnlockTime(List<StoryItem> items) {
-    final now = DateTime.now();
-    DateTime? nextUnlock;
-    for (final item in items) {
-      if (item.unlockTimestamp.isAfter(now)) {
-        if (nextUnlock == null || item.unlockTimestamp.isBefore(nextUnlock)) {
-          nextUnlock = item.unlockTimestamp;
-        }
-      }
+  Future<void> _ensureInitialBingeForStory(
+    StorySummary story,
+    int visibleItemCount,
+  ) async {
+    final onboarding = ref.read(onboardingServiceProvider);
+    if (!onboarding.hasSeenColdOpen || onboarding.coldOpenSkipped) {
+      return;
     }
-    return nextUnlock;
+
+    final bingeService = OnboardingBingeService();
+    if (!bingeService.shouldEnableBingeForStory(
+      onboardingBingeEnabled: story.onboardingBingeEnabled,
+      totalArtifactCount: visibleItemCount > 0
+          ? visibleItemCount
+          : story.onboardingBingeArtifactCount,
+    )) {
+      return;
+    }
+
+    final resumeService = ref.read(storyResumeServiceProvider);
+    if (await resumeService.hasPreviouslyOpenedStory(story.id)) {
+      return;
+    }
+    if (await bingeService.isBingeActive(story.id) ||
+        !await bingeService.isBingeAvailable(story.id)) {
+      return;
+    }
+
+    await bingeService.startBinge(story.id);
+    ref.invalidate(bingeActiveProvider);
+    ref.invalidate(bingeProgressProvider);
+    ref.invalidate(bingeBoundaryReachedProvider);
+    ref.invalidate(bingeAwareTimelineProvider);
+    ref.invalidate(nextUnlockAfterBingeProvider);
   }
 
-  void _onReadRecap(BuildContext context, StoryCatchUpSummary summary) {
-    // Navigate to recap detail screen
-    // For now, just show a snackbar
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Recap: ${summary.headline}'),
-        duration: const Duration(seconds: 2),
-      ),
+  Future<void> _markCatchUpHandled(WidgetRef ref) async {
+    final storyId = ref.read(activeStoryIdProvider);
+    final service = ref.read(storyResumeServiceProvider);
+    await service.markCatchUpSeen(storyId);
+    await service.dismissCatchUpForSession(storyId);
+    ref.invalidate(shouldShowCatchUpProvider);
+    ref.invalidate(catchUpSummaryProvider);
+  }
+
+  Future<void> _onReadRecap(
+    BuildContext context,
+    WidgetRef ref,
+    StoryCatchUpSummary summary,
+  ) async {
+    await _markCatchUpHandled(ref);
+    if (!context.mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceLow,
+          title: Text(
+            summary.headline,
+            style: const TextStyle(color: Colors.white),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final bullet in summary.bullets)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Text(
+                      '• $bullet',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                if (summary.unresolvedQuestion.isNotEmpty) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Unresolved: ${summary.unresolvedQuestion}',
+                    style: const TextStyle(
+                      color: AppTheme.accentNeon,
+                      fontWeight: FontWeight.w600,
+                      height: 1.5,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  void _onJumpIn(BuildContext context, WidgetRef ref, StoryCatchUpSummary summary) {
+  Future<void> _onJumpIn(
+    BuildContext context,
+    WidgetRef ref,
+    StoryCatchUpSummary summary,
+    List<StoryItem> items,
+  ) async {
     final itemId = summary.recommendedResumeItemId;
     if (itemId == null) return;
 
-    // Find the item and navigate to it
-    // This would need more implementation based on the item type
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Jumping to recommended item'),
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    StoryItem? targetItem;
+    for (final item in items) {
+      if (item.id == itemId) {
+        targetItem = item;
+        break;
+      }
+    }
+
+    if (targetItem == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('That recap item is no longer available.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    await _markCatchUpHandled(ref);
+    if (!context.mounted) return;
+    await _openItem(context, ref, targetItem);
   }
 
   Future<void> _onSkipCatchUp(WidgetRef ref) async {
-    final storyId = ref.read(activeStoryIdProvider);
-    final service = ref.read(storyResumeServiceProvider);
-    await service.dismissCatchUpForSession(storyId);
+    await _markCatchUpHandled(ref);
     setState(() {});
   }
 
   Future<void> _onCompleteBinge(WidgetRef ref, String storyId) async {
     final service = OnboardingBingeService();
     await service.completeBinge(storyId);
+    ref.invalidate(bingeActiveProvider);
+    ref.invalidate(bingeProgressProvider);
+    ref.invalidate(bingeBoundaryReachedProvider);
+    ref.invalidate(bingeAwareTimelineProvider);
+    ref.invalidate(nextUnlockAfterBingeProvider);
     setState(() {});
-  }
-
-  void _onEnableReminders(BuildContext context) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Notifications enabled'),
-        duration: Duration(seconds: 2),
-      ),
-    );
   }
 
   Widget _buildCard(
@@ -300,7 +402,7 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
           Positioned.fill(
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.4),
+                color: Colors.black.withValues(alpha: 0.4),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: const Center(
@@ -322,47 +424,55 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
         }
 
         if (!context.mounted) return;
-
-        // Track item as seen for catch-up and resume functionality
-        await _trackItemViewed(ref, item);
-
-        // Update binge progress if in binge mode
-        await _updateBingeProgress(ref, item);
-
-        if (!context.mounted) return;
-
-        if (item is Chat) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatThreadScreen(
-                conversationId: item.senderId,
-                title: item.senderId,
-                isGroup: false,
-              ),
-            ),
-          );
-        } else if (item is GroupChatThread) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => ChatThreadScreen(
-                conversationId: item.id,
-                title: item.groupName,
-                isGroup: true,
-              ),
-            ),
-          );
-        } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) => StoryItemDetailScreen(item: item),
-            ),
-          );
-        }
+        await _openItem(context, ref, item);
       },
       child: displayCard,
+    );
+  }
+
+  Future<void> _openItem(
+    BuildContext context,
+    WidgetRef ref,
+    StoryItem item,
+  ) async {
+    await _trackItemViewed(ref, item);
+    await _updateBingeProgress(ref, item);
+
+    if (!context.mounted) return;
+
+    if (item is Chat) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatThreadScreen(
+            conversationId: item.senderId,
+            title: item.senderId,
+            isGroup: false,
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (item is GroupChatThread) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatThreadScreen(
+            conversationId: item.id,
+            title: item.groupName,
+            isGroup: true,
+          ),
+        ),
+      );
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => StoryItemDetailScreen(item: item),
+      ),
     );
   }
 
@@ -382,16 +492,13 @@ class _TimelineScreenState extends ConsumerState<TimelineScreen> {
     // Check if binge is active
     final isBingeActive = await bingeService.isBingeActive(storyId);
     if (!isBingeActive) return;
-
-    // Get current progress
-    final currentProgress = await bingeService.getBingeProgress(storyId);
-    
-    // Increment progress
-    await bingeService.updateBingeProgress(storyId, currentProgress + 1);
+    final counted = await bingeService.recordViewedItem(storyId, item.id);
+    if (!counted) return;
     
     // Refresh binge providers
     ref.invalidate(bingeProgressProvider);
     ref.invalidate(bingeBoundaryReachedProvider);
+    ref.invalidate(nextUnlockAfterBingeProvider);
   }
 
   Future<bool> _promptPassword(BuildContext context, StoryItem item) async {
@@ -587,12 +694,12 @@ class _ChatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isMe ? AppTheme.accentNeon.withOpacity(0.06) : AppTheme.surface,
+        color: isMe ? AppTheme.accentNeon.withValues(alpha: 0.06) : AppTheme.surface,
         borderRadius: BorderRadius.circular(4),
         border: Border.all(
           color: isMe
-              ? AppTheme.accentNeon.withOpacity(0.15)
-              : Colors.white.withOpacity(0.04),
+              ? AppTheme.accentNeon.withValues(alpha: 0.15)
+              : Colors.white.withValues(alpha: 0.04),
         ),
       ),
       child: Row(
@@ -601,7 +708,7 @@ class _ChatCard extends StatelessWidget {
           Icon(
             Icons.chat_bubble,
             size: 16,
-            color: AppTheme.chatColor.withOpacity(0.6),
+            color: AppTheme.chatColor.withValues(alpha: 0.6),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -806,8 +913,8 @@ class _VoiceNoteCard extends StatelessWidget {
                     margin: const EdgeInsets.symmetric(horizontal: 1),
                     height: h,
                     decoration: BoxDecoration(
-                      color: AppTheme.voiceNoteColor.withOpacity(
-                        0.4 + (i % 3) * 0.15,
+                      color: AppTheme.voiceNoteColor.withValues(
+                        alpha: 0.4 + (i % 3) * 0.15,
                       ),
                       borderRadius: BorderRadius.circular(2),
                     ),
@@ -870,7 +977,7 @@ class _SocialPostCard extends StatelessWidget {
             children: [
               CircleAvatar(
                 radius: 14,
-                backgroundColor: AppTheme.socialPostColor.withOpacity(0.15),
+                backgroundColor: AppTheme.socialPostColor.withValues(alpha: 0.15),
                 child: Text(
                   item.author.isNotEmpty ? item.author[0].toUpperCase() : '?',
                   style: TextStyle(
@@ -944,7 +1051,7 @@ class _PhoneCallCard extends StatelessWidget {
   String _formatDuration(int secs) {
     final m = secs ~/ 60;
     final s = secs % 60;
-    return '${m}:${s.toString().padLeft(2, '0')}';
+    return '$m:${s.toString().padLeft(2, '0')}';
   }
 
   @override
@@ -960,7 +1067,7 @@ class _PhoneCallCard extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: AppTheme.phoneCallColor.withOpacity(0.1),
+              color: AppTheme.phoneCallColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(4),
             ),
             child: const Icon(

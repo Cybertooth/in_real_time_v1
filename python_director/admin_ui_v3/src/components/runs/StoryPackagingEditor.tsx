@@ -15,9 +15,10 @@ const EMPTY_PACKAGING: StoryPackaging = {
 interface Props {
   runId: string
   onPackagingChange?: (packaging: StoryPackaging) => void
+  onToast?: (message: string, isError?: boolean) => void
 }
 
-export default function StoryPackagingEditor({ runId, onPackagingChange }: Props) {
+export default function StoryPackagingEditor({ runId, onPackagingChange, onToast }: Props) {
   const [packaging, setPackaging] = useState<StoryPackaging>(EMPTY_PACKAGING)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
@@ -33,11 +34,15 @@ export default function StoryPackagingEditor({ runId, onPackagingChange }: Props
       setPackaging(p)
       onPackagingChange?.(p)
       setLoading(false)
-    }).catch(() => {
+    }).catch((err) => {
+      if (!cancelled) {
+        const message = err instanceof Error ? err.message : 'Failed to load packaging'
+        onToast?.(message, true)
+      }
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [runId])
+  }, [runId, onPackagingChange, onToast])
 
   const update = (patch: Partial<StoryPackaging>) => {
     const next = { ...packaging, ...patch }
@@ -54,7 +59,8 @@ export default function StoryPackagingEditor({ runId, onPackagingChange }: Props
       setDirty(false)
       onPackagingChange?.(p)
     } catch (err) {
-      console.error('Failed to generate packaging', err)
+      const message = err instanceof Error ? err.message : 'Failed to generate packaging'
+      onToast?.(message, true)
     }
     setGenerating(false)
   }
@@ -66,8 +72,10 @@ export default function StoryPackagingEditor({ runId, onPackagingChange }: Props
       setPackaging(p)
       setDirty(false)
       onPackagingChange?.(p)
+      onToast?.('Packaging saved.')
     } catch (err) {
-      console.error('Failed to save packaging', err)
+      const message = err instanceof Error ? err.message : 'Failed to save packaging'
+      onToast?.(message, true)
     }
     setSaving(false)
   }

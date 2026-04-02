@@ -462,20 +462,20 @@ final galleryProvider = _collectionProvider<GalleryPhoto>(_rawGalleryProvider);
 // ---------------------------------------------------------------------------
 // Unified timeline — merges all content types into one sorted list
 // ---------------------------------------------------------------------------
-final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
+final _rawTimelineItemsProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
   final activeStory = ref.watch(activeStoryProvider).valueOrNull;
   final subscriptionStart = ref
       .watch(activeSubscriptionStartProvider)
       .valueOrNull;
   final onDemandSession = ref.watch(activeOnDemandSessionProvider).valueOrNull;
-  final journals = ref.watch(journalProvider);
-  final chats = ref.watch(chatProvider);
-  final emails = ref.watch(emailProvider);
-  final receipts = ref.watch(receiptProvider);
-  final voiceNotes = ref.watch(voiceNoteProvider);
-  final socialPosts = ref.watch(socialPostProvider);
-  final phoneCalls = ref.watch(phoneCallProvider);
-  final groupChats = ref.watch(groupChatProvider);
+  final journals = ref.watch(_rawJournalProvider);
+  final chats = ref.watch(_rawChatProvider);
+  final emails = ref.watch(_rawEmailProvider);
+  final receipts = ref.watch(_rawReceiptProvider);
+  final voiceNotes = ref.watch(_rawVoiceNoteProvider);
+  final socialPosts = ref.watch(_rawSocialPostProvider);
+  final phoneCalls = ref.watch(_rawPhoneCallProvider);
+  final groupChats = ref.watch(_rawGroupChatProvider);
 
   // If any stream is still loading, show loading
   if (journals is AsyncLoading ||
@@ -536,6 +536,30 @@ final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
         ),
   );
   return AsyncValue.data(merged);
+});
+
+final timelineFeedProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref
+      .watch(activeSubscriptionStartProvider)
+      .valueOrNull;
+  final onDemandSession = ref.watch(activeOnDemandSessionProvider).valueOrNull;
+  final rawTimeline = ref.watch(_rawTimelineItemsProvider);
+
+  return rawTimeline.whenData((items) {
+    final now = DateTime.now();
+    return items
+        .where(
+          (item) => !_isLockedForStory(
+            item,
+            activeStory,
+            subscriptionStart,
+            onDemandSession,
+            now,
+          ),
+        )
+        .toList();
+  });
 });
 
 // Alias for timelineFeedProvider, used by some screens like PhotosScreen.
@@ -879,36 +903,138 @@ final bingeBoundaryReachedProvider = FutureProvider<bool>((ref) async {
   return service.hasReachedBingeBoundary(storyId);
 });
 
+Set<String> _bingeBoundaryItemIds(
+  List<StoryItem> items,
+  int boundaryCount,
+  StorySummary? activeStory,
+  DateTime? subscriptionStart,
+  OnDemandSession? onDemandSession,
+) {
+  final ascending = List<StoryItem>.from(items)
+    ..sort(
+      (a, b) => _effectiveUnlockTimestamp(
+        a,
+        activeStory,
+        subscriptionStart,
+        onDemandSession,
+      ).compareTo(
+        _effectiveUnlockTimestamp(
+          b,
+          activeStory,
+          subscriptionStart,
+          onDemandSession,
+        ),
+      ),
+    );
+
+  return ascending.take(boundaryCount).map((item) => item.id).toSet();
+}
+
 /// Provider that returns all timeline items with binge override applied.
 /// During binge mode, items within the binge boundary are shown as unlocked.
 final bingeAwareTimelineProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
-  final timelineAsync = ref.watch(timelineFeedProvider);
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  final subscriptionStart = ref
+      .watch(activeSubscriptionStartProvider)
+      .valueOrNull;
+  final onDemandSession = ref.watch(activeOnDemandSessionProvider).valueOrNull;
+  final timelineAsync = ref.watch(_rawTimelineItemsProvider);
   final bingeActiveAsync = ref.watch(bingeActiveProvider);
-
-  // If timeline is still loading, return loading
-  if (timelineAsync is AsyncLoading) {
-    return const AsyncValue.loading();
-  }
-
-  // If timeline has error, propagate it
-  if (timelineAsync is AsyncError) {
-    return AsyncValue.error(
-      (timelineAsync as AsyncError).error,
-      (timelineAsync as AsyncError).stackTrace,
-    );
-  }
-
-  final items = timelineAsync.value ?? [];
-
-  // If binge isn't active, return normal timeline
   final bingeActive = bingeActiveAsync.valueOrNull ?? false;
+  final boundaryCount = activeStory?.onboardingBingeArtifactCount ??
+      OnboardingBingeService.defaultBingeArtifactCount;
 
-  if (!bingeActive) {
-    return AsyncValue.data(items);
+  return timelineAsync.whenData((items) {
+    final now = DateTime.now();
+    if (!bingeActive || activeStory == null || boundaryCount <= 0) {
+      return items
+          .where(
+            (item) => !_isLockedForStory(
+              item,
+              activeStory,
+              subscriptionStart,
+              onDemandSession,
+              now,
+            ),
+          )
+          .toList();
+    }
+
+    final boundaryIds = _bingeBoundaryItemIds(
+      items,
+      boundaryCount,
+      activeStory,
+      subscriptionStart,
+      onDemandSession,
+    );
+
+    return items.where((item) {
+      if (boundaryIds.contains(item.id)) {
+        return true;
+      }
+      return !_isLockedForStory(
+        item,
+        activeStory,
+        subscriptionStart,
+        onDemandSession,
+        now,
+      );
+    }).toList();
+  });
+});
+
+final nextUnlockAfterBingeProvider = FutureProvider<DateTime?>((ref) async {
+  final activeStory = ref.watch(activeStoryProvider).valueOrNull;
+  if (activeStory == null) {
+    return null;
   }
 
-  // During binge, items are already filtered by timelineFeedProvider
-  return AsyncValue.data(items);
+  final rawTimeline = ref.watch(_rawTimelineItemsProvider);
+  if (rawTimeline is! AsyncData<List<StoryItem>>) {
+    return null;
+  }
+
+  final storyId = ref.watch(activeStoryIdProvider);
+  final bingeService = OnboardingBingeService();
+  if (!await bingeService.isBingeActive(storyId)) {
+    return null;
+  }
+
+  final subscriptionStart = ref
+      .watch(activeSubscriptionStartProvider)
+      .valueOrNull;
+  final onDemandSession = ref.watch(activeOnDemandSessionProvider).valueOrNull;
+  final boundaryCount = activeStory.onboardingBingeArtifactCount <= 0
+      ? OnboardingBingeService.defaultBingeArtifactCount
+      : activeStory.onboardingBingeArtifactCount;
+  final items = rawTimeline.value;
+  final boundaryIds = _bingeBoundaryItemIds(
+    items,
+    boundaryCount,
+    activeStory,
+    subscriptionStart,
+    onDemandSession,
+  );
+
+  final now = DateTime.now();
+  DateTime? nextUnlockAt;
+  for (final item in items) {
+    if (boundaryIds.contains(item.id)) {
+      continue;
+    }
+    final unlockAt = _effectiveUnlockTimestamp(
+      item,
+      activeStory,
+      subscriptionStart,
+      onDemandSession,
+    );
+    if (unlockAt.isAfter(now) &&
+        (nextUnlockAt == null || unlockAt.isBefore(nextUnlockAt))) {
+      nextUnlockAt = unlockAt;
+    }
+  }
+
+  return nextUnlockAt;
 });
 
 // -----------------------------------------------------------------------------
@@ -954,12 +1080,19 @@ final shouldShowCatchUpProvider = FutureProvider<bool>((ref) async {
 
   final items = timelineAsync.value ?? [];
   final lastSeenAt = await service.getLastSeenAt(storyId);
+  final lastCatchUpSeenAt = await service.getLastCatchUpSeenAt(storyId);
+  final baseline = switch ((lastSeenAt, lastCatchUpSeenAt)) {
+    (null, _) => null,
+    (final lastSeen?, null) => lastSeen,
+    (final lastSeen?, final catchUp?) =>
+      catchUp.isAfter(lastSeen) ? catchUp : lastSeen,
+  };
 
   // Count new artifacts since last seen
   int newArtifactsCount = 0;
-  if (lastSeenAt != null) {
+  if (baseline != null) {
     newArtifactsCount = items.where((item) {
-      return item.unlockTimestamp.isAfter(lastSeenAt);
+      return item.unlockTimestamp.isAfter(baseline);
     }).length;
   }
 
@@ -984,21 +1117,26 @@ final catchUpSummaryProvider = FutureProvider<StoryCatchUpSummary>((ref) async {
 
   final items = timelineAsync.value ?? [];
   final lastSeenAt = await service.getLastSeenAt(storyId);
+  final lastCatchUpSeenAt = await service.getLastCatchUpSeenAt(storyId);
 
   // If never seen before, return empty summary
   if (lastSeenAt == null) {
     return StoryCatchUpSummary.empty(storyId);
   }
 
+  final baseline = lastCatchUpSeenAt != null && lastCatchUpSeenAt.isAfter(lastSeenAt)
+      ? lastCatchUpSeenAt
+      : lastSeenAt;
+
   // Filter items unlocked since last seen
   final newItems = items.where((item) {
-    return item.unlockTimestamp.isAfter(lastSeenAt);
+    return item.unlockTimestamp.isAfter(baseline);
   }).toList();
 
   return generator.generateSummary(
     storyId: storyId,
     items: newItems,
-    since: lastSeenAt,
+    since: baseline,
     until: DateTime.now(),
   );
 });
