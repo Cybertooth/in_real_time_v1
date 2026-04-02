@@ -71,12 +71,15 @@ if ($LASTEXITCODE -eq 0) {
     $SCHEDULER_JOB_NAME = "director-auto-deploy-tick"
     Write-Host "Configuring Cloud Scheduler job '$SCHEDULER_JOB_NAME'..." -ForegroundColor Cyan
     
+    Write-Host "Ensuring Cloud Scheduler API is enabled..." -ForegroundColor Cyan
+    gcloud services enable cloudscheduler.googleapis.com --project $PROJECT_ID -q
+    
     # Check if job exists
     $jobExists = gcloud scheduler jobs describe $SCHEDULER_JOB_NAME --location $REGION --project $PROJECT_ID 2>$null
     
     if (-not $jobExists) {
         gcloud scheduler jobs create http $SCHEDULER_JOB_NAME `
-            --schedule="0 * * * *" `
+            --schedule="*/30 * * * *" `
             --uri="$URL/api/scheduler/tick" `
             --http-method="POST" `
             --headers="Authorization=Bearer $SCHEDULER_SHARED_SECRET" `
@@ -85,7 +88,7 @@ if ($LASTEXITCODE -eq 0) {
         Write-Host "Created Cloud Scheduler job." -ForegroundColor Green
     } else {
         gcloud scheduler jobs update http $SCHEDULER_JOB_NAME `
-            --schedule="0 * * * *" `
+            --schedule="*/30 * * * *" `
             --uri="$URL/api/scheduler/tick" `
             --http-method="POST" `
             --headers="Authorization=Bearer $SCHEDULER_SHARED_SECRET" `

@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import { useStore } from '../../store'
 import CollapsibleSection from '../shared/CollapsibleSection'
 import Badge from '../shared/Badge'
+import ConfirmDialog from '../shared/ConfirmDialog'
 
 export default function BlockInspector() {
   const pipeline = useStore((s) => s.pipeline)
@@ -16,6 +17,7 @@ export default function BlockInspector() {
   const providerModels = useStore((s) => s.providerModels)
 
   const [editingId, setEditingId] = useState('')
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const idInputRef = useRef<HTMLInputElement>(null)
 
   if (!pipeline || !selectedBlockId) return null
@@ -277,16 +279,25 @@ export default function BlockInspector() {
         </button>
         <button
           type="button"
-          onClick={() => {
-            if (window.confirm(`Delete block "${block.name}"?`)) {
-              deleteBlock(block.id)
-            }
-          }}
+          onClick={() => setDeleteDialogOpen(true)}
           className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-danger-soft text-danger border border-danger/30 hover:brightness-110 transition-colors"
         >
           Delete
         </button>
       </div>
+
+      <ConfirmDialog
+        open={deleteDialogOpen}
+        title="Delete Block?"
+        description={`"${block.name}" will be removed from the pipeline and stripped from dependent input references.`}
+        confirmLabel="Delete Block"
+        confirmVariant="danger"
+        onConfirm={() => {
+          deleteBlock(block.id)
+          setDeleteDialogOpen(false)
+        }}
+        onCancel={() => setDeleteDialogOpen(false)}
+      />
     </div>
   )
 }
