@@ -361,7 +361,36 @@ class _StoryCard extends StatelessWidget {
                             subtitle,
                             style: TextStyle(fontSize: 12, color: accent),
                           ),
-                          if (story.setup.isNotEmpty) ...[
+                          if (story.hookLine != null &&
+                              story.hookLine!.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              story.hookLine!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: isActive ? accent : Colors.white,
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                          if (story.promiseLine != null &&
+                              story.promiseLine!.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              story.promiseLine!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                color: Colors.white60,
+                                height: 1.4,
+                              ),
+                            ),
+                          ] else if (story.setup.isNotEmpty) ...[
                             const SizedBox(height: 8),
                             Text(
                               story.setup,
@@ -374,6 +403,32 @@ class _StoryCard extends StatelessWidget {
                                 color: Colors.white70,
                                 height: 1.4,
                               ),
+                            ),
+                          ],
+                          if (story.toneTags.isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: story.toneTags.map((tag) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: accent.withOpacity(0.10),
+                                    borderRadius: BorderRadius.circular(999),
+                                  ),
+                                  child: Text(
+                                    tag,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: accent.withOpacity(0.7),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
                             ),
                           ],
                           const SizedBox(height: 8),

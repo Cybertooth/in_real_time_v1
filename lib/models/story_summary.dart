@@ -57,6 +57,14 @@ class StorySummary {
   final int onDemandSessionDurationMinutes;
   final int onDemandInactivityResetMinutes;
 
+  // Story packaging fields (optional — old stories may not have them)
+  final String? hookLine;
+  final String? promiseLine;
+  final String? heroArtifactType;
+  final Map<String, dynamic>? heroArtifactPreview;
+  final List<String> toneTags;
+  final String? audienceHookType;
+
   StorySummary({
     required this.id,
     required this.title,
@@ -78,6 +86,12 @@ class StorySummary {
     this.onDemandBurstWindowMinutes = 90,
     this.onDemandSessionDurationMinutes = 9,
     this.onDemandInactivityResetMinutes = 12,
+    this.hookLine,
+    this.promiseLine,
+    this.heroArtifactType,
+    this.heroArtifactPreview,
+    this.toneTags = const [],
+    this.audienceHookType,
   });
 
   factory StorySummary.fromFirestore(DocumentSnapshot doc) {
@@ -114,6 +128,14 @@ class StorySummary {
           (onDemandConfig['sessionDurationMinutes'] as num?)?.toInt() ?? 9,
       onDemandInactivityResetMinutes:
           (onDemandConfig['inactivityResetMinutes'] as num?)?.toInt() ?? 12,
+      hookLine: data['hookLine'] as String?,
+      promiseLine: data['promiseLine'] as String?,
+      heroArtifactType: data['heroArtifactType'] as String?,
+      heroArtifactPreview: (data['heroArtifactPreview'] is Map<String, dynamic>)
+          ? data['heroArtifactPreview'] as Map<String, dynamic>
+          : null,
+      toneTags: List<String>.from(data['toneTags'] ?? []),
+      audienceHookType: data['audienceHookType'] as String?,
     );
   }
 

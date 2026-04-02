@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/api_provider.dart';
+import '../services/onboarding_service.dart';
 import '../theme.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -132,6 +133,47 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 48),
+            const Divider(color: Colors.white12),
+            const SizedBox(height: 16),
+            const Text(
+              'Onboarding',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Re-experience the cold open intro sequence.',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 12),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final onboarding = ref.read(onboardingServiceProvider);
+                await onboarding.resetColdOpen();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Cold open will play on next app launch.'),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.replay, size: 18),
+              label: const Text('Replay Intro'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.accentNeon,
+                side: BorderSide(color: AppTheme.accentNeon.withOpacity(0.3)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 12,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+            const SizedBox(height: 32),
             const Divider(color: Colors.white12),
             const SizedBox(height: 16),
             const Text(

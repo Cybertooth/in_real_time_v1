@@ -1,8 +1,11 @@
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'providers/story_provider.dart';
 import 'screens/main_navigation.dart';
+import 'screens/cold_open_intro_screen.dart';
+import 'services/onboarding_service.dart';
 import 'theme.dart';
 
 // Conditionally import Firebase packages — they are available but we only
@@ -47,9 +50,14 @@ void main() async {
     debugPrint('[InRealTime] Running on desktop — Firebase disabled, using empty providers.');
   }
 
+  final prefs = await SharedPreferences.getInstance();
+
   runApp(
-    const ProviderScope(
-      child: InRealTimeApp(),
+    ProviderScope(
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+      ],
+      child: const InRealTimeApp(),
     ),
   );
 }
@@ -64,7 +72,50 @@ class InRealTimeApp extends ConsumerWidget {
       title: 'In Real Time',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.themedDarkTheme(accent),
-      home: const MainNavigation(),
+      home: const _AppEntryGate(),
     );
+  }
+}
+
+class _AppEntryGate extends ConsumerStatefulWidget {
+  const _AppEntryGate();
+
+  @override
+  ConsumerState<_AppEntryGate> createState() => _AppEntryGateState();
+}
+
+class _AppEntryGateState extends ConsumerState<_AppEntryGate> {
+  bool? _shouldShowColdOpen;
+
+  @override
+  void initState() {
+    super.initState();
+    final onboarding = ref.read(onboardingServiceProvider);
+    _shouldShowColdOpen = !onboarding.hasSeenColdOpen;
+  }
+
+  void _onColdOpenComplete() async {
+    final onboarding = ref.read(onboardingServiceProvider);
+    await onboarding.markColdOpenCompleted();
+    if (!mounted) return;
+    setState(() => _shouldShowColdOpen = false);
+  }
+
+  void _onColdOpenSkip() async {
+    final onboarding = ref.read(onboardingServiceProvider);
+    await onboarding.markColdOpenSkipped();
+    if (!mounted) return;
+    setState(() => _shouldShowColdOpen = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_shouldShowColdOpen == true) {
+      return ColdOpenIntroScreen(
+        onSkip: _onColdOpenSkip,
+        onComplete: _onColdOpenComplete,
+      );
+    }
+    return const MainNavigation();
   }
 }

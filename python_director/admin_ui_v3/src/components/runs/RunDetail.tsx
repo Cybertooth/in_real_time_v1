@@ -10,6 +10,8 @@ import BlockAccordion from './BlockAccordion'
 import TimelineView from './TimelineView'
 import ExperiencePreview from './ExperiencePreview'
 import ImagesView from './ImagesView'
+import StoryPackagingEditor from './StoryPackagingEditor'
+import type { StoryPackaging } from '../../types'
 import ReviewView from './ReviewView'
 
 const THEME_PREVIEW = ['#00FF9C', '#FF8A65', '#90CAF9', '#A5D6A7', '#FFB74D', '#4DD0E1', '#CE93D8', '#F48FB1', '#81D4FA', '#AED581']
@@ -58,6 +60,7 @@ export default function RunDetail() {
   const [uploading, setUploading] = useState(false)
   const [approvingStage, setApprovingStage] = useState(false)
   const [publishing, setPublishing] = useState(false)
+  const [currentPackaging, setCurrentPackaging] = useState<StoryPackaging | null>(null)
 
   // Load run data on mount / when navigating to a different run
   useEffect(() => {
@@ -146,7 +149,12 @@ export default function RunDetail() {
     if (!runId) return
     setUploading(true)
     try {
-      const result = await api.uploadRun(runId)
+      const result = await api.uploadRun(runId, currentPackaging ? {
+        story_mode: (runData as Record<string, unknown>).story_mode as 'live' | 'scheduled' | 'subscription' ?? 'live',
+        story_sub_mode: (runData as Record<string, unknown>).story_sub_mode as 'default' | 'on_demand' ?? 'default',
+        tts_tier: (runData as Record<string, unknown>).tts_tier as 'premium' | 'cheap' ?? 'premium',
+        packaging: currentPackaging,
+      } : undefined)
       if (!result.story_id) {
         throw new Error('Upload completed without a story ID. Check Firebase settings and server logs.')
       }
@@ -380,6 +388,9 @@ export default function RunDetail() {
           <NavLink to={`/runs/${runId}/timeline`} className={navLinkClass}>Timeline</NavLink>
           <NavLink to={`/runs/${runId}/experience`} className={navLinkClass}>Experience</NavLink>
           <NavLink to={`/runs/${runId}/images`} className={navLinkClass}>Images</NavLink>
+          {isFinished && <NavLink to={`/runs/${runId}/packaging`} className={navLinkClass}>Packaging</NavLink>}
+          <NavLink to={`/runs/${runId}/review`} className={navLinkClass}>Review</NavLink>
+          {isFinished && <NavLink to={`/runs/${runId}/packaging`} className={navLinkClass}>Packaging</NavLink>}
           <NavLink to={`/runs/${runId}/review`} className={navLinkClass}>Review</NavLink>
         </nav>
 
@@ -407,6 +418,17 @@ export default function RunDetail() {
                   headlineImagePath={(runData as unknown as Record<string, unknown>).headline_image_path as string | null}
                   headlineImagePrompt={(runData as unknown as Record<string, unknown>).headline_image_prompt as string | null}
                 />
+              }
+            />
+            <Route
+              path="packaging"
+              element={
+                <div className="p-4">
+                  <StoryPackagingEditor
+                    runId={runId!}
+                    onPackagingChange={setCurrentPackaging}
+                  />
+                </div>
               }
             />
             <Route
