@@ -268,6 +268,8 @@ class RunResult(RunSummary):
     artifacts: list[ArtifactFile] = Field(default_factory=list)
     timeline: list[RunTimelineEntry] = Field(default_factory=list)
     stats: RunStats = Field(default_factory=RunStats)
+    hook_simulation: Optional["HookSimulationReport"] = None
+    qa_report: Optional["StoryQAReport"] = None
 
 
 class RunProgress(BaseModel):
@@ -327,6 +329,140 @@ class RunPipelineRequest(BaseModel):
         if self.story_mode != StoryMode.SUBSCRIPTION:
             self.story_sub_mode = StorySubMode.DEFAULT
         return self
+
+
+class HookReadinessStatus(str, Enum):
+    READY = "ready"
+    CAUTION = "caution"
+    HIGH_RISK = "high_risk"
+
+
+class StoryQAStatus(str, Enum):
+    STRONG = "strong"
+    WARNING = "warning"
+    WEAK = "weak"
+
+
+class QAPassStatus(str, Enum):
+    PASS = "pass"
+    WARNING = "warning"
+    FAIL = "fail"
+
+
+class QAFindingSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class HookSimulationScores(BaseModel):
+    hook_strength: float = 0.0
+    clarity: float = 0.0
+    tension_ramp: float = 0.0
+    artifact_variety: float = 0.0
+    emotional_pull: float = 0.0
+    cliffhanger_strength: float = 0.0
+    dead_zone_risk: float = 0.0
+
+
+class EvaluatedArtifactRef(BaseModel):
+    artifact_id: str
+    event_type: str
+    title: str
+    time_offset_minutes: int = 0
+    story_day: int = 1
+    story_time: str = ""
+    excerpt: str = ""
+
+
+class HookTimelineBeat(BaseModel):
+    artifact_id: str
+    event_type: str
+    title: str
+    time_offset_minutes: int = 0
+    tension_score: float = 0.0
+    note: str = ""
+
+
+class HookDeadZone(BaseModel):
+    start_offset_minutes: int
+    end_offset_minutes: int
+    duration_minutes: int
+    label: str = ""
+
+
+class HookSimulationDeterministicSignals(BaseModel):
+    artifact_count_first_24h: int = 0
+    artifact_count_first_10: int = 0
+    first_high_interest_index: Optional[int] = None
+    second_high_interest_index: Optional[int] = None
+    repeated_type_streak: int = 0
+    concrete_evidence_present: bool = False
+    evidence_artifact_types: list[str] = Field(default_factory=list)
+    max_gap_minutes_first_24h: int = 0
+    average_gap_minutes_first_24h: float = 0.0
+    dead_zones: list[HookDeadZone] = Field(default_factory=list)
+
+
+class HookSimulationReport(BaseModel):
+    generated_at: Optional[str] = None
+    status: HookReadinessStatus = HookReadinessStatus.CAUTION
+    overall_hook_score: float = 0.0
+    scores: HookSimulationScores = Field(default_factory=HookSimulationScores)
+    warnings: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    deterministic_signals: HookSimulationDeterministicSignals = Field(
+        default_factory=HookSimulationDeterministicSignals
+    )
+    timeline_beats: list[HookTimelineBeat] = Field(default_factory=list)
+    llm_summary: str = ""
+    evaluation_mode: str = "deterministic"
+
+
+class HookSimulationLLMReview(BaseModel):
+    scores: HookSimulationScores = Field(default_factory=HookSimulationScores)
+    warnings: list[str] = Field(default_factory=list)
+    recommended_actions: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class StoryQAFinding(BaseModel):
+    severity: QAFindingSeverity = QAFindingSeverity.MEDIUM
+    category: str
+    message: str
+    recommendation: str = ""
+    artifact_ids: list[str] = Field(default_factory=list)
+    artifact_refs: list[EvaluatedArtifactRef] = Field(default_factory=list)
+    pass_name: str = ""
+
+
+class StoryQAPassReview(BaseModel):
+    score: int = 0
+    findings: list[StoryQAFinding] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class StoryQAPassResult(BaseModel):
+    pass_name: str
+    label: str
+    status: QAPassStatus = QAPassStatus.PASS
+    score: int = 0
+    findings: list[StoryQAFinding] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    summary: str = ""
+
+
+class StoryQAReport(BaseModel):
+    generated_at: Optional[str] = None
+    status: StoryQAStatus = StoryQAStatus.WARNING
+    score: int = 0
+    findings: list[StoryQAFinding] = Field(default_factory=list)
+    recommended_fixes: list[str] = Field(default_factory=list)
+    passes: list[StoryQAPassResult] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    evaluation_mode: str = "deterministic"
 
 
 class UploadRunRequest(BaseModel):
@@ -704,4 +840,8 @@ __all__ = [
     "SocialPost", "PhoneCallLine", "PhoneCall", "GroupChatMessage", "GroupChatThread",
     "GalleryPhoto", "CharacterVisual", "LocationVisual", "PlannedShot", "VisualBible",
     "ArtifactImagePatch", "StoryGeneratedImagePatch",
+    "HookSimulationReport", "HookSimulationScores", "HookSimulationLLMReview",
+    "HookReadinessStatus", "HookTimelineBeat", "HookDeadZone",
+    "StoryQAReport", "StoryQAPassResult", "StoryQAPassReview", "StoryQAFinding",
+    "StoryQAStatus", "QAFindingSeverity", "QAPassStatus", "EvaluatedArtifactRef",
 ]

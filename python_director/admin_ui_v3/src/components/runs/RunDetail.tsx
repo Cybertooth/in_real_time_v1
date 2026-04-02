@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, NavLink, Routes, Route, Navigate, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store'
 import * as api from '../../api'
-import type { RunProgress } from '../../types'
+import type { HookSimulationReport, RunProgress, StoryQAReport } from '../../types'
 import Badge from '../shared/Badge'
 import RunDialog from '../shared/RunDialog'
 import ConfirmDialog from '../shared/ConfirmDialog'
@@ -10,8 +10,24 @@ import BlockAccordion from './BlockAccordion'
 import TimelineView from './TimelineView'
 import ExperiencePreview from './ExperiencePreview'
 import ImagesView from './ImagesView'
+import ReviewView from './ReviewView'
 
 const THEME_PREVIEW = ['#00FF9C', '#FF8A65', '#90CAF9', '#A5D6A7', '#FFB74D', '#4DD0E1', '#CE93D8', '#F48FB1', '#81D4FA', '#AED581']
+
+type RunDetailData = RunProgress & {
+  final_output?: unknown
+  headline_image_path?: string | null
+  headline_image_prompt?: string | null
+  seed_prompt?: string | null
+  tags?: string[]
+  allowed_languages?: string[]
+  dry_run_stage?: number
+  dry_run_stage_name?: string
+  awaiting_stage_approval?: boolean
+  deployment_stage?: string
+  hook_simulation?: HookSimulationReport | null
+  qa_report?: StoryQAReport | null
+}
 
 function deriveThemePreview(seed: string): string {
   let hash = 0
@@ -33,18 +49,7 @@ export default function RunDetail() {
   const retryBlock = useStore((s) => s.retryBlock)
   const deleteRun = useStore((s) => s.deleteRun)
 
-  const [runData, setRunData] = useState<(RunProgress & {
-    final_output?: unknown
-    headline_image_path?: string | null
-    headline_image_prompt?: string | null
-    seed_prompt?: string | null
-    tags?: string[]
-    allowed_languages?: string[]
-    dry_run_stage?: number
-    dry_run_stage_name?: string
-    awaiting_stage_approval?: boolean
-    deployment_stage?: string
-  }) | null>(null)
+  const [runData, setRunData] = useState<RunDetailData | null>(null)
   const [loading, setLoading] = useState(true)
   const [rerunDialogOpen, setRerunDialogOpen] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
@@ -62,14 +67,7 @@ export default function RunDetail() {
     api.getRun(runId)
       .then((data) => {
         if (cancelled) return
-        setRunData(data as unknown as RunProgress & {
-          final_output?: unknown
-          headline_image_path?: string | null
-          headline_image_prompt?: string | null
-          seed_prompt?: string | null
-          tags?: string[]
-          allowed_languages?: string[]
-        })
+        setRunData(data as unknown as RunDetailData)
         setLoading(false)
       })
       .catch(async () => {
@@ -95,25 +93,11 @@ export default function RunDetail() {
       setRunData((prev) => ({
         ...(prev ?? {}),
         ...liveRun,
-      } as RunProgress & {
-        final_output?: unknown
-        headline_image_path?: string | null
-        headline_image_prompt?: string | null
-        seed_prompt?: string | null
-        tags?: string[]
-        allowed_languages?: string[]
-      }))
+      } as RunDetailData))
       setLoading(false)
       if (liveRun.status === 'succeeded' && runId) {
         api.getRun(runId).then((full) => {
-          setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunProgress & {
-            final_output?: unknown
-            headline_image_path?: string | null
-            headline_image_prompt?: string | null
-            seed_prompt?: string | null
-            tags?: string[]
-            allowed_languages?: string[]
-          }))
+          setRunData((prev) => ({ ...(prev ?? {}), ...(full as unknown as Record<string, unknown>) } as RunDetailData))
         }).catch(() => {
           // no-op; status fallback still works
         })
@@ -232,18 +216,7 @@ export default function RunDetail() {
       if (!progress) {
         return
       }
-      setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Record<string, unknown>) } as RunProgress & {
-        final_output?: unknown
-        headline_image_path?: string | null
-        headline_image_prompt?: string | null
-        seed_prompt?: string | null
-        tags?: string[]
-        allowed_languages?: string[]
-        dry_run_stage?: number
-        dry_run_stage_name?: string
-        awaiting_stage_approval?: boolean
-        deployment_stage?: string
-      } : null))
+      setRunData((prev) => (prev ? { ...prev, ...(progress as unknown as Record<string, unknown>) } as RunDetailData : null))
       showToast('Stage approved. Continuing pipeline...')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to advance stage'
@@ -282,11 +255,17 @@ export default function RunDetail() {
   const awaitingStageApproval = Boolean((runData as unknown as Record<string, unknown>).awaiting_stage_approval)
   const deploymentStage = ((runData as unknown as Record<string, unknown>).deployment_stage as string | undefined) ?? 'dry_run'
   const canUpload = runData.status === 'succeeded' && (runStage ?? 3) >= 3
+  const canEvaluate = runData.status === 'succeeded' && typeof (runData as Record<string, unknown>).final_output === 'object'
   const themePreviewHex = deriveThemePreview(`${runId ?? ''}:${runTitle}`)
   const scheduleLabel =
     storedStoryMode === 'scheduled' && storedScheduledStartAt
       ? formatTime(storedScheduledStartAt)
       : 'N/A'
+  const hookReport = (runData as Record<string, unknown>).hook_simulation as HookSimulationReport | null | undefined
+  const qaReport = (runData as Record<string, unknown>).qa_report as StoryQAReport | null | undefined
+  const handleReviewUpdate = (patch: Partial<RunDetailData>) => {
+    setRunData((prev) => (prev ? { ...prev, ...patch } : prev))
+  }
 
   const navLinkClass = ({ isActive }: { isActive: boolean }) =>
     `px-3 py-1.5 text-sm font-medium transition-colors ${
@@ -401,6 +380,7 @@ export default function RunDetail() {
           <NavLink to={`/runs/${runId}/timeline`} className={navLinkClass}>Timeline</NavLink>
           <NavLink to={`/runs/${runId}/experience`} className={navLinkClass}>Experience</NavLink>
           <NavLink to={`/runs/${runId}/images`} className={navLinkClass}>Images</NavLink>
+          <NavLink to={`/runs/${runId}/review`} className={navLinkClass}>Review</NavLink>
         </nav>
 
         {/* Content */}
@@ -426,6 +406,19 @@ export default function RunDetail() {
                   finalOutput={(runData as unknown as Record<string, unknown>).final_output as Record<string, unknown> | null}
                   headlineImagePath={(runData as unknown as Record<string, unknown>).headline_image_path as string | null}
                   headlineImagePrompt={(runData as unknown as Record<string, unknown>).headline_image_prompt as string | null}
+                />
+              }
+            />
+            <Route
+              path="review"
+              element={
+                <ReviewView
+                  runId={runId!}
+                  canGenerate={canEvaluate}
+                  hookSimulation={hookReport}
+                  qaReport={qaReport}
+                  onUpdate={handleReviewUpdate}
+                  onToast={showToast}
                 />
               }
             />
@@ -484,6 +477,26 @@ export default function RunDetail() {
         onCancel={() => !uploading && setUploadDialogOpen(false)}
       >
         <div className="flex flex-col gap-3 text-sm">
+          {hookReport?.status === 'high_risk' && (
+            <div className="rounded-2xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-text">
+              Hook readiness is high risk at {hookReport.overall_hook_score.toFixed(1)}/10. Review the warnings in the Review tab before publishing.
+            </div>
+          )}
+          {hookReport?.status === 'caution' && (
+            <div className="rounded-2xl border border-amber/30 bg-amber-soft px-4 py-3 text-sm text-text">
+              Hook readiness is in caution territory at {hookReport.overall_hook_score.toFixed(1)}/10. Consider addressing the opening recommendations before publish.
+            </div>
+          )}
+          {!hookReport && (
+            <div className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-text-dim">
+              No hook simulation has been generated yet. The Review tab can run it before upload.
+            </div>
+          )}
+          {qaReport?.blockers && qaReport.blockers.length > 0 && (
+            <div className="rounded-2xl border border-danger/30 bg-danger-soft px-4 py-3 text-sm text-text">
+              {qaReport.blockers.join(' ')}
+            </div>
+          )}
           <div className="grid grid-cols-[140px_1fr] gap-2 text-xs text-text-dim">
             <span className="uppercase tracking-wide">Story Mode</span>
             <span className="text-text">{storedStoryMode}</span>

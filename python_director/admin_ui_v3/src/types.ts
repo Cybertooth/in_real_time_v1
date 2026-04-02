@@ -131,6 +131,104 @@ export interface RunStats {
   character_mentions: Record<string, number>
 }
 
+export type HookReadinessStatus = 'ready' | 'caution' | 'high_risk'
+export type StoryQAStatus = 'strong' | 'warning' | 'weak'
+export type QAPassStatus = 'pass' | 'warning' | 'fail'
+export type QAFindingSeverity = 'low' | 'medium' | 'high' | 'critical'
+
+export interface EvaluatedArtifactRef {
+  artifact_id: string
+  event_type: string
+  title: string
+  time_offset_minutes: number
+  story_day: number
+  story_time: string
+  excerpt: string
+}
+
+export interface HookTimelineBeat {
+  artifact_id: string
+  event_type: string
+  title: string
+  time_offset_minutes: number
+  tension_score: number
+  note: string
+}
+
+export interface HookDeadZone {
+  start_offset_minutes: number
+  end_offset_minutes: number
+  duration_minutes: number
+  label: string
+}
+
+export interface HookSimulationScores {
+  hook_strength: number
+  clarity: number
+  tension_ramp: number
+  artifact_variety: number
+  emotional_pull: number
+  cliffhanger_strength: number
+  dead_zone_risk: number
+}
+
+export interface HookSimulationDeterministicSignals {
+  artifact_count_first_24h: number
+  artifact_count_first_10: number
+  first_high_interest_index: number | null
+  second_high_interest_index: number | null
+  repeated_type_streak: number
+  concrete_evidence_present: boolean
+  evidence_artifact_types: string[]
+  max_gap_minutes_first_24h: number
+  average_gap_minutes_first_24h: number
+  dead_zones: HookDeadZone[]
+}
+
+export interface HookSimulationReport {
+  generated_at: string | null
+  status: HookReadinessStatus
+  overall_hook_score: number
+  scores: HookSimulationScores
+  warnings: string[]
+  recommended_actions: string[]
+  deterministic_signals: HookSimulationDeterministicSignals
+  timeline_beats: HookTimelineBeat[]
+  llm_summary: string
+  evaluation_mode: string
+}
+
+export interface StoryQAFinding {
+  severity: QAFindingSeverity
+  category: string
+  message: string
+  recommendation: string
+  artifact_ids: string[]
+  artifact_refs: EvaluatedArtifactRef[]
+  pass_name: string
+}
+
+export interface StoryQAPassResult {
+  pass_name: string
+  label: string
+  status: QAPassStatus
+  score: number
+  findings: StoryQAFinding[]
+  recommendations: string[]
+  summary: string
+}
+
+export interface StoryQAReport {
+  generated_at: string | null
+  status: StoryQAStatus
+  score: number
+  findings: StoryQAFinding[]
+  recommended_fixes: string[]
+  passes: StoryQAPassResult[]
+  blockers: string[]
+  evaluation_mode: string
+}
+
 export interface RunSummary {
   run_id: string
   timestamp: string
@@ -201,6 +299,8 @@ export interface RunResult extends RunSummary {
   artifacts: { name: string; relative_path: string; size_bytes: number; content_type: string }[]
   timeline: RunTimelineEntry[]
   stats: RunStats
+  hook_simulation?: HookSimulationReport | null
+  qa_report?: StoryQAReport | null
 }
 
 export interface MetricDelta {
