@@ -57,6 +57,10 @@ class StorySummary {
   final int onDemandSessionDurationMinutes;
   final int onDemandInactivityResetMinutes;
 
+  // Binge-to-live configuration
+  final bool onboardingBingeEnabled;
+  final int onboardingBingeArtifactCount;
+
   // Story packaging fields (optional — old stories may not have them)
   final String? hookLine;
   final String? promiseLine;
@@ -86,6 +90,8 @@ class StorySummary {
     this.onDemandBurstWindowMinutes = 90,
     this.onDemandSessionDurationMinutes = 9,
     this.onDemandInactivityResetMinutes = 12,
+    this.onboardingBingeEnabled = true,
+    this.onboardingBingeArtifactCount = 12,
     this.hookLine,
     this.promiseLine,
     this.heroArtifactType,
@@ -128,6 +134,9 @@ class StorySummary {
           (onDemandConfig['sessionDurationMinutes'] as num?)?.toInt() ?? 9,
       onDemandInactivityResetMinutes:
           (onDemandConfig['inactivityResetMinutes'] as num?)?.toInt() ?? 12,
+      onboardingBingeEnabled: (data['onboardingBingeEnabled'] as bool?) ?? true,
+      onboardingBingeArtifactCount:
+          (data['onboardingBingeArtifactCount'] as num?)?.toInt() ?? 12,
       hookLine: data['hookLine'] as String?,
       promiseLine: data['promiseLine'] as String?,
       heroArtifactType: data['heroArtifactType'] as String?,

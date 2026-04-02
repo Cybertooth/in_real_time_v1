@@ -1,20 +1,51 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/story_item.dart';
+import '../services/story_resume_service.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
 
-class StoryItemDetailScreen extends StatelessWidget {
+class StoryItemDetailScreen extends ConsumerStatefulWidget {
   final StoryItem item;
 
   const StoryItemDetailScreen({super.key, required this.item});
 
   @override
+  ConsumerState<StoryItemDetailScreen> createState() => _StoryItemDetailScreenState();
+}
+
+class _StoryItemDetailScreenState extends ConsumerState<StoryItemDetailScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Mark item as seen when opened
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _markItemAsSeen();
+    });
+  }
+
+  Future<void> _markItemAsSeen() async {
+    // We need to get the active story ID
+    // Since we don't have direct access to the provider here without ref,
+    // we'll use SharedPreferences directly
+    final prefs = await SharedPreferences.getInstance();
+    final storyId = prefs.getString('active_story_id') ?? 'story_latest';
+    
+    final service = StoryResumeService();
+    await service.markItemAsSeen(
+      storyId: storyId,
+      itemId: widget.item.id,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(item.contentType.toUpperCase()),
+        title: Text(widget.item.contentType.toUpperCase()),
         actions: [
           IconButton(
             icon: const Icon(Icons.share_outlined),
@@ -30,14 +61,14 @@ class StoryItemDetailScreen extends StatelessWidget {
   }
 
   Widget _buildContent(BuildContext context) {
-    return switch (item) {
+    return switch (widget.item) {
       Journal j => _JournalDetail(item: j),
       Email e => _EmailDetail(item: e),
       Receipt r => _ReceiptDetail(item: r),
       VoiceNote v => _VoiceNoteDetail(item: v),
       SocialPost s => _SocialPostDetail(item: s),
       PhoneCall p => _PhoneCallDetail(item: p),
-      _ => Text('Unsupported content type: ${item.contentType}'),
+      _ => Text('Unsupported content type: ${widget.item.contentType}'),
     };
   }
 }
