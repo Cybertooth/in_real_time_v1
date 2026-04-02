@@ -5,12 +5,15 @@ export default function Toast() {
 
   return (
     <div
+      aria-live={toast?.isError ? 'assertive' : 'polite'}
+      aria-atomic="true"
       className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 ${
         toast ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
       }`}
     >
       {toast && (
         <div
+          role={toast.isError ? 'alert' : 'status'}
           className={`px-5 py-2.5 rounded-full text-sm font-medium backdrop-blur-xl border ${
             toast.isError
               ? 'bg-danger-soft text-danger border-danger/30'

@@ -408,11 +408,18 @@ async def scheduler_tick(background_tasks: BackgroundTasks, request: Request):
     except Exception:
         pass
 
-    # Require an exact UTC HH:MM match.
-    if now_utc.hour != target_hour:
-        return {"status": "skipped", "reason": f"not target hour ({target_hour})"}
-    if now_utc.minute != target_min:
-        return {"status": "skipped", "reason": f"not target minute ({target_min:02d})"}
+    # Allow a 30-minute trigger window in case Cloud Scheduler or Cloud Run is delayed.
+    now_mins = now_utc.hour * 60 + now_utc.minute
+    tgt_mins = target_hour * 60 + target_min
+    
+    diff = now_mins - tgt_mins
+    if diff < -720:
+        diff += 1440
+    elif diff > 720:
+        diff -= 1440
+        
+    if not (0 <= diff <= 30):
+        return {"status": "skipped", "reason": f"not in target 30-min window ({target_hour:02d}:{target_min:02d})"}
 
     if config.last_run_at:
         try:

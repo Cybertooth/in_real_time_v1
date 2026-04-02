@@ -21,17 +21,38 @@ class ChatThreadScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (isGroup) {
       final groups = ref.watch(groupChatProvider).value ?? [];
-      final group = groups.firstWhere((g) => g.id == conversationId);
-      return _buildThread(context, group.messages.map((m) => _MessageData(
+      GroupChatThread? group;
+      for (final candidate in groups) {
+        if (candidate.id == conversationId) {
+          group = candidate;
+          break;
+        }
+      }
+      if (group == null) {
+        return _buildUnavailableThread(
+          context,
+          title: 'THREAD UNAVAILABLE',
+          subtitle: 'This intercepted group chat is no longer available.',
+        );
+      }
+      final resolvedGroup = group;
+      return _buildThread(context, resolvedGroup.messages.map((m) => _MessageData(
         sender: m.sender,
         text: m.text,
         isProtagonist: false, // In group chats, we treat others as external for simplicity
-        timestamp: group.unlockTimestamp,
-        imageUrl: m == group.messages.last ? group.imageUrl : null,
+        timestamp: resolvedGroup.unlockTimestamp,
+        imageUrl: m == resolvedGroup.messages.last ? resolvedGroup.imageUrl : null,
       )).toList());
     } else {
       final chats = ref.watch(chatProvider).value ?? [];
       final threadMessages = chats.where((c) => c.senderId == conversationId).toList();
+      if (threadMessages.isEmpty) {
+        return _buildUnavailableThread(
+          context,
+          title: 'NO MESSAGES',
+          subtitle: 'No intercepted messages were found for this conversation.',
+        );
+      }
       return _buildThread(context, threadMessages.map((c) => _MessageData(
         sender: c.senderId,
         text: c.text,
@@ -57,13 +78,56 @@ class ChatThreadScreen extends ConsumerWidget {
       body: Column(
         children: [
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-              itemCount: messages.length,
-              itemBuilder: (context, index) {
-                final msg = messages[index];
-                return _TypingAwareBubble(data: msg);
-              },
+            child: messages.isEmpty
+                ? const EmptyState(
+                    icon: Icons.chat_bubble_outline,
+                    title: 'NO MESSAGES',
+                    subtitle: 'Intercepted messages will appear here when available.',
+                  )
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final msg = messages[index];
+                      return _TypingAwareBubble(data: msg);
+                    },
+                  ),
+          ),
+          _buildInputArea(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildUnavailableThread(
+    BuildContext context, {
+    required String title,
+    required String subtitle,
+  }) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(this.title, style: const TextStyle(fontSize: 16)),
+            Text(
+              isGroup ? 'Encrypted Group' : 'Direct Message',
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppTheme.textMuted,
+                letterSpacing: 1,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: EmptyState(
+              icon: Icons.lock_person_outlined,
+              title: title,
+              subtitle: subtitle,
             ),
           ),
           _buildInputArea(),
@@ -77,14 +141,14 @@ class ChatThreadScreen extends ConsumerWidget {
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       decoration: BoxDecoration(
         color: AppTheme.surfaceLow,
-        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.04))),
+        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.04))),
       ),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
         decoration: BoxDecoration(
           color: AppTheme.surface,
           borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: Colors.white.withOpacity(0.08)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
         ),
         child: Row(
           children: [
@@ -98,7 +162,7 @@ class ChatThreadScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            Icon(Icons.lock_outline, size: 18, color: AppTheme.textMuted.withOpacity(0.5)),
+            Icon(Icons.lock_outline, size: 18, color: AppTheme.textMuted.withValues(alpha: 0.5)),
           ],
         ),
       ),
@@ -181,7 +245,7 @@ class _TypingAwareBubbleState extends State<_TypingAwareBubble> {
               decoration: BoxDecoration(
                 color: AppTheme.surface,
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.white.withOpacity(0.05)),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
               ),
               child: const Text('...', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.accentNeon, letterSpacing: 2)),
             ),
@@ -214,9 +278,9 @@ class _ChatBubble extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
             decoration: BoxDecoration(
-              color: isMe ? AppTheme.accentNeon.withOpacity(0.1) : AppTheme.surface,
+              color: isMe ? AppTheme.accentNeon.withValues(alpha: 0.1) : AppTheme.surface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: isMe ? AppTheme.accentNeon.withOpacity(0.2) : Colors.white.withOpacity(0.05)),
+              border: Border.all(color: isMe ? AppTheme.accentNeon.withValues(alpha: 0.2) : Colors.white.withValues(alpha: 0.05)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
