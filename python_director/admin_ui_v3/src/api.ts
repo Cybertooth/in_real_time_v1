@@ -4,10 +4,12 @@ import type {
   PipelineCatalogItem,
   SettingsPayload,
   AppSettings,
+  HookSimulationReport,
   RunProgress,
   RunResult,
   RunComparison,
   Story,
+  StoryQAReport,
   SchedulerConfig,
   StoryPackaging,
 } from './types'
@@ -152,6 +154,26 @@ export function getRunStatus(runId: string): Promise<RunProgress> {
 
 export function getRun(runId: string): Promise<RunResult> {
   return request<RunResult>(`/api/runs/${encodeURIComponent(runId)}`)
+}
+
+export function generateHookSimulation(runId: string): Promise<HookSimulationReport> {
+  return request<HookSimulationReport>(`/api/runs/${encodeURIComponent(runId)}/simulate-hook`, {
+    method: 'POST',
+  })
+}
+
+export function getHookSimulation(runId: string): Promise<HookSimulationReport> {
+  return request<HookSimulationReport>(`/api/runs/${encodeURIComponent(runId)}/hook-simulation`)
+}
+
+export function generateStoryQa(runId: string): Promise<StoryQAReport> {
+  return request<StoryQAReport>(`/api/runs/${encodeURIComponent(runId)}/qa`, {
+    method: 'POST',
+  })
+}
+
+export function getStoryQa(runId: string): Promise<StoryQAReport> {
+  return request<StoryQAReport>(`/api/runs/${encodeURIComponent(runId)}/qa`)
 }
 
 export function getRunPipeline(runId: string): Promise<PipelineDefinition> {

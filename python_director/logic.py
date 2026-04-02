@@ -7,6 +7,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,14 +18,25 @@ if __package__:
     from .log_utils import get_logger
     from .models import (
         AppSettings,
+        BlockConfig,
         BlockExecutionStatus,
         BlockTrace,
         CompareRunsRequest,
+        EvaluatedArtifactRef,
+        HookReadinessStatus,
+        HookSimulationDeterministicSignals,
+        HookSimulationLLMReview,
+        HookSimulationReport,
+        HookSimulationScores,
+        HookTimelineBeat,
+        HookDeadZone,
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
         BlockType,
         ProviderType,
+        QAFindingSeverity,
+        QAPassStatus,
         RunComparison,
         RunProgress,
         RunResult,
@@ -32,6 +44,11 @@ if __package__:
         RunStatus,
         RunTimelineEntry,
         SCHEMA_MAP,
+        StoryQAReport,
+        StoryQAFinding,
+        StoryQAPassResult,
+        StoryQAPassReview,
+        StoryQAStatus,
         StoryGeneratedImagePatch,
         StoryPackaging,
         HeroArtifactPreview,
@@ -51,14 +68,25 @@ else:
     from log_utils import get_logger
     from models import (
         AppSettings,
+        BlockConfig,
         BlockExecutionStatus,
         BlockTrace,
         CompareRunsRequest,
+        EvaluatedArtifactRef,
+        HookReadinessStatus,
+        HookSimulationDeterministicSignals,
+        HookSimulationLLMReview,
+        HookSimulationReport,
+        HookSimulationScores,
+        HookTimelineBeat,
+        HookDeadZone,
         MetricDelta,
         PipelineBlock,
         PipelineDefinition,
         BlockType,
         ProviderType,
+        QAFindingSeverity,
+        QAPassStatus,
         RunComparison,
         RunProgress,
         RunResult,
@@ -66,6 +94,11 @@ else:
         RunStatus,
         RunTimelineEntry,
         SCHEMA_MAP,
+        StoryQAReport,
+        StoryQAFinding,
+        StoryQAPassResult,
+        StoryQAPassReview,
+        StoryQAStatus,
         StoryGeneratedImagePatch,
         StoryPackaging,
         HeroArtifactPreview,
@@ -141,6 +174,27 @@ _ON_DEMAND_DEFAULT_CONFIG: dict[str, int] = {
     "sessionDurationMinutes": 9,
     "inactivityResetMinutes": 12,
 }
+_HOOK_WINDOW_MINUTES = 24 * 60
+_HOOK_ARTIFACT_LIMIT = 10
+_HOOK_DEAD_ZONE_THRESHOLD = 150
+_HIGH_INTEREST_THRESHOLD = 6.5
+_CONCRETE_EVIDENCE_TYPES = {"receipt", "voice_note", "phone_call", "photo"}
+_HIGH_SIGNAL_TERMS = {
+    "blood", "help", "missing", "urgent", "police", "scream", "gun", "secret", "lied",
+    "betray", "don't tell", "delete", "proof", "receipt", "call me", "where are you",
+    "found", "panic", "hurry", "afraid", "sorry", "caught", "dead", "hide",
+}
+_EMOTIONAL_TERMS = {
+    "afraid", "terrified", "ashamed", "sorry", "love", "hate", "panic", "cry", "please",
+    "betrayed", "worried", "desperate", "furious", "confused", "regret",
+}
+_QUESTION_TERMS = {"why", "who", "what happened", "where", "how", "did you", "are you"}
+_EVALUATION_PROVIDER_FALLBACKS: list[tuple[ProviderType, str]] = [
+    (ProviderType.OPENAI, "gpt-5.4-mini"),
+    (ProviderType.GEMINI, "gemini-2.5-flash"),
+    (ProviderType.OPENROUTER, "openai/gpt-4.1-mini"),
+    (ProviderType.ANTHROPIC, "claude-3-5-haiku-latest"),
+]
 
 
 def _resolve_credentials_path_with_candidates(path_val: str | None) -> tuple[Path | None, list[Path]]:
@@ -794,6 +848,1107 @@ def derive_story_timeline(final_output: Any) -> list[RunTimelineEntry]:
 
     entries.sort(key=lambda x: (x.story_day, x.story_time))
     return entries
+
+
+def _story_clock_from_offset(total_mins: int) -> str:
+    base_hour = 9
+    hours = (base_hour + (total_mins // 60)) % 24
+    mins = total_mins % 60
+    ampm = "AM" if hours < 12 else "PM"
+    display_hour = hours if hours <= 12 else hours - 12
+    if display_hour == 0:
+        display_hour = 12
+    return f"{display_hour:02d}:{mins:02d} {ampm}"
+
+
+def _clip_text(value: str, max_chars: int = 180) -> str:
+    clean = " ".join(str(value or "").split())
+    if len(clean) <= max_chars:
+        return clean
+    return clean[: max_chars - 3].rstrip() + "..."
+
+
+def _artifact_title(event_type: str, item: dict[str, Any], index: int) -> str:
+    if event_type == "journal":
+        return str(item.get("title") or f"Journal Entry {index + 1}")
+    if event_type == "chat":
+        return f"Chat: {item.get('senderId', 'Unknown')}"
+    if event_type == "email":
+        return str(item.get("subject") or f"Email {index + 1}")
+    if event_type == "receipt":
+        return str(item.get("merchantName") or f"Receipt {index + 1}")
+    if event_type == "voice_note":
+        return f"Voice: {item.get('speaker', 'Unknown')}"
+    if event_type == "social_post":
+        platform = item.get("platform", "social")
+        handle = item.get("handle") or item.get("author") or "unknown"
+        return f"{str(platform).capitalize()}: @{handle}"
+    if event_type == "phone_call":
+        return f"Call: {item.get('caller', '?')} -> {item.get('receiver', '?')}"
+    if event_type == "group_chat":
+        platform = item.get("platform", "chat")
+        return f"{str(platform).capitalize()} Group: {item.get('group_name', f'Thread {index + 1}')}"
+    if event_type == "photo":
+        return str(item.get("subject") or f"Photo {index + 1}")
+    return f"{event_type.replace('_', ' ').title()} {index + 1}"
+
+
+def _artifact_text(event_type: str, item: dict[str, Any]) -> str:
+    if event_type == "journal":
+        return " ".join(
+            part for part in [item.get("title"), item.get("body")] if isinstance(part, str) and part.strip()
+        )
+    if event_type == "chat":
+        return str(item.get("text") or "")
+    if event_type == "email":
+        return " ".join(
+            part for part in [item.get("subject"), item.get("body")] if isinstance(part, str) and part.strip()
+        )
+    if event_type == "receipt":
+        return " ".join(
+            part for part in [item.get("merchantName"), item.get("description")] if isinstance(part, str) and part.strip()
+        )
+    if event_type == "voice_note":
+        return str(item.get("transcript") or "")
+    if event_type == "social_post":
+        return str(item.get("content") or "")
+    if event_type == "phone_call":
+        lines = item.get("lines") or []
+        if isinstance(lines, list):
+            return " ".join(
+                f"{line.get('speaker', 'Unknown')}: {line.get('text', '')}"
+                for line in lines
+                if isinstance(line, dict)
+            )
+        return ""
+    if event_type == "group_chat":
+        messages = item.get("messages") or []
+        if isinstance(messages, list):
+            return " ".join(
+                f"{msg.get('sender', 'Unknown')}: {msg.get('text', '')}"
+                for msg in messages
+                if isinstance(msg, dict)
+            )
+        return ""
+    if event_type == "photo":
+        return " ".join(
+            part for part in [item.get("subject"), item.get("caption")] if isinstance(part, str) and part.strip()
+        )
+    return ""
+
+
+def _flatten_story_artifacts(final_output: dict[str, Any]) -> list[dict[str, Any]]:
+    collection_map = [
+        ("journals", "journal"),
+        ("chats", "chat"),
+        ("emails", "email"),
+        ("receipts", "receipt"),
+        ("voice_notes", "voice_note"),
+        ("social_posts", "social_post"),
+        ("phone_calls", "phone_call"),
+        ("group_chats", "group_chat"),
+        ("photo_gallery", "photo"),
+    ]
+    flattened: list[dict[str, Any]] = []
+    for collection_name, event_type in collection_map:
+        items = final_output.get(collection_name, [])
+        if not isinstance(items, list):
+            continue
+        for index, raw_item in enumerate(items):
+            if not isinstance(raw_item, dict):
+                continue
+            time_offset = _coerce_offset_minutes(raw_item.get("time_offset_minutes", 0))
+            text = _artifact_text(event_type, raw_item)
+            flattened.append(
+                {
+                    "artifact_id": f"{event_type}_{index}",
+                    "event_type": event_type,
+                    "title": _artifact_title(event_type, raw_item, index),
+                    "time_offset_minutes": time_offset,
+                    "story_day": (time_offset // (24 * 60)) + 1,
+                    "story_time": _story_clock_from_offset(time_offset),
+                    "excerpt": _clip_text(text),
+                    "text": text,
+                    "payload": raw_item,
+                }
+            )
+    flattened.sort(key=lambda item: (item["time_offset_minutes"], item["artifact_id"]))
+    return flattened
+
+
+def _stable_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _merge_unique(*groups: list[str]) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group:
+            text = " ".join(str(item or "").split())
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(text)
+    return merged
+
+
+def _signal_hits(text: str, terms: set[str]) -> int:
+    lowered = text.casefold()
+    return sum(1 for term in terms if term in lowered)
+
+
+def _artifact_interest_score(artifact: dict[str, Any], previous_type: str | None = None) -> float:
+    text = str(artifact.get("text") or "")
+    event_type = str(artifact.get("event_type") or "")
+    score = 2.8
+    if event_type in _CONCRETE_EVIDENCE_TYPES:
+        score += 2.2
+    if event_type in {"voice_note", "phone_call"}:
+        score += 0.6
+    score += min(2.6, 0.85 * _signal_hits(text, _HIGH_SIGNAL_TERMS))
+    score += min(1.5, 0.5 * _signal_hits(text, _QUESTION_TERMS))
+    score += min(1.2, 0.4 * _signal_hits(text, _EMOTIONAL_TERMS))
+    if "?" in text:
+        score += 0.6
+    if len(text) < 24:
+        score -= 0.8
+    elif len(text) > 260:
+        score += 0.4
+    if previous_type and previous_type == event_type:
+        score -= 0.8
+    return round(max(0.0, min(10.0, score)), 1)
+
+
+def _max_repetition_streak(artifacts: list[dict[str, Any]]) -> int:
+    longest = 0
+    current = 0
+    previous: str | None = None
+    for artifact in artifacts:
+        current_type = str(artifact.get("event_type") or "")
+        if current_type == previous:
+            current += 1
+        else:
+            current = 1
+            previous = current_type
+        longest = max(longest, current)
+    return longest
+
+
+def _collect_dead_zones(
+    artifacts: list[dict[str, Any]],
+    *,
+    window_minutes: int = _HOOK_WINDOW_MINUTES,
+    threshold_minutes: int = _HOOK_DEAD_ZONE_THRESHOLD,
+) -> list[HookDeadZone]:
+    within_window = [item for item in artifacts if item["time_offset_minutes"] <= window_minutes]
+    if not within_window:
+        return [
+            HookDeadZone(
+                start_offset_minutes=0,
+                end_offset_minutes=window_minutes,
+                duration_minutes=window_minutes,
+                label="No opening artifacts land in the first 24 hours.",
+            )
+        ]
+
+    dead_zones: list[HookDeadZone] = []
+    previous_offset = 0
+    for artifact in within_window:
+        current_offset = int(artifact["time_offset_minutes"])
+        gap = current_offset - previous_offset
+        if gap >= threshold_minutes:
+            dead_zones.append(
+                HookDeadZone(
+                    start_offset_minutes=previous_offset,
+                    end_offset_minutes=current_offset,
+                    duration_minutes=gap,
+                    label=f"{gap} min without a meaningful drop.",
+                )
+            )
+        previous_offset = current_offset
+
+    trailing_gap = window_minutes - previous_offset
+    if trailing_gap >= threshold_minutes:
+        dead_zones.append(
+            HookDeadZone(
+                start_offset_minutes=previous_offset,
+                end_offset_minutes=window_minutes,
+                duration_minutes=trailing_gap,
+                label=f"{trailing_gap} min quiet stretch before the 24h mark.",
+            )
+        )
+    return dead_zones
+
+
+def _artifact_ref_map(artifacts: list[dict[str, Any]]) -> dict[str, EvaluatedArtifactRef]:
+    return {
+        artifact["artifact_id"]: EvaluatedArtifactRef(
+            artifact_id=artifact["artifact_id"],
+            event_type=artifact["event_type"],
+            title=artifact["title"],
+            time_offset_minutes=artifact["time_offset_minutes"],
+            story_day=artifact["story_day"],
+            story_time=artifact["story_time"],
+            excerpt=artifact["excerpt"],
+        )
+        for artifact in artifacts
+    }
+
+
+def _finding_severity_rank(severity: QAFindingSeverity) -> int:
+    return {
+        QAFindingSeverity.CRITICAL: 0,
+        QAFindingSeverity.HIGH: 1,
+        QAFindingSeverity.MEDIUM: 2,
+        QAFindingSeverity.LOW: 3,
+    }.get(severity, 4)
+
+
+def _attach_refs_to_findings(
+    findings: list[StoryQAFinding],
+    artifact_map: dict[str, EvaluatedArtifactRef],
+    *,
+    pass_name: str,
+) -> list[StoryQAFinding]:
+    attached: list[StoryQAFinding] = []
+    for finding in findings:
+        refs = [artifact_map[artifact_id] for artifact_id in finding.artifact_ids if artifact_id in artifact_map]
+        attached.append(
+            finding.model_copy(
+                update={
+                    "artifact_refs": refs,
+                    "pass_name": finding.pass_name or pass_name,
+                }
+            )
+        )
+    return attached
+
+
+def _status_from_hook_score(score: float) -> HookReadinessStatus:
+    if score >= 8.0:
+        return HookReadinessStatus.READY
+    if score >= 6.0:
+        return HookReadinessStatus.CAUTION
+    return HookReadinessStatus.HIGH_RISK
+
+
+def _status_from_qa_score(score: int) -> StoryQAStatus:
+    if score >= 85:
+        return StoryQAStatus.STRONG
+    if score >= 70:
+        return StoryQAStatus.WARNING
+    return StoryQAStatus.WEAK
+
+
+def _evaluation_provider_bundle(
+    settings: AppSettings,
+    pipeline: PipelineDefinition | None,
+) -> tuple[Any, ProviderType, str] | None:
+    default_models = dict(getattr(pipeline, "default_models", {}) or {})
+    for provider_type, fallback_model in _EVALUATION_PROVIDER_FALLBACKS:
+        if not _provider_has_api_key(provider_type, settings):
+            continue
+        model_name = str(default_models.get(provider_type.value) or fallback_model).strip()
+        if not model_name:
+            continue
+        try:
+            provider = get_provider(provider_type, {
+                "GEMINI_API_KEY": settings.gemini_api_key,
+                "OPENAI_API_KEY": settings.openai_api_key,
+                "OPENROUTER_API_KEY": settings.openrouter_api_key,
+                "ANTHROPIC_API_KEY": settings.anthropic_api_key,
+            })
+            return provider, provider_type, model_name
+        except Exception:
+            logger.exception("Failed to initialize evaluator provider=%s", provider_type.value)
+    return None
+
+
+def _evaluation_config(provider_type: ProviderType, model_name: str, system_instruction: str) -> BlockConfig:
+    return BlockConfig(
+        provider=provider_type,
+        model_name=model_name,
+        use_pipeline_default_model=False,
+        temperature=0.2,
+        system_instruction=system_instruction,
+        prompt_template="[handled directly]",
+    )
+
+
+def _build_deterministic_hook_report(
+    run_result: RunResult,
+    artifacts: list[dict[str, Any]],
+) -> HookSimulationReport:
+    first_24h = [artifact for artifact in artifacts if artifact["time_offset_minutes"] <= _HOOK_WINDOW_MINUTES]
+    opening = first_24h[:_HOOK_ARTIFACT_LIMIT]
+    if not opening:
+        return HookSimulationReport(
+            generated_at=datetime.now(timezone.utc).isoformat(),
+            status=HookReadinessStatus.HIGH_RISK,
+            overall_hook_score=0.0,
+            warnings=["No opening artifacts were available to evaluate."],
+            recommended_actions=[
+                "Generate at least 4 early artifacts before reviewing hook readiness.",
+                "Introduce a high-signal artifact in the first five drops.",
+            ],
+            deterministic_signals=HookSimulationDeterministicSignals(
+                artifact_count_first_24h=0,
+                artifact_count_first_10=0,
+                dead_zones=_collect_dead_zones([]),
+            ),
+            evaluation_mode="deterministic",
+        )
+
+    interest_scores: list[float] = []
+    previous_type: str | None = None
+    timeline_beats: list[HookTimelineBeat] = []
+    for artifact in opening:
+        score = _artifact_interest_score(artifact, previous_type)
+        note_parts: list[str] = []
+        if artifact["event_type"] in _CONCRETE_EVIDENCE_TYPES:
+            note_parts.append("concrete evidence")
+        if _signal_hits(str(artifact["text"]), _HIGH_SIGNAL_TERMS):
+            note_parts.append("high-signal language")
+        if "?" in str(artifact["text"]):
+            note_parts.append("open question")
+        interest_scores.append(score)
+        timeline_beats.append(
+            HookTimelineBeat(
+                artifact_id=artifact["artifact_id"],
+                event_type=artifact["event_type"],
+                title=artifact["title"],
+                time_offset_minutes=artifact["time_offset_minutes"],
+                tension_score=score,
+                note=", ".join(note_parts) or "baseline beat",
+            )
+        )
+        previous_type = artifact["event_type"]
+
+    evidence_types = _stable_unique(
+        [artifact["event_type"] for artifact in opening if artifact["event_type"] in _CONCRETE_EVIDENCE_TYPES]
+    )
+    repeated_type_streak = _max_repetition_streak(opening)
+    dead_zones = _collect_dead_zones(first_24h)
+    max_gap = max(
+        [dead_zone.duration_minutes for dead_zone in dead_zones],
+        default=0,
+    )
+    average_gap = round(
+        sum(dead_zone.duration_minutes for dead_zone in dead_zones) / len(dead_zones),
+        1,
+    ) if dead_zones else 0.0
+    first_high_interest_index = next(
+        (index for index, score in enumerate(interest_scores) if score >= _HIGH_INTEREST_THRESHOLD),
+        None,
+    )
+    second_high_interest_index = next(
+        (
+            index for index, score in enumerate(interest_scores)
+            if index != first_high_interest_index and score >= _HIGH_INTEREST_THRESHOLD
+        ),
+        None,
+    )
+    unique_types = len({artifact["event_type"] for artifact in opening})
+    emotion_hits = sum(_signal_hits(str(artifact["text"]), _EMOTIONAL_TERMS) for artifact in opening)
+    question_hits = sum("?" in str(artifact["text"]) for artifact in opening)
+    long_openers = sum(1 for artifact in opening[:3] if len(str(artifact["text"] or "")) > 420)
+    opening_with_text = sum(1 for artifact in opening[:3] if len(str(artifact["text"] or "")) >= 40)
+
+    hook_strength = 4.8
+    hook_strength += 1.8 if first_high_interest_index == 0 else 0.0
+    hook_strength += 1.2 if first_high_interest_index is not None and first_high_interest_index <= 2 else 0.0
+    hook_strength += 1.0 if evidence_types else 0.0
+    hook_strength += min(1.2, len(opening) / 5.0)
+    hook_strength -= 1.3 if first_high_interest_index is None else 0.0
+    hook_strength -= 0.5 * max(0, repeated_type_streak - 2)
+
+    clarity = 4.8 + 1.3 * min(opening_with_text, 3) / 3.0 + 1.2 * min(unique_types, 3) / 3.0
+    clarity -= 0.7 * long_openers
+    clarity -= 0.5 if len(opening) < 3 else 0.0
+
+    tension_ramp = 4.2
+    if first_high_interest_index is not None:
+        tension_ramp += max(0.0, 2.2 - 0.5 * first_high_interest_index)
+    if second_high_interest_index is not None:
+        tension_ramp += max(0.0, 1.7 - 0.25 * (second_high_interest_index - (first_high_interest_index or 0)))
+    tension_ramp += min(1.0, question_hits * 0.2)
+    tension_ramp -= 0.45 * len(dead_zones)
+
+    artifact_variety = 3.4 + unique_types * 1.15 - 0.55 * max(0, repeated_type_streak - 1)
+    if "photo" in evidence_types:
+        artifact_variety += 0.4
+
+    emotional_pull = 4.0 + min(2.3, emotion_hits * 0.35)
+    if any(artifact["event_type"] in {"journal", "voice_note", "phone_call"} for artifact in opening):
+        emotional_pull += 1.2
+    if any(" i " in f" {str(artifact['text']).casefold()} " for artifact in opening):
+        emotional_pull += 0.6
+
+    last_three_scores = interest_scores[-3:] if len(interest_scores) >= 3 else interest_scores
+    cliffhanger_strength = 4.3 + (sum(last_three_scores) / max(len(last_three_scores), 1) - 4.5) * 0.55
+    cliffhanger_strength += min(1.2, question_hits * 0.2)
+    if opening[-1]["event_type"] in _CONCRETE_EVIDENCE_TYPES:
+        cliffhanger_strength += 0.8
+
+    dead_zone_risk = 2.0
+    dead_zone_risk += 1.6 if not evidence_types else 0.0
+    dead_zone_risk += min(3.6, max_gap / 75.0)
+    dead_zone_risk += 0.8 * max(0, repeated_type_streak - 2)
+    dead_zone_risk += 0.7 * len(dead_zones)
+    dead_zone_risk += 1.0 if len(opening) < 5 else 0.0
+
+    scores = HookSimulationScores(
+        hook_strength=round(max(0.0, min(10.0, hook_strength)), 1),
+        clarity=round(max(0.0, min(10.0, clarity)), 1),
+        tension_ramp=round(max(0.0, min(10.0, tension_ramp)), 1),
+        artifact_variety=round(max(0.0, min(10.0, artifact_variety)), 1),
+        emotional_pull=round(max(0.0, min(10.0, emotional_pull)), 1),
+        cliffhanger_strength=round(max(0.0, min(10.0, cliffhanger_strength)), 1),
+        dead_zone_risk=round(max(0.0, min(10.0, dead_zone_risk)), 1),
+    )
+    overall_score = round(
+        (
+            scores.hook_strength
+            + scores.clarity
+            + scores.tension_ramp
+            + scores.artifact_variety
+            + scores.emotional_pull
+            + scores.cliffhanger_strength
+            + (10.0 - scores.dead_zone_risk)
+        ) / 7.0,
+        1,
+    )
+
+    warnings: list[str] = []
+    recommended_actions: list[str] = []
+    if len(first_24h) < 5:
+        warnings.append(f"Only {len(first_24h)} artifacts land in the first 24 hours.")
+        recommended_actions.append("Add 2-3 more early artifacts so users feel momentum in session one.")
+    if first_high_interest_index is None or first_high_interest_index >= 4:
+        warnings.append("No clear high-interest artifact lands in the first five drops.")
+        recommended_actions.append("Move a more suspicious or concrete artifact into the first three beats.")
+    if repeated_type_streak >= 3:
+        warnings.append(f"{repeated_type_streak} opening artifacts in a row use the same format.")
+        recommended_actions.append("Break up repeated artifact types with a voice note, phone call, receipt, or photo.")
+    if not evidence_types:
+        warnings.append("The opening lacks a concrete evidence artifact such as a receipt, photo, voice note, or phone call.")
+        recommended_actions.append("Introduce one concrete evidence artifact before artifact five.")
+    if max_gap >= _HOOK_DEAD_ZONE_THRESHOLD:
+        warnings.append(f"A {max_gap}-minute quiet stretch creates a likely dead zone in the opening.")
+        recommended_actions.append("Tighten the largest opening gap or insert a short interrupting artifact.")
+    if scores.clarity < 6.0:
+        warnings.append("The premise takes too long to become legible in the opening sequence.")
+        recommended_actions.append("Use the first two artifacts to establish who is in trouble and why it matters.")
+    if scores.cliffhanger_strength < 6.0:
+        recommended_actions.append("End the opening window on a sharper unanswered question or confrontation.")
+
+    return HookSimulationReport(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        status=_status_from_hook_score(overall_score),
+        overall_hook_score=overall_score,
+        scores=scores,
+        warnings=_merge_unique(warnings),
+        recommended_actions=_merge_unique(recommended_actions),
+        deterministic_signals=HookSimulationDeterministicSignals(
+            artifact_count_first_24h=len(first_24h),
+            artifact_count_first_10=len(opening),
+            first_high_interest_index=first_high_interest_index,
+            second_high_interest_index=second_high_interest_index,
+            repeated_type_streak=repeated_type_streak,
+            concrete_evidence_present=bool(evidence_types),
+            evidence_artifact_types=evidence_types,
+            max_gap_minutes_first_24h=max_gap,
+            average_gap_minutes_first_24h=average_gap,
+            dead_zones=dead_zones,
+        ),
+        timeline_beats=timeline_beats,
+        llm_summary="",
+        evaluation_mode="deterministic",
+    )
+
+
+def _run_hook_llm_review(
+    run_result: RunResult,
+    pipeline: PipelineDefinition,
+    settings: AppSettings,
+    artifacts: list[dict[str, Any]],
+    deterministic_report: HookSimulationReport,
+) -> HookSimulationLLMReview | None:
+    provider_bundle = _evaluation_provider_bundle(settings, pipeline)
+    if provider_bundle is None:
+        return None
+    provider, provider_type, model_name = provider_bundle
+    opening_payload = [
+        {
+            "artifact_id": artifact["artifact_id"],
+            "event_type": artifact["event_type"],
+            "time_offset_minutes": artifact["time_offset_minutes"],
+            "title": artifact["title"],
+            "excerpt": artifact["excerpt"],
+        }
+        for artifact in artifacts[:_HOOK_ARTIFACT_LIMIT]
+    ]
+    prompt = json.dumps(
+        {
+            "story_title": run_result.final_title or (run_result.final_output or {}).get("story_title"),
+            "setup": _clip_text(run_result.setup, 220),
+            "opening_artifacts": opening_payload,
+            "deterministic_signals": deterministic_report.deterministic_signals.model_dump(mode="json"),
+            "deterministic_warnings": deterministic_report.warnings,
+        },
+        indent=2,
+    )
+    system_instruction = (
+        "You are a ruthless but constructive story-hook evaluator for a found-phone narrative studio. "
+        "Score the first 24 hours / first 10 artifacts only. "
+        "Return JSON only. "
+        "All scores must be 0-10. "
+        "For dead_zone_risk, 0 means no meaningful dead-zone risk and 10 means severe dead-zone risk. "
+        "Warnings and recommendations must be concrete and specific to the provided artifacts."
+    )
+    try:
+        return provider.generate_structured_output(
+            _evaluation_config(provider_type, model_name, system_instruction),
+            (
+                "Evaluate whether the opening would hook a new user within three minutes.\n"
+                "Focus on hook strength, clarity, tension ramp, artifact variety, emotional pull, "
+                "cliffhanger strength, and dead-zone risk.\n"
+                f"{prompt}"
+            ),
+            HookSimulationLLMReview,
+        )
+    except Exception:
+        logger.exception("Hook simulation LLM review failed run_id=%s", run_result.run_id)
+        return None
+
+
+def generate_hook_simulation_report(
+    run_result: RunResult,
+    settings: AppSettings,
+    pipeline: PipelineDefinition,
+) -> HookSimulationReport:
+    if not isinstance(run_result.final_output, dict):
+        raise ValueError("Run has no structured final artifact to evaluate.")
+
+    artifacts = _flatten_story_artifacts(run_result.final_output)
+    deterministic_report = _build_deterministic_hook_report(run_result, artifacts)
+    llm_review = _run_hook_llm_review(run_result, pipeline, settings, artifacts, deterministic_report)
+    if llm_review is None:
+        return deterministic_report
+
+    merged_scores = HookSimulationScores(
+        hook_strength=round((deterministic_report.scores.hook_strength + llm_review.scores.hook_strength) / 2.0, 1),
+        clarity=round((deterministic_report.scores.clarity + llm_review.scores.clarity) / 2.0, 1),
+        tension_ramp=round((deterministic_report.scores.tension_ramp + llm_review.scores.tension_ramp) / 2.0, 1),
+        artifact_variety=round((deterministic_report.scores.artifact_variety + llm_review.scores.artifact_variety) / 2.0, 1),
+        emotional_pull=round((deterministic_report.scores.emotional_pull + llm_review.scores.emotional_pull) / 2.0, 1),
+        cliffhanger_strength=round((deterministic_report.scores.cliffhanger_strength + llm_review.scores.cliffhanger_strength) / 2.0, 1),
+        dead_zone_risk=round((deterministic_report.scores.dead_zone_risk + llm_review.scores.dead_zone_risk) / 2.0, 1),
+    )
+    overall_score = round(
+        (
+            merged_scores.hook_strength
+            + merged_scores.clarity
+            + merged_scores.tension_ramp
+            + merged_scores.artifact_variety
+            + merged_scores.emotional_pull
+            + merged_scores.cliffhanger_strength
+            + (10.0 - merged_scores.dead_zone_risk)
+        ) / 7.0,
+        1,
+    )
+    return deterministic_report.model_copy(
+        update={
+            "status": _status_from_hook_score(overall_score),
+            "overall_hook_score": overall_score,
+            "scores": merged_scores,
+            "warnings": _merge_unique(deterministic_report.warnings, llm_review.warnings),
+            "recommended_actions": _merge_unique(
+                deterministic_report.recommended_actions,
+                llm_review.recommended_actions,
+            ),
+            "llm_summary": llm_review.summary,
+            "evaluation_mode": "deterministic+llm",
+        }
+    )
+
+
+def _extract_continuity_audit_payload(run_result: RunResult) -> dict[str, Any] | None:
+    for value in run_result.outputs.values():
+        candidate = value.model_dump(mode="json") if hasattr(value, "model_dump") else value
+        if not isinstance(candidate, dict):
+            continue
+        if "continuity_score" in candidate and "contradictions" in candidate:
+            return candidate
+    return None
+
+
+def _severity_from_score(score: int, *, critical_cutoff: int = 45, high_cutoff: int = 65) -> QAFindingSeverity:
+    if score < critical_cutoff:
+        return QAFindingSeverity.CRITICAL
+    if score < high_cutoff:
+        return QAFindingSeverity.HIGH
+    return QAFindingSeverity.MEDIUM
+
+
+def _finding(
+    severity: QAFindingSeverity,
+    category: str,
+    message: str,
+    recommendation: str = "",
+    artifact_ids: list[str] | None = None,
+) -> StoryQAFinding:
+    return StoryQAFinding(
+        severity=severity,
+        category=category,
+        message=message,
+        recommendation=recommendation,
+        artifact_ids=list(artifact_ids or []),
+    )
+
+
+def _pass_status(score: int, findings: list[StoryQAFinding]) -> QAPassStatus:
+    if score < 55 or any(finding.severity == QAFindingSeverity.CRITICAL for finding in findings):
+        return QAPassStatus.FAIL
+    if score < 75 or any(finding.severity == QAFindingSeverity.HIGH for finding in findings):
+        return QAPassStatus.WARNING
+    return QAPassStatus.PASS
+
+
+def _top_similar_pairs(
+    artifacts: list[dict[str, Any]],
+    limit: int = 3,
+) -> list[tuple[dict[str, Any], dict[str, Any], float]]:
+    pairs: list[tuple[dict[str, Any], dict[str, Any], float]] = []
+    textful = [artifact for artifact in artifacts if len(str(artifact.get("text") or "")) >= 40]
+    for left_index, left in enumerate(textful):
+        for right in textful[left_index + 1:]:
+            ratio = SequenceMatcher(None, str(left["text"]).casefold(), str(right["text"]).casefold()).ratio()
+            if ratio >= 0.82:
+                pairs.append((left, right, ratio))
+    pairs.sort(key=lambda item: item[2], reverse=True)
+    return pairs[:limit]
+
+
+def _opening_hook_pass(hook_report: HookSimulationReport) -> StoryQAPassResult:
+    score = int(round(hook_report.overall_hook_score * 10))
+    findings: list[StoryQAFinding] = []
+    anchor_ids = [beat.artifact_id for beat in hook_report.timeline_beats[:3]]
+    for warning in hook_report.warnings[:3]:
+        findings.append(
+            _finding(
+                _severity_from_score(score),
+                "opening_hook",
+                warning,
+                hook_report.recommended_actions[0] if hook_report.recommended_actions else "",
+                anchor_ids,
+            )
+        )
+    summary = (
+        hook_report.llm_summary
+        or f"Opening hook scored {hook_report.overall_hook_score}/10 with status {hook_report.status.value}."
+    )
+    return StoryQAPassResult(
+        pass_name="OpeningHookPass",
+        label="Opening Hook",
+        status=_pass_status(score, findings),
+        score=score,
+        findings=findings,
+        recommendations=list(hook_report.recommended_actions[:4]),
+        summary=summary,
+    )
+
+
+def _continuity_pass(run_result: RunResult) -> StoryQAPassResult:
+    audit = _extract_continuity_audit_payload(run_result)
+    findings: list[StoryQAFinding] = []
+    recommendations: list[str] = []
+    if audit is None:
+        return StoryQAPassResult(
+            pass_name="ContinuityPass",
+            label="Continuity",
+            status=QAPassStatus.WARNING,
+            score=68,
+            findings=[
+                _finding(
+                    QAFindingSeverity.MEDIUM,
+                    "continuity",
+                    "No dedicated continuity audit output was available for this run.",
+                    "Re-run the continuity auditor block or review contradictions manually.",
+                )
+            ],
+            recommendations=["Run a continuity-focused audit before publishing."],
+            summary="Continuity score is provisional because no upstream continuity audit output was found.",
+        )
+
+    contradictions = audit.get("contradictions") or []
+    for contradiction in contradictions[:4]:
+        if not isinstance(contradiction, dict):
+            continue
+        severity = str(contradiction.get("severity") or "medium").lower()
+        findings.append(
+            _finding(
+                QAFindingSeverity.CRITICAL if severity == "critical" else QAFindingSeverity.HIGH if severity == "high" else QAFindingSeverity.MEDIUM,
+                str(contradiction.get("category") or "continuity"),
+                str(contradiction.get("description") or "Continuity issue detected."),
+                str(contradiction.get("fix_instruction") or ""),
+            )
+        )
+    for note in audit.get("motivation_breaks") or []:
+        recommendations.append(str(note))
+    score = int(max(0, min(100, audit.get("continuity_score", 70))))
+    return StoryQAPassResult(
+        pass_name="ContinuityPass",
+        label="Continuity",
+        status=_pass_status(score, findings),
+        score=score,
+        findings=findings,
+        recommendations=_merge_unique(recommendations, [str(audit.get("release_recommendation") or "")]),
+        summary=str(audit.get("release_recommendation") or "Continuity audit integrated into QA."),
+    )
+
+
+def _character_voice_pass(artifacts: list[dict[str, Any]]) -> StoryQAPassResult:
+    findings: list[StoryQAFinding] = []
+    recommendations: list[str] = []
+    speaker_like_types = [
+        artifact
+        for artifact in artifacts
+        if artifact["event_type"] in {"chat", "voice_note", "phone_call", "group_chat", "social_post"}
+    ]
+    unique_speakers = set()
+    for artifact in speaker_like_types:
+        payload = artifact["payload"]
+        for key in ("senderId", "speaker", "caller", "author", "handle"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                unique_speakers.add(value.strip().casefold())
+    repeated_openings = sum(
+        1
+        for left, right, ratio in _top_similar_pairs(speaker_like_types, limit=6)
+        if ratio >= 0.9 and left["event_type"] == right["event_type"]
+    )
+    score = 88
+    if len(unique_speakers) < 3:
+        score -= 18
+        findings.append(
+            _finding(
+                QAFindingSeverity.HIGH,
+                "character_consistency",
+                "Too few distinct voices appear across conversational artifacts.",
+                "Give at least one more character a strongly differentiated artifact voice early.",
+            )
+        )
+    if repeated_openings >= 2:
+        score -= 14
+        findings.append(
+            _finding(
+                QAFindingSeverity.MEDIUM,
+                "character_consistency",
+                "Multiple conversational artifacts read too similarly, which flattens character voice.",
+                "Vary syntax, pacing, and emotional framing between characters.",
+            )
+        )
+    if any(artifact["event_type"] == "journal" for artifact in artifacts) and not speaker_like_types:
+        score -= 10
+        recommendations.append("Balance introspective artifacts with more dialog-driven voice surfaces.")
+    return StoryQAPassResult(
+        pass_name="CharacterVoicePass",
+        label="Character Voice",
+        status=_pass_status(score, findings),
+        score=max(0, score),
+        findings=findings,
+        recommendations=_merge_unique(recommendations),
+        summary="Character voice checks look for differentiated speakers and non-generic conversational texture.",
+    )
+
+
+def _artifact_diversity_pass(
+    artifacts: list[dict[str, Any]],
+    hook_report: HookSimulationReport,
+) -> StoryQAPassResult:
+    findings: list[StoryQAFinding] = []
+    recommendations: list[str] = []
+    counts = Counter(artifact["event_type"] for artifact in artifacts)
+    dominant_count = max(counts.values(), default=0)
+    unique_types = len(counts)
+    score = min(100, 34 + unique_types * 9 + (8 if any(t in counts for t in _CONCRETE_EVIDENCE_TYPES) else 0))
+    if dominant_count > max(4, len(artifacts) // 2):
+        score -= 18
+        dominant_type = counts.most_common(1)[0][0]
+        findings.append(
+            _finding(
+                QAFindingSeverity.HIGH,
+                "artifact_usefulness",
+                f"{dominant_type.replace('_', ' ').title()} artifacts dominate the run and reduce texture.",
+                "Swap some repeated exposition artifacts for evidence, dialog, or media-driven beats.",
+            )
+        )
+    if unique_types < 4:
+        score -= 16
+        findings.append(
+            _finding(
+                QAFindingSeverity.HIGH,
+                "artifact_usefulness",
+                "The run uses too few artifact formats to feel like a rich phone-native story.",
+                "Add at least one audio, evidence, or public-facing artifact type.",
+            )
+        )
+    if not hook_report.deterministic_signals.concrete_evidence_present:
+        score -= 12
+        recommendations.append("Introduce a receipt, phone call, voice note, or photo before publish.")
+    if "photo" not in counts:
+        recommendations.append("Consider adding a photo or visual clue opportunity to improve sensory variety.")
+    if "voice_note" not in counts:
+        recommendations.append("Add a voice note if the emotional beats need more immediacy.")
+    return StoryQAPassResult(
+        pass_name="ArtifactDiversityPass",
+        label="Artifact Diversity",
+        status=_pass_status(score, findings),
+        score=max(0, min(100, score)),
+        findings=findings,
+        recommendations=_merge_unique(recommendations),
+        summary="Artifact diversity measures whether the story uses the phone-native canvas instead of repeating one format.",
+    )
+
+
+def _redundancy_pass(artifacts: list[dict[str, Any]]) -> StoryQAPassResult:
+    findings: list[StoryQAFinding] = []
+    recommendations: list[str] = []
+    score = 90
+    for left, right, ratio in _top_similar_pairs(artifacts):
+        score -= 10
+        findings.append(
+            _finding(
+                QAFindingSeverity.MEDIUM if ratio < 0.9 else QAFindingSeverity.HIGH,
+                "redundancy",
+                f"{left['title']} and {right['title']} feel near-duplicate in content or exposition.",
+                "Compress or rewrite one of the overlapping artifacts so it adds new information.",
+                [left["artifact_id"], right["artifact_id"]],
+            )
+        )
+    repeated_streak = _max_repetition_streak(artifacts[:10])
+    if repeated_streak >= 3:
+        score -= 8
+        recommendations.append("Break long same-format streaks so each drop changes the reading experience.")
+    return StoryQAPassResult(
+        pass_name="RedundancyPass",
+        label="Redundancy",
+        status=_pass_status(score, findings),
+        score=max(0, score),
+        findings=findings,
+        recommendations=_merge_unique(recommendations),
+        summary="Redundancy checks look for duplicated exposition, repeated beats, and same-format drag.",
+    )
+
+
+def _schema_pass(artifacts: list[dict[str, Any]]) -> StoryQAPassResult:
+    findings: list[StoryQAFinding] = []
+    score = 100
+    for artifact in artifacts:
+        payload = artifact["payload"]
+        event_type = artifact["event_type"]
+        missing_fields: list[str] = []
+        if event_type == "journal":
+            if not str(payload.get("title") or "").strip():
+                missing_fields.append("title")
+            if not str(payload.get("body") or "").strip():
+                missing_fields.append("body")
+        elif event_type == "chat":
+            if not str(payload.get("text") or "").strip():
+                missing_fields.append("text")
+        elif event_type == "email":
+            if not str(payload.get("subject") or "").strip():
+                missing_fields.append("subject")
+            if not str(payload.get("body") or "").strip():
+                missing_fields.append("body")
+        elif event_type == "voice_note":
+            if not str(payload.get("transcript") or "").strip():
+                missing_fields.append("transcript")
+        elif event_type == "phone_call":
+            if not isinstance(payload.get("lines"), list) or not payload.get("lines"):
+                missing_fields.append("lines")
+        elif event_type == "group_chat":
+            if not isinstance(payload.get("messages"), list) or not payload.get("messages"):
+                missing_fields.append("messages")
+        elif event_type == "photo":
+            if not str(payload.get("subject") or "").strip():
+                missing_fields.append("subject")
+        if missing_fields:
+            score -= 16
+            findings.append(
+                _finding(
+                    QAFindingSeverity.CRITICAL,
+                    "schema_correctness",
+                    f"{artifact['title']} is missing required fields: {', '.join(missing_fields)}.",
+                    "Fix the malformed artifact before publish.",
+                    [artifact["artifact_id"]],
+                )
+            )
+    return StoryQAPassResult(
+        pass_name="SchemaPass",
+        label="Schema",
+        status=_pass_status(score, findings),
+        score=max(0, score),
+        findings=findings,
+        recommendations=["Fix any malformed artifacts before publishing."] if findings else [],
+        summary="Schema checks validate required content fields and basic artifact integrity.",
+    )
+
+
+def _run_story_qa_llm_pass(
+    run_result: RunResult,
+    pipeline: PipelineDefinition,
+    settings: AppSettings,
+    pass_result: StoryQAPassResult,
+    artifacts: list[dict[str, Any]],
+) -> StoryQAPassReview | None:
+    if pass_result.pass_name == "SchemaPass":
+        return None
+    provider_bundle = _evaluation_provider_bundle(settings, pipeline)
+    if provider_bundle is None:
+        return None
+    provider, provider_type, model_name = provider_bundle
+    artifact_payload = [
+        {
+            "artifact_id": artifact["artifact_id"],
+            "event_type": artifact["event_type"],
+            "time_offset_minutes": artifact["time_offset_minutes"],
+            "title": artifact["title"],
+            "excerpt": artifact["excerpt"],
+        }
+        for artifact in artifacts[:18]
+    ]
+    continuity_audit = _extract_continuity_audit_payload(run_result)
+    prompt = json.dumps(
+        {
+            "story_title": run_result.final_title or (run_result.final_output or {}).get("story_title"),
+            "setup": _clip_text(run_result.setup, 220),
+            "pass_name": pass_result.pass_name,
+            "deterministic_summary": pass_result.summary,
+            "deterministic_findings": [finding.model_dump(mode="json") for finding in pass_result.findings],
+            "artifacts": artifact_payload,
+            "continuity_audit": continuity_audit,
+        },
+        indent=2,
+    )
+    system_instruction = (
+        "You are a meticulous narrative QA reviewer for a mobile found-phone story studio. "
+        "Evaluate only the requested pass. "
+        "Return JSON only with a 0-100 score, specific findings, and precise rewrite recommendations. "
+        "When citing artifacts, use only artifact_ids that exist in the provided list."
+    )
+    try:
+        return provider.generate_structured_output(
+            _evaluation_config(provider_type, model_name, system_instruction),
+            (
+                f"Review this run for {pass_result.label}. "
+                "Findings must be actionable for a writer or engineer. "
+                f"{prompt}"
+            ),
+            StoryQAPassReview,
+        )
+    except Exception:
+        logger.exception("Story QA LLM pass failed run_id=%s pass=%s", run_result.run_id, pass_result.pass_name)
+        return None
+
+
+def generate_story_qa_report(
+    run_result: RunResult,
+    settings: AppSettings,
+    pipeline: PipelineDefinition,
+    *,
+    hook_report: HookSimulationReport | None = None,
+) -> StoryQAReport:
+    if not isinstance(run_result.final_output, dict):
+        raise ValueError("Run has no structured final artifact to evaluate.")
+
+    artifacts = _flatten_story_artifacts(run_result.final_output)
+    artifact_map = _artifact_ref_map(artifacts)
+    resolved_hook_report = hook_report or run_result.hook_simulation or generate_hook_simulation_report(
+        run_result,
+        settings,
+        pipeline,
+    )
+
+    passes: list[StoryQAPassResult] = [
+        _opening_hook_pass(resolved_hook_report),
+        _continuity_pass(run_result),
+        _character_voice_pass(artifacts),
+        _artifact_diversity_pass(artifacts, resolved_hook_report),
+        _redundancy_pass(artifacts),
+        _schema_pass(artifacts),
+    ]
+
+    llm_used = False
+    merged_passes: list[StoryQAPassResult] = []
+    for pass_result in passes:
+        llm_review = _run_story_qa_llm_pass(run_result, pipeline, settings, pass_result, artifacts)
+        if llm_review is None:
+            merged_pass = pass_result
+        else:
+            llm_used = True
+            merged_score = int(round((pass_result.score + llm_review.score) / 2.0))
+            merged_findings = _attach_refs_to_findings(
+                pass_result.findings + llm_review.findings,
+                artifact_map,
+                pass_name=pass_result.pass_name,
+            )
+            merged_pass = pass_result.model_copy(
+                update={
+                    "score": merged_score,
+                    "status": _pass_status(merged_score, merged_findings),
+                    "findings": merged_findings,
+                    "recommendations": _merge_unique(pass_result.recommendations, llm_review.recommendations),
+                    "summary": llm_review.summary or pass_result.summary,
+                }
+            )
+        if llm_review is None:
+            merged_pass = merged_pass.model_copy(
+                update={
+                    "findings": _attach_refs_to_findings(merged_pass.findings, artifact_map, pass_name=merged_pass.pass_name),
+                }
+            )
+        merged_passes.append(merged_pass)
+
+    aggregate_findings = sorted(
+        [finding for pass_result in merged_passes for finding in pass_result.findings],
+        key=lambda finding: (_finding_severity_rank(finding.severity), finding.category, finding.message),
+    )
+    aggregate_recommendations = _merge_unique(*[pass_result.recommendations for pass_result in merged_passes])
+    overall_score = int(round(sum(pass_result.score for pass_result in merged_passes) / max(len(merged_passes), 1)))
+    blockers: list[str] = []
+    schema_result = next((pass_result for pass_result in merged_passes if pass_result.pass_name == "SchemaPass"), None)
+    continuity_result = next((pass_result for pass_result in merged_passes if pass_result.pass_name == "ContinuityPass"), None)
+    opening_result = next((pass_result for pass_result in merged_passes if pass_result.pass_name == "OpeningHookPass"), None)
+    if schema_result and schema_result.status == QAPassStatus.FAIL:
+        blockers.append("Schema pass failed; malformed artifacts should be fixed before publish.")
+    if continuity_result and any(finding.severity == QAFindingSeverity.CRITICAL for finding in continuity_result.findings):
+        blockers.append("Continuity audit found a critical contradiction in the run.")
+    if opening_result and resolved_hook_report.overall_hook_score < 5.0:
+        blockers.append("Opening hook is below the minimum 5/10 threshold.")
+
+    return StoryQAReport(
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        status=_status_from_qa_score(overall_score),
+        score=overall_score,
+        findings=aggregate_findings,
+        recommended_fixes=aggregate_recommendations,
+        passes=merged_passes,
+        blockers=blockers,
+        evaluation_mode="deterministic+llm" if llm_used else "deterministic",
+    )
 
 
 def compare_final_outputs(request: CompareRunsRequest, baseline: RunResult, candidate: RunResult) -> RunComparison:

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react'
 import { useStore } from '../../store'
 import * as api from '../../api'
 import type { AppSettings } from '../../types'
+import ConfirmDialog from './ConfirmDialog'
+
+const STUDIO_LOCAL_STORAGE_KEYS = ['sidebar-width']
 
 export default function SettingsDialog() {
   const settingsOpen = useStore((s) => s.settingsOpen)
@@ -19,6 +22,7 @@ export default function SettingsDialog() {
   const [anthropicKey, setAnthropicKey] = useState('')
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [googleCreds, setGoogleCreds] = useState('')
+  const [freshStartDialogOpen, setFreshStartDialogOpen] = useState(false)
 
   useEffect(() => {
     if (settingsOpen) {
@@ -53,17 +57,14 @@ export default function SettingsDialog() {
   }
 
   const handleFreshStart = async () => {
-    if (
-      !window.confirm(
-        'This will clear local Studio data, reset the pipeline, and delete all Firebase stories/assets. Continue?',
-      )
-    )
-      return
     try {
-      localStorage.clear()
+      for (const key of STUDIO_LOCAL_STORAGE_KEYS) {
+        localStorage.removeItem(key)
+      }
       const cleanup = await api.cleanupStories()
       await api.resetPipeline('full_fledged')
       setSettingsOpen(false)
+      setFreshStartDialogOpen(false)
       loadStudio()
       loadStories()
       if (cleanup.failed > 0) {
@@ -204,13 +205,23 @@ export default function SettingsDialog() {
           <div className="flex-1" />
           <button
             type="button"
-            onClick={handleFreshStart}
+            onClick={() => setFreshStartDialogOpen(true)}
             className="px-4 py-2 rounded-xl text-sm font-semibold cursor-pointer bg-danger-soft text-danger border border-danger/30 hover:brightness-110 transition-colors"
           >
             Fresh Start
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={freshStartDialogOpen}
+        title="Fresh Start?"
+        description="This clears Director Studio browser state, resets the active pipeline, and deletes Firebase stories/assets created by Studio."
+        confirmLabel="Reset Everything"
+        confirmVariant="danger"
+        onConfirm={handleFreshStart}
+        onCancel={() => setFreshStartDialogOpen(false)}
+      />
     </dialog>
   )
 }

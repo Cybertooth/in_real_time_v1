@@ -18,14 +18,16 @@ if __package__:
     from .logic import (
         PipelineRunner,
         compare_final_outputs,
-        upload_to_firestore,
         derive_story_timeline,
+        generate_hook_simulation_report,
         generate_image_with_fallback,
         generate_story_packaging,
+        generate_story_qa_report,
         list_stories,
         delete_story,
         cleanup_all_stories,
         make_story_live,
+        upload_to_firestore,
     )
     from .log_utils import get_logger
     from .models import (
@@ -79,14 +81,16 @@ else:
     from logic import (
         PipelineRunner,
         compare_final_outputs,
-        upload_to_firestore,
         derive_story_timeline,
+        generate_hook_simulation_report,
         generate_image_with_fallback,
         generate_story_packaging,
+        generate_story_qa_report,
         list_stories,
         delete_story,
         cleanup_all_stories,
         make_story_live,
+        upload_to_firestore,
     )
     from log_utils import get_logger
     from models import (
@@ -408,11 +412,18 @@ async def scheduler_tick(background_tasks: BackgroundTasks, request: Request):
     except Exception:
         pass
 
-    # Require an exact UTC HH:MM match.
-    if now_utc.hour != target_hour:
-        return {"status": "skipped", "reason": f"not target hour ({target_hour})"}
-    if now_utc.minute != target_min:
-        return {"status": "skipped", "reason": f"not target minute ({target_min:02d})"}
+    # Allow a 30-minute trigger window in case Cloud Scheduler or Cloud Run is delayed.
+    now_mins = now_utc.hour * 60 + now_utc.minute
+    tgt_mins = target_hour * 60 + target_min
+    
+    diff = now_mins - tgt_mins
+    if diff < -720:
+        diff += 1440
+    elif diff > 720:
+        diff -= 1440
+        
+    if not (0 <= diff <= 30):
+        return {"status": "skipped", "reason": f"not in target 30-min window ({target_hour:02d}:{target_min:02d})"}
 
     if config.last_run_at:
         try:
@@ -554,6 +565,75 @@ async def get_run_pipeline(run_id: str):
     if not snapshot_path.exists():
         raise HTTPException(status_code=404, detail=f"Pipeline snapshot for run '{run_id}' not found")
     return PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+
+
+def _load_run_pipeline_snapshot(run_id: str) -> PipelineDefinition:
+    snapshot_path = RUNS_DIR / run_id / PIPELINE_SNAPSHOT_FILENAME
+    if snapshot_path.exists():
+        return PipelineDefinition.model_validate_json(snapshot_path.read_text(encoding="utf-8"))
+    return load_pipeline()
+
+
+@router.post("/runs/{run_id}/simulate-hook")
+async def simulate_hook_for_run(run_id: str):
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not isinstance(run_result.final_output, dict):
+        raise HTTPException(status_code=400, detail="Run has no structured final artifact.")
+
+    settings = load_settings()
+    pipeline = _load_run_pipeline_snapshot(run_id)
+    report = generate_hook_simulation_report(run_result, settings, pipeline)
+    run_result.hook_simulation = report
+    save_run_result(run_result, pipeline)
+    return report.model_dump(mode="json")
+
+
+@router.get("/runs/{run_id}/hook-simulation")
+async def get_hook_simulation(run_id: str):
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if run_result.hook_simulation is None:
+        raise HTTPException(status_code=404, detail="Hook simulation report not found for this run.")
+    return run_result.hook_simulation.model_dump(mode="json")
+
+
+@router.post("/runs/{run_id}/qa")
+async def generate_story_qa(run_id: str):
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if not isinstance(run_result.final_output, dict):
+        raise HTTPException(status_code=400, detail="Run has no structured final artifact.")
+
+    settings = load_settings()
+    pipeline = _load_run_pipeline_snapshot(run_id)
+    hook_report = run_result.hook_simulation or generate_hook_simulation_report(run_result, settings, pipeline)
+    qa_report = generate_story_qa_report(run_result, settings, pipeline, hook_report=hook_report)
+    run_result.hook_simulation = hook_report
+    run_result.qa_report = qa_report
+    save_run_result(run_result, pipeline)
+    return qa_report.model_dump(mode="json")
+
+
+@router.get("/runs/{run_id}/qa")
+async def get_story_qa(run_id: str):
+    try:
+        run_result = load_run_result(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    if run_result.qa_report is None:
+        raise HTTPException(status_code=404, detail="Story QA report not found for this run.")
+    return run_result.qa_report.model_dump(mode="json")
 
 
 @router.post("/run")

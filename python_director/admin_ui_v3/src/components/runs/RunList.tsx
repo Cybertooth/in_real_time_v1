@@ -145,10 +145,11 @@ export default function RunList() {
             </button>
 
             {/* Action buttons — visible on hover */}
-            <div className="absolute top-2 right-2 hidden group-hover:flex items-center gap-1">
+            <div className="absolute top-2 right-2 flex items-center gap-1">
               <button
                 type="button"
                 title="Re-run with same or new seed"
+                aria-label={`Re-run ${run.final_title || run.pipeline_name}`}
                 onClick={(e) => { e.stopPropagation(); setRerunTarget(run) }}
                 className="px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-surface-raised border border-border text-text hover:border-mint hover:text-mint transition-colors"
               >
@@ -157,6 +158,7 @@ export default function RunList() {
               <button
                 type="button"
                 title="Delete this run"
+                aria-label={`Delete ${run.final_title || run.pipeline_name}`}
                 onClick={(e) => { e.stopPropagation(); setDeleteTarget(run) }}
                 className="px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer bg-surface-raised border border-border text-danger hover:border-danger hover:brightness-110 transition-colors"
               >

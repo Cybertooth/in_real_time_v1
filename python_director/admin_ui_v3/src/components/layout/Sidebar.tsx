@@ -6,6 +6,7 @@ import PipelineLibrary from '../pipeline/PipelineLibrary'
 import BlockList from '../pipeline/BlockList'
 import TemplateRail from '../pipeline/TemplateRail'
 import ConfirmDialog from '../shared/ConfirmDialog'
+import TextPromptDialog from '../shared/TextPromptDialog'
 
 const MIN_WIDTH = 260
 const MAX_WIDTH = 800
@@ -14,6 +15,7 @@ const DEFAULT_WIDTH = 420
 export default function Sidebar() {
   const [collapsed, setCollapsed] = useState(false)
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false)
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('full_fledged')
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem('sidebar-width')
@@ -66,11 +68,15 @@ export default function Sidebar() {
   }, [])
 
   const handleSnapshot = async () => {
+    setSnapshotDialogOpen(true)
+  }
+
+  const handleSnapshotConfirm = async (label: string) => {
     if (!pipeline) return
     try {
-      const label = window.prompt('Snapshot label (optional):')
       await api.snapshotPipeline(pipeline, label || undefined)
       showToast('Snapshot saved')
+      setSnapshotDialogOpen(false)
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to snapshot'
       showToast(msg, true)
@@ -96,6 +102,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
+          aria-label="Expand sidebar"
           className="w-8 h-8 rounded-lg bg-surface border border-border text-text-dim text-xs cursor-pointer hover:bg-surface-raised flex items-center justify-center"
           title="Expand sidebar"
         >
@@ -114,6 +121,7 @@ export default function Sidebar() {
           <button
             type="button"
             onClick={() => setCollapsed(true)}
+            aria-label="Collapse sidebar"
             className="w-8 h-8 rounded-lg bg-surface border border-border text-text-dim text-xs cursor-pointer hover:bg-surface-raised flex items-center justify-center"
             title="Collapse sidebar"
           >
@@ -198,6 +206,18 @@ export default function Sidebar() {
           ))}
         </div>
       </ConfirmDialog>
+
+      <TextPromptDialog
+        open={snapshotDialogOpen}
+        title="Save Snapshot"
+        description="Create a prompt snapshot for the current pipeline state."
+        label="Snapshot Label"
+        placeholder="Optional label"
+        confirmLabel="Save Snapshot"
+        submitOnEmpty
+        onConfirm={handleSnapshotConfirm}
+        onCancel={() => setSnapshotDialogOpen(false)}
+      />
     </div>
   )
 }
