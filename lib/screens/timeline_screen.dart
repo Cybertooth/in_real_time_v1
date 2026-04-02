@@ -2,23 +2,49 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/story_item.dart';
+import '../models/story_summary.dart';
+import '../models/story_catchup_summary.dart';
 import '../providers/story_provider.dart';
+import '../services/onboarding_binge_service.dart';
 import '../theme.dart';
 import '../widgets/shared_widgets.dart';
+import '../widgets/binge_progress_banner.dart';
+import '../widgets/live_wall_card.dart';
+import '../widgets/catch_up_capsule.dart';
 import 'story_item_detail_screen.dart';
 import 'chat_thread_screen.dart';
 
 /// The home screen — a unified chronological feed of all intercepted content.
-class TimelineScreen extends ConsumerWidget {
+class TimelineScreen extends ConsumerStatefulWidget {
   const TimelineScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<TimelineScreen> createState() => _TimelineScreenState();
+}
+
+class _TimelineScreenState extends ConsumerState<TimelineScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Clear catch-up dismissals on app start
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final service = ref.read(storyResumeServiceProvider);
+      service.clearSessionDismissals();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final feedAsync = ref.watch(timelineFeedProvider);
     final hasUpcoming = ref.watch(upcomingItemsProvider).value ?? false;
     final unlockedLocally = ref.watch(unlockedItemsProvider).value ?? {};
     final activeStory = ref.watch(activeStoryProvider).valueOrNull;
     final burstStatusAsync = ref.watch(onDemandBurstStatusProvider);
+    final bingeActiveAsync = ref.watch(bingeActiveProvider);
+    final bingeProgressAsync = ref.watch(bingeProgressProvider);
+    final bingeBoundaryReachedAsync = ref.watch(bingeBoundaryReachedProvider);
+    final shouldShowCatchUpAsync = ref.watch(shouldShowCatchUpProvider);
+    final catchUpSummaryAsync = ref.watch(catchUpSummaryProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -36,55 +62,30 @@ class TimelineScreen extends ConsumerWidget {
               subtitle: 'No intercepted data yet. Stand by...',
             );
           }
-          final burstBanner = activeStory?.isOnDemandSubscription == true
-              ? burstStatusAsync.maybeWhen(
-                  data: (status) {
-                    if (status == null) return const SizedBox.shrink();
-                    final nextText = status.nextUnlockAt == null
-                        ? 'This burst is complete.'
-                        : 'Next drop in ${status.nextUnlockAt!.difference(DateTime.now()).inSeconds.clamp(0, 9999)}s';
-                    return Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.accentNeon.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(
-                          color: AppTheme.accentNeon.withOpacity(0.35),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(
-                            Icons.bolt,
-                            color: AppTheme.accentNeon,
-                            size: 18,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Burst Mode: ${status.unlockedInBurst} unlocked, ${status.pendingInBurst} pending. $nextText',
-                              style: const TextStyle(
-                                color: AppTheme.accentNeon,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  orElse: SizedBox.shrink,
-                )
-              : const SizedBox.shrink();
+
+          // Build the header section with banners
+          final headerWidgets = _buildHeaderWidgets(
+            activeStory: activeStory,
+            burstStatusAsync: burstStatusAsync,
+            bingeActiveAsync: bingeActiveAsync,
+            bingeProgressAsync: bingeProgressAsync,
+            bingeBoundaryReachedAsync: bingeBoundaryReachedAsync,
+            shouldShowCatchUpAsync: shouldShowCatchUpAsync,
+            catchUpSummaryAsync: catchUpSummaryAsync,
+            items: items,
+            ref: ref,
+          );
+
           return ListView.builder(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-            itemCount: items.length + (hasUpcoming ? 1 : 0) + 1,
+            itemCount: items.length + (hasUpcoming ? 1 : 0) + headerWidgets.length,
             itemBuilder: (context, index) {
-              if (index == 0) {
-                return burstBanner;
+              // Header widgets first
+              if (index < headerWidgets.length) {
+                return headerWidgets[index];
               }
-              final adjusted = index - 1;
+
+              final adjusted = index - headerWidgets.length;
               if (adjusted == 0 && hasUpcoming) {
                 return _LockedCard();
               }
@@ -103,6 +104,172 @@ class TimelineScreen extends ConsumerWidget {
           child: CircularProgressIndicator(color: AppTheme.accentNeon),
         ),
         error: (e, _) => Center(child: Text('Error: $e')),
+      ),
+    );
+  }
+
+  List<Widget> _buildHeaderWidgets({
+    required StorySummary? activeStory,
+    required AsyncValue<OnDemandBurstStatus?> burstStatusAsync,
+    required AsyncValue<bool> bingeActiveAsync,
+    required AsyncValue<int> bingeProgressAsync,
+    required AsyncValue<bool> bingeBoundaryReachedAsync,
+    required AsyncValue<bool> shouldShowCatchUpAsync,
+    required AsyncValue<StoryCatchUpSummary> catchUpSummaryAsync,
+    required List<StoryItem> items,
+    required WidgetRef ref,
+  }) {
+    final widgets = <Widget>[];
+
+    // 1. Catch-up capsule (for returning users) - shown first
+    final shouldShowCatchUp = shouldShowCatchUpAsync.valueOrNull ?? false;
+    if (shouldShowCatchUp) {
+      final summary = catchUpSummaryAsync.valueOrNull;
+      if (summary != null && summary.totalMissed > 0) {
+        widgets.add(
+          CatchUpCapsule(
+            summary: summary,
+            onReadRecap: () => _onReadRecap(context, summary),
+            onJumpIn: () => _onJumpIn(context, ref, summary),
+            onSkip: () => _onSkipCatchUp(ref),
+          ),
+        );
+      }
+    }
+
+    // 2. Binge progress banner (during binge mode)
+    final bingeActive = bingeActiveAsync.valueOrNull ?? false;
+    final bingeBoundaryReached = bingeBoundaryReachedAsync.valueOrNull ?? false;
+    final storyId = ref.read(activeStoryIdProvider);
+
+    if (bingeActive && !bingeBoundaryReached) {
+      final progress = bingeProgressAsync.valueOrNull ?? 0;
+      widgets.add(
+        BingeProgressBanner(
+          currentCount: progress,
+          totalCount: OnboardingBingeService.defaultBingeArtifactCount,
+          onDismiss: () {
+            // Dismiss action if needed
+          },
+        ),
+      );
+    }
+
+    // 3. Live wall card (when binge boundary is reached)
+    if (bingeActive && bingeBoundaryReached) {
+      final nextUnlock = _findNextUnlockTime(items);
+      widgets.add(
+        LiveWallCard(
+          nextUnlockAt: nextUnlock,
+          onEnableReminders: () => _onEnableReminders(context),
+          onContinue: () => _onCompleteBinge(ref, storyId),
+        ),
+      );
+    }
+
+    // 4. Burst mode banner (for on-demand subscription stories)
+    if (activeStory?.isOnDemandSubscription == true) {
+      final burstWidget = burstStatusAsync.maybeWhen(
+        data: (status) {
+          if (status == null) return const SizedBox.shrink();
+          final nextText = status.nextUnlockAt == null
+              ? 'This burst is complete.'
+              : 'Next drop in ${status.nextUnlockAt!.difference(DateTime.now()).inSeconds.clamp(0, 9999)}s';
+          return Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.accentNeon.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppTheme.accentNeon.withOpacity(0.35),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.bolt,
+                  color: AppTheme.accentNeon,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Burst Mode: ${status.unlockedInBurst} unlocked, ${status.pendingInBurst} pending. $nextText',
+                    style: const TextStyle(
+                      color: AppTheme.accentNeon,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+        orElse: SizedBox.shrink,
+      );
+      widgets.add(burstWidget);
+    }
+
+    return widgets;
+  }
+
+  DateTime? _findNextUnlockTime(List<StoryItem> items) {
+    final now = DateTime.now();
+    DateTime? nextUnlock;
+    for (final item in items) {
+      if (item.unlockTimestamp.isAfter(now)) {
+        if (nextUnlock == null || item.unlockTimestamp.isBefore(nextUnlock)) {
+          nextUnlock = item.unlockTimestamp;
+        }
+      }
+    }
+    return nextUnlock;
+  }
+
+  void _onReadRecap(BuildContext context, StoryCatchUpSummary summary) {
+    // Navigate to recap detail screen
+    // For now, just show a snackbar
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Recap: ${summary.headline}'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  void _onJumpIn(BuildContext context, WidgetRef ref, StoryCatchUpSummary summary) {
+    final itemId = summary.recommendedResumeItemId;
+    if (itemId == null) return;
+
+    // Find the item and navigate to it
+    // This would need more implementation based on the item type
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Jumping to recommended item'),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _onSkipCatchUp(WidgetRef ref) async {
+    final storyId = ref.read(activeStoryIdProvider);
+    final service = ref.read(storyResumeServiceProvider);
+    await service.dismissCatchUpForSession(storyId);
+    setState(() {});
+  }
+
+  Future<void> _onCompleteBinge(WidgetRef ref, String storyId) async {
+    final service = OnboardingBingeService();
+    await service.completeBinge(storyId);
+    setState(() {});
+  }
+
+  void _onEnableReminders(BuildContext context) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Notifications enabled'),
+        duration: Duration(seconds: 2),
       ),
     );
   }
@@ -156,6 +323,14 @@ class TimelineScreen extends ConsumerWidget {
 
         if (!context.mounted) return;
 
+        // Track item as seen for catch-up and resume functionality
+        await _trackItemViewed(ref, item);
+
+        // Update binge progress if in binge mode
+        await _updateBingeProgress(ref, item);
+
+        if (!context.mounted) return;
+
         if (item is Chat) {
           Navigator.push(
             context,
@@ -189,6 +364,34 @@ class TimelineScreen extends ConsumerWidget {
       },
       child: displayCard,
     );
+  }
+
+  Future<void> _trackItemViewed(WidgetRef ref, StoryItem item) async {
+    final storyId = ref.read(activeStoryIdProvider);
+    final service = ref.read(storyResumeServiceProvider);
+    await service.markItemAsSeen(
+      storyId: storyId,
+      itemId: item.id,
+    );
+  }
+
+  Future<void> _updateBingeProgress(WidgetRef ref, StoryItem item) async {
+    final storyId = ref.read(activeStoryIdProvider);
+    final bingeService = OnboardingBingeService();
+    
+    // Check if binge is active
+    final isBingeActive = await bingeService.isBingeActive(storyId);
+    if (!isBingeActive) return;
+
+    // Get current progress
+    final currentProgress = await bingeService.getBingeProgress(storyId);
+    
+    // Increment progress
+    await bingeService.updateBingeProgress(storyId, currentProgress + 1);
+    
+    // Refresh binge providers
+    ref.invalidate(bingeProgressProvider);
+    ref.invalidate(bingeBoundaryReachedProvider);
   }
 
   Future<bool> _promptPassword(BuildContext context, StoryItem item) async {

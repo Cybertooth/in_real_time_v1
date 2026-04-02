@@ -9,8 +9,12 @@ import '../models/story_summary.dart';
 import '../services/notification_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../theme.dart';
+import '../services/onboarding_binge_service.dart';
+import '../services/story_resume_service.dart';
+import '../services/catch_up_generator_service.dart';
+import '../models/story_catchup_summary.dart';
 
-// ---------------------------------------------------------------------------
+// -----------------------------------------------------------------------------
 // Platform helpers
 // ---------------------------------------------------------------------------
 bool get _isDesktop =>
@@ -841,4 +845,160 @@ final unlockedItemsProvider = FutureProvider<Set<String>>((ref) async {
       .where((k) => k.startsWith('unlocked_') && (prefs.getBool(k) ?? false))
       .map((k) => k.replaceFirst('unlocked_', ''))
       .toSet();
+});
+
+// -----------------------------------------------------------------------------
+// Onboarding Binge State Management
+// -----------------------------------------------------------------------------
+
+/// Provider for checking if binge mode is available for the active story.
+final bingeAvailableProvider = FutureProvider<bool>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = OnboardingBingeService();
+  return service.isBingeAvailable(storyId);
+});
+
+/// Provider for checking if binge mode is currently active.
+final bingeActiveProvider = FutureProvider<bool>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = OnboardingBingeService();
+  return service.isBingeActive(storyId);
+});
+
+/// Provider for getting current binge progress.
+final bingeProgressProvider = FutureProvider<int>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = OnboardingBingeService();
+  return service.getBingeProgress(storyId);
+});
+
+/// Provider for checking if user has reached the binge boundary.
+final bingeBoundaryReachedProvider = FutureProvider<bool>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = OnboardingBingeService();
+  return service.hasReachedBingeBoundary(storyId);
+});
+
+/// Provider that returns all timeline items with binge override applied.
+/// During binge mode, items within the binge boundary are shown as unlocked.
+final bingeAwareTimelineProvider = Provider<AsyncValue<List<StoryItem>>>((ref) {
+  final timelineAsync = ref.watch(timelineFeedProvider);
+  final bingeActiveAsync = ref.watch(bingeActiveProvider);
+
+  // If timeline is still loading, return loading
+  if (timelineAsync is AsyncLoading) {
+    return const AsyncValue.loading();
+  }
+
+  // If timeline has error, propagate it
+  if (timelineAsync is AsyncError) {
+    return AsyncValue.error(
+      (timelineAsync as AsyncError).error,
+      (timelineAsync as AsyncError).stackTrace,
+    );
+  }
+
+  final items = timelineAsync.value ?? [];
+
+  // If binge isn't active, return normal timeline
+  final bingeActive = bingeActiveAsync.valueOrNull ?? false;
+
+  if (!bingeActive) {
+    return AsyncValue.data(items);
+  }
+
+  // During binge, items are already filtered by timelineFeedProvider
+  return AsyncValue.data(items);
+});
+
+// -----------------------------------------------------------------------------
+// Story Resume / Catch-Up State Management
+// -----------------------------------------------------------------------------
+
+/// Provider for the resume service.
+final storyResumeServiceProvider = Provider<StoryResumeService>((ref) {
+  return StoryResumeService();
+});
+
+/// Provider for checking if user has previously opened the active story.
+final hasPreviouslyOpenedStoryProvider = FutureProvider<bool>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = ref.watch(storyResumeServiceProvider);
+  return service.hasPreviouslyOpenedStory(storyId);
+});
+
+/// Provider for getting when user last viewed the active story.
+final lastSeenAtProvider = FutureProvider<DateTime?>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = ref.watch(storyResumeServiceProvider);
+  return service.getLastSeenAt(storyId);
+});
+
+/// Provider for getting the last seen item ID.
+final lastSeenItemIdProvider = FutureProvider<String?>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = ref.watch(storyResumeServiceProvider);
+  return service.getLastSeenItemId(storyId);
+});
+
+/// Provider for checking if catch-up should be shown.
+final shouldShowCatchUpProvider = FutureProvider<bool>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = ref.watch(storyResumeServiceProvider);
+  final timelineAsync = ref.watch(timelineFeedProvider);
+
+  // Don't show if timeline is loading or errored
+  if (timelineAsync is AsyncLoading || timelineAsync is AsyncError) {
+    return false;
+  }
+
+  final items = timelineAsync.value ?? [];
+  final lastSeenAt = await service.getLastSeenAt(storyId);
+
+  // Count new artifacts since last seen
+  int newArtifactsCount = 0;
+  if (lastSeenAt != null) {
+    newArtifactsCount = items.where((item) {
+      return item.unlockTimestamp.isAfter(lastSeenAt);
+    }).length;
+  }
+
+  return service.shouldShowCatchUp(
+    storyId: storyId,
+    now: DateTime.now(),
+    newArtifactsCount: newArtifactsCount,
+  );
+});
+
+/// Provider for generating the catch-up summary.
+final catchUpSummaryProvider = FutureProvider<StoryCatchUpSummary>((ref) async {
+  final storyId = ref.watch(activeStoryIdProvider);
+  final service = ref.watch(storyResumeServiceProvider);
+  final generator = CatchUpGeneratorService();
+  final timelineAsync = ref.watch(timelineFeedProvider);
+
+  // Return empty summary if timeline isn't ready
+  if (timelineAsync is! AsyncData) {
+    return StoryCatchUpSummary.empty(storyId);
+  }
+
+  final items = timelineAsync.value ?? [];
+  final lastSeenAt = await service.getLastSeenAt(storyId);
+
+  // If never seen before, return empty summary
+  if (lastSeenAt == null) {
+    return StoryCatchUpSummary.empty(storyId);
+  }
+
+  // Filter items unlocked since last seen
+  final newItems = items.where((item) {
+    return item.unlockTimestamp.isAfter(lastSeenAt);
+  }).toList();
+
+  return generator.generateSummary(
+    storyId: storyId,
+    items: newItems,
+    since: lastSeenAt,
+    until: DateTime.now(),
+  );
 });
